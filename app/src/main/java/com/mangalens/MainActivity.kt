@@ -10,8 +10,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -108,7 +108,6 @@ fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
 @Composable
 fun TranslationHomeContent() {
     var mangaUrl by remember { mutableStateOf("") }
-    var isTranslating by remember { mutableStateOf(false) }
     var translationStatus by remember { mutableStateOf("Ready for chapter link or image upload") }
 
     Column(
@@ -134,7 +133,6 @@ fun TranslationHomeContent() {
         Button(
             onClick = {
                 if (mangaUrl.isNotBlank()) {
-                    isTranslating = true
                     translationStatus = "Scraping chapter panels & initializing OCR..."
                 }
             },
@@ -156,13 +154,13 @@ fun TranslationHomeContent() {
         ) {
             Button(
                 onClick = { translationStatus = "Opening file manager..." },
-                modifier = Modifier.weight(1.5f)
+                modifier = Modifier.weight(1f)
             ) {
                 Text("Upload Files")
             }
             OutlinedButton(
                 onClick = { translationStatus = "Imported from clipboard." },
-                modifier = Modifier.weight(1.5f)
+                modifier = Modifier.weight(1f)
             ) {
                 Text("Paste Image")
             }
@@ -171,7 +169,9 @@ fun TranslationHomeContent() {
         Spacer(modifier = Modifier.height(32.dp))
 
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -190,7 +190,6 @@ fun LanguageScreenComponent() {
         "Chinese (Traditional)", "Spanish", "French", "German", "Portuguese", 
         "Vietnamese", "Indonesian", "Russian", "Italian", "Turkish"
     )
-    var selectedSource by remember { mutableStateOf("Japanese (Auto-Detect)") }
     var selectedTarget by remember { mutableStateOf("English") }
 
     Column(
@@ -247,7 +246,7 @@ fun HistoryScreenComponent() {
 @Composable
 fun SettingsDialog(onDismiss: () -> Unit) {
     var apiKey by remember { mutableStateOf("") }
-    var ocrEngine by remember { mutableStateOf("Google ML Kit (High Accuracy)") }
+    val ocrEngine by remember { mutableStateOf("Google ML Kit (High Accuracy)") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -294,3 +293,4 @@ fun MangaLensTheme(
         content = content
     )
 }
+
