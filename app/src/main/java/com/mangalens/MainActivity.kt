@@ -25,6 +25,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             var isDarkTheme by remember { mutableStateOf(false) }
+            // Hoisted target language so it persists across screens
+            var selectedTargetLanguage by remember { mutableStateOf("English") }
             
             MangaLensTheme(darkTheme = isDarkTheme) {
                 Surface(
@@ -33,7 +35,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen(
                         isDarkTheme = isDarkTheme,
-                        onThemeToggle = { isDarkTheme = !isDarkTheme }
+                        onThemeToggle = { isDarkTheme = !isDarkTheme },
+                        selectedTarget = selectedTargetLanguage,
+                        onTargetSelected = { selectedTargetLanguage = it }
                     )
                 }
             }
@@ -43,7 +47,12 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
+fun MainScreen(
+    isDarkTheme: Boolean, 
+    onThemeToggle: () -> Unit,
+    selectedTarget: String,
+    onTargetSelected: (String) -> Unit
+) {
     var selectedTab by remember { mutableStateOf(0) }
     var showSettingsDialog by remember { mutableStateOf(false) }
 
@@ -93,8 +102,11 @@ fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             when (selectedTab) {
-                0 -> TranslationHomeContent()
-                1 -> LanguageScreenComponent()
+                0 -> TranslationHomeContent(selectedTarget = selectedTarget)
+                1 -> LanguageScreenComponent(
+                    selectedTarget = selectedTarget,
+                    onTargetSelected = onTargetSelected
+                )
                 2 -> HistoryScreenComponent()
             }
         }
@@ -106,9 +118,10 @@ fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
 }
 
 @Composable
-fun TranslationHomeContent() {
+fun TranslationHomeContent(selectedTarget: String) {
     var mangaUrl by remember { mutableStateOf("") }
     var translationStatus by remember { mutableStateOf("Ready for chapter link or image upload") }
+    var detectedSource by remember { mutableStateOf("Auto-Detect (Pending URL)") }
 
     Column(
         modifier = Modifier
@@ -130,10 +143,29 @@ fun TranslationHomeContent() {
         
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Quick indicator showing active source and target translation mapping
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = "From: $detectedSource", style = MaterialTheme.typography.bodySmall)
+                Text(text = "To: $selectedTarget", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         Button(
             onClick = {
                 if (mangaUrl.isNotBlank()) {
-                    translationStatus = "Scraping chapter panels & initializing OCR..."
+                    detectedSource = "Japanese (Detected)"
+                    translationStatus = "Scraping chapter panels & translating to $selectedTarget..."
                 }
             },
             modifier = Modifier.fillMaxWidth()
@@ -141,9 +173,9 @@ fun TranslationHomeContent() {
             Text("Fetch & Translate Chapter")
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         HorizontalDivider()
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Text(text = "Or Upload Local Manga Archive/Images", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(12.dp))
@@ -153,20 +185,26 @@ fun TranslationHomeContent() {
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Button(
-                onClick = { translationStatus = "Opening file manager..." },
+                onClick = { 
+                    detectedSource = "Multi-Language (Local Files)"
+                    translationStatus = "Opening file manager..." 
+                },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Upload Files")
             }
             OutlinedButton(
-                onClick = { translationStatus = "Imported from clipboard." },
+                onClick = { 
+                    detectedSource = "Clipboard Image"
+                    translationStatus = "Imported from clipboard." 
+                },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Paste Image")
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Card(
             modifier = Modifier
@@ -184,13 +222,12 @@ fun TranslationHomeContent() {
 }
 
 @Composable
-fun LanguageScreenComponent() {
+fun LanguageScreenComponent(selectedTarget: String, onTargetSelected: (String) -> Unit) {
     val languages = listOf(
-        "Japanese (Auto-Detect)", "English", "Korean", "Chinese (Simplified)", 
+        "Japanese (Auto-Detect)", "English", "Hindi", "Korean", "Chinese (Simplified)", 
         "Chinese (Traditional)", "Spanish", "French", "German", "Portuguese", 
         "Vietnamese", "Indonesian", "Russian", "Italian", "Turkish"
     )
-    var selectedTarget by remember { mutableStateOf("English") }
 
     Column(
         modifier = Modifier
@@ -210,7 +247,7 @@ fun LanguageScreenComponent() {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { selectedTarget = lang },
+                        .clickable { onTargetSelected(lang) },
                     colors = CardDefaults.cardColors(
                         containerColor = if (selectedTarget == lang) 
                             MaterialTheme.colorScheme.primaryContainer 
