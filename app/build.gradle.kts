@@ -35,6 +35,19 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.7.6")
     implementation("androidx.compose.ui:ui-tooling-preview:1.7.6")
     implementation("androidx.compose.material3:material3:1.3.1")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+
+    // --- MangaLens Professional Pipeline Dependencies ---
+    // 1. HTML Scraping for Chapter URLs
+    implementation("org.jsoup:jsoup:1.17.2")
+
+    // 2. High-Performance Image Caching for Smooth Scrolling
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // 3. Coroutines for Background Processing
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.6")
 }
+
