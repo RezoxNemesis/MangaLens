@@ -6,9 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,13 +61,13 @@ fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.History, contentDescription = "History") },
+                    icon = { Icon(Icons.Default.Home, contentDescription = "History") },
                     label = { Text("History") },
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 }
                 )
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Language, contentDescription = "Translation Language") },
+                    icon = { Icon(Icons.Default.Star, contentDescription = "Translation Language") },
                     label = { Text("Language") },
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 }
