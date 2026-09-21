@@ -108,7 +108,6 @@ fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
 @Composable
 fun TranslationHomeContent() {
     var mangaUrl by remember { mutableStateOf("") }
-    var isTranslating by remember { mutableStateOf(false) }
     var translationStatus by remember { mutableStateOf("Ready for chapter link or image upload") }
 
     Column(
@@ -134,7 +133,6 @@ fun TranslationHomeContent() {
         Button(
             onClick = {
                 if (mangaUrl.isNotBlank()) {
-                    isTranslating = true
                     translationStatus = "Scraping chapter panels & initializing OCR..."
                 }
             },
@@ -144,7 +142,7 @@ fun TranslationHomeContent() {
         }
 
         Spacer(modifier = Modifier.height(24.dp))
-        Divider()
+        HorizontalDivider()
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(text = "Or Upload Local Manga Archive/Images", style = MaterialTheme.typography.titleMedium)
@@ -192,7 +190,6 @@ fun LanguageScreenComponent() {
         "Chinese (Traditional)", "Spanish", "French", "German", "Portuguese", 
         "Vietnamese", "Indonesian", "Russian", "Italian", "Turkish"
     )
-    var selectedSource by remember { mutableStateOf("Japanese (Auto-Detect)") }
     var selectedTarget by remember { mutableStateOf("English") }
 
     Column(
@@ -202,7 +199,7 @@ fun LanguageScreenComponent() {
     ) {
         Text(text = "Target Translation Language", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
-        Text(text = "Source: $selectedSource | Target: $selectedTarget", color = MaterialTheme.colorScheme.primary)
+        Text(text = "Currently translating to: $selectedTarget", color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(16.dp))
 
         LazyColumn(
@@ -296,4 +293,3 @@ fun MangaLensTheme(
         content = content
     )
 }
-
