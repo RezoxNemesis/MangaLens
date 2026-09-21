@@ -32,18 +32,13 @@ class MainActivity : ComponentActivity() {
             var selectedTargetLanguage by remember { mutableStateOf("English") }
             var selectedTab by remember { mutableStateOf(0) }
             
-            // State for uploaded files / images
-            var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
             var pipelineStatus by remember { mutableStateOf("Ready to translate or play media.") }
 
-            // Working File Picker Launcher (Fixes the non-responsive Upload button)
-            const val imageMimeType = "image/*"
             val filePickerLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.GetMultipleContents()
             ) { uris ->
                 if (uris.isNotEmpty()) {
-                    selectedImageUris = uris
-                    pipelineStatus = "Loaded ${uris.size} images successfully."
+                    pipelineStatus = "Loaded ${uris.size} files successfully."
                 } else {
                     pipelineStatus = "No files selected."
                 }
@@ -87,21 +82,23 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { innerPadding ->
-                    Box(modifier = Modifier.padding(innerPadding)) {
+                    Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                         when (selectedTab) {
                             0 -> TranslateScreen(
                                 pipelineStatus = pipelineStatus,
-                                onUploadClicked = { filePickerLauncher.launch(imageMimeType) },
+                                onUploadClicked = { filePickerLauncher.launch("image/*") },
                                 onUrlSubmitted = { url ->
-                                    // Corrected URL Language Detection Logic
                                     if (url.contains("/en/") || url.contains("english", ignoreCase = true)) {
-                                        pipelineStatus = "Detected English link. Rendering web panels..."
+                                        pipelineStatus = "English link detected. Rendering panels..."
                                     } else {
                                         pipelineStatus = "Japanese detected. Running OCR translation..."
                                     }
                                 }
                             )
-                            1 -> LanguagesScreen(selectedTargetLanguage) { selectedTargetLanguage = it }
+                            1 -> LanguagesScreen(
+                                currentLanguage = selectedTargetLanguage,
+                                onLanguageSelected = { selectedTargetLanguage = it }
+                            )
                             2 -> VLCStyleVideoPlayerScreen(
                                 videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
                             )
@@ -131,7 +128,8 @@ fun TranslateScreen(
             value = urlInput,
             onValueChange = { urlInput = it },
             label = { Text("Paste Manga Chapter Link Here") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
 
         Button(
@@ -155,9 +153,7 @@ fun TranslateScreen(
             }
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("Pipeline Status", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(4.dp))
@@ -227,7 +223,9 @@ fun VLCStyleVideoPlayerScreen(videoUrl: String) {
         
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Now Playing: Sample Movie / Stream", style = MaterialTheme.typography.titleLarge)
+            Spacer(modifier = Modifier.height(4.dp))
             Text("Fully operational Media3 ExoPlayer backend mimicking VLC playback controls, hardware acceleration, and dynamic scaling.", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
+
