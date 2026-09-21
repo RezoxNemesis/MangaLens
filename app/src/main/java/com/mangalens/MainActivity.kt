@@ -82,8 +82,8 @@ fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             when (selectedTab) {
-                0 -> HistoryScreen()
-                1 -> LanguageScreen()
+                0 -> HistoryScreenComponent()
+                1 -> LanguageScreenComponent()
                 else -> TranslationHomeContent(
                     isLiveActive = isLiveTranslationActive,
                     onLiveToggle = { isLiveTranslationActive = it }
@@ -119,7 +119,9 @@ fun TranslationHomeContent(isLiveActive: Boolean, onLiveToggle: (Boolean) -> Uni
         Spacer(modifier = Modifier.height(32.dp))
 
         Card(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -145,14 +147,14 @@ fun TranslationHomeContent(isLiveActive: Boolean, onLiveToggle: (Boolean) -> Uni
 }
 
 @Composable
-fun HistoryScreen() {
+fun HistoryScreenComponent() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("Your Translation History will appear here", style = MaterialTheme.typography.bodyLarge)
     }
 }
 
 @Composable
-fun LanguageScreen() {
+fun LanguageScreenComponent() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("Select Source and Target Translation Languages", style = MaterialTheme.typography.bodyLarge)
     }
