@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.android") version "2.0.21"
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
 }
 
@@ -41,13 +41,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
     // --- MangaLens Professional Pipeline Dependencies ---
-    // 1. HTML Scraping for Chapter URLs
     implementation("org.jsoup:jsoup:1.17.2")
-
-    // 2. High-Performance Image Caching for Smooth Scrolling
     implementation("io.coil-kt:coil-compose:2.6.0")
-
-    // 3. Coroutines for Background Processing
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
