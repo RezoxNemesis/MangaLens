@@ -19,7 +19,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // Requirement 1: Dark and Light Theme support
             var isDarkTheme by remember { mutableStateOf(false) }
             
             MangaLensTheme(darkTheme = isDarkTheme) {
@@ -40,24 +39,19 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
-    // Requirement 2: Bottom Navigation state (0: History, 1: Translation Language)
     var selectedTab by remember { mutableStateOf(0) }
-    
-    // Requirement 4: Live translation toggle state
     var isLiveTranslationActive by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("MangaLens") },
-                // Requirement 5: Settings option on the upper left corner
                 navigationIcon = {
                     IconButton(onClick = { /* Handle settings action */ }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 },
                 actions = {
-                    // Extra (Requirement 6): Theme switch shortcut button on top right
                     TextButton(onClick = onThemeToggle) {
                         Text(if (isDarkTheme) "☀️ Light" else "🌙 Dark")
                     }
@@ -65,7 +59,6 @@ fun MainScreen(isDarkTheme: Boolean, onThemeToggle: () -> Unit) {
             )
         },
         bottomBar = {
-            // Requirement 2: 2 tabs on the bottom
             NavigationBar {
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.History, contentDescription = "History") },
@@ -105,11 +98,10 @@ fun TranslationHomeContent(isLiveActive: Boolean, onLiveToggle: (Boolean) -> Uni
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16px_to_dp_fix = 16.dp), // standard spacing
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Requirement 3: Option to paste or upload an image
         Text(text = "Upload or Paste Manga Image", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(16.dp))
         
@@ -126,9 +118,8 @@ fun TranslationHomeContent(isLiveActive: Boolean, onLiveToggle: (Boolean) -> Uni
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Requirement 4: Live translation smooth feature toggle & explanation
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -183,4 +174,3 @@ fun MangaLensTheme(
         content = content
     )
 }
-
