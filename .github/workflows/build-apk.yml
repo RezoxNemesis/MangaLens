@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile orez-pack/process_phase2_conversations.py
-          test -s phase1-artifact/dist/orez-conversation-master.jsonl
+          test -s phase1-artifact/orez-conversation-master.jsonl
           python orez-pack/process_phase2_conversations.py
           test -s dist/phase2-conversation-master.jsonl
           test -s dist/phase2-clean-enrich-manifest.json
