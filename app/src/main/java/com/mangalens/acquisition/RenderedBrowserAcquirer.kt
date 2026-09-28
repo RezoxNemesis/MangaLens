@@ -37,6 +37,10 @@ class RenderedBrowserAcquirer(
     private val context: Context,
     private val adBlockEngine: AdBlockEngine = AdBlockEngine()
 ) {
+    private companion object {
+        const val MAX_IMAGE_URLS = 3000
+        const val MAX_VIDEO_URLS = 500
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun discoverWithCookie(
