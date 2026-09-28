@@ -71,6 +71,37 @@ jobs:
           assert all(s.get("enabled", True) is False or s["license"] in allowed for s in p["sources"])
           print("OREZ conversation source policy validated.")
 
+      - name: Phase 2 clean deduplicate and enrich conversations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile orez-pack/process_phase2_conversations.py
+          python orez-pack/process_phase2_conversations.py
+          test -s dist/phase2-conversation-master.jsonl
+          test -s dist/phase2-clean-enrich-manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("dist/phase2-conversation-master.jsonl")
+          m=json.loads(Path("dist/phase2-clean-enrich-manifest.json").read_text())
+          rows=[json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+          assert m["records"] == len(rows) and len(rows) >= 100000
+          assert m["unique_keys"] == len({r["key"] for r in rows})
+          assert m["bytes"] == p.stat().st_size
+          assert all(r["type"]=="conversation" and r["prompt"] and r["response"] for r in rows)
+          assert all(r["safety"]["pii_checked"] and r["safety"]["sensitive_filtered"] for r in rows)
+          print("Phase 2 validated:", m["records"], "records,", m["bytes"], "bytes")
+          PY
+
+      - name: Upload Phase 2 conversation master
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-phase2-conversation-master
+          if-no-files-found: error
+          path: |
+            dist/phase2-conversation-master.jsonl
+            dist/phase2-clean-enrich-manifest.json
+
       - name: Build and validate OREZ conversation pack
         shell: bash
         run: |
