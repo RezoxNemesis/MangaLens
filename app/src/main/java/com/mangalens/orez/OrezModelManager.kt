@@ -18,7 +18,7 @@ data class OrezModelState(
     val progress: Float get() = if (total <= 0L) 0f else (bytes.toFloat() / total).coerceIn(0f, 1f)
 }
 
-class OrezModelManager(private val context: Context) {
+class OrezModelManager(val context: Context) {
     private val prefs = context.getSharedPreferences("orez_model", Context.MODE_PRIVATE)
     private val _state = MutableStateFlow(readState())
     val state: StateFlow<OrezModelState> = _state
