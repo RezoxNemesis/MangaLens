@@ -105,7 +105,7 @@ jobs:
           python -m py_compile orez-pack/stream_conversation_source.py
           python orez-pack/stream_conversation_source.py \
             --source-id openorca-gpt4-augmented \
-            --url 'https://huggingface.co/datasets/Open-Orca/OpenOrca/resolve/main/001-1M-GPT4-Augmented/1M-GPT4-Augmented-train.jsonl?download=true' \
+            --url 'https://huggingface.co/datasets/Open-Orca/OpenOrca/resolve/e7a4fef269befda90e7018f480465068f13938c4/001-1M-GPT4-Augmented/1M-GPT4-Augmented-train.jsonl?download=true' \
             --license MIT \
             --attribution 'Open-Orca contributors; OpenOrca dataset' \
             --output-dir dist/openorca \
