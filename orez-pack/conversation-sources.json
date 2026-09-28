@@ -1,120 +1,25 @@
 {
-  "purpose": "OREZ conversation/reasoning/reference data; not translation training data",
-  "target_size_gib": {
-    "min": 5,
-    "max": 10
-  },
-  "license_policy": [
-    "Apache-2.0",
-    "CC0-1.0",
-    "CC-BY-4.0",
-    "CC-BY-SA-3.0",
-    "CC-BY-SA-4.0",
-    "MIT"
-  ],
+  "purpose": "OREZ conversation/reference/training corpus; not a trained model and not translation-only data",
+  "target_size_gib": {"min": 5, "max": 10},
+  "license_policy": ["Apache-2.0","CC0-1.0","CC-BY-4.0","CC-BY-SA-3.0","CC-BY-SA-4.0","MIT","ODC-BY-1.0"],
   "exclude_noncommercial": true,
   "exclude_unlicensed": true,
   "exclude_private_or_unverifiable": true,
   "exclude_commercial_manga_manwha_manhuas": true,
   "pii_policy": "discard obvious email, phone, government-ID, credential and unresolved sensitive-personal-data records",
   "sources": [
-    {
-      "id": "openassistant-oasst1",
-      "license": "Apache-2.0",
-      "role": [
-        "multi-turn",
-        "human-feedback"
-      ],
-      "url": "https://huggingface.co/datasets/OpenAssistant/oasst1",
-      "enabled": true
-    },
-    {
-      "id": "databricks-dolly-15k",
-      "license": "CC-BY-SA-3.0",
-      "role": [
-        "instruction",
-        "qa",
-        "reasoning"
-      ],
-      "url": "https://github.com/databrickslabs/dolly",
-      "enabled": true
-    },
-    {
-      "id": "multiwoz-2.2",
-      "license": "Apache-2.0",
-      "role": [
-        "multi-domain-dialogue"
-      ],
-      "url": "https://github.com/budzianowski/multiwoz",
-      "enabled": true
-    },
-    {
-      "id": "tact",
-      "license": "CC-BY-4.0",
-      "role": [
-        "chitchat",
-        "task-dialogue"
-      ],
-      "url": "https://huggingface.co/datasets/HYU-NLP/TACT",
-      "enabled": true
-    },
-    {
-      "id": "stackexchange-selected-sites",
-      "license": "CC-BY-SA-3.0",
-      "role": [
-        "long-form-qa",
-        "context"
-      ],
-      "url": "https://meta.stackexchange.com/questions/224873/all-stack-exchange-data-dump-releases",
-      "sites": [
-        "stackoverflow",
-        "superuser",
-        "askubuntu",
-        "serverfault",
-        "anime",
-        "scifi"
-      ],
-      "enabled": false,
-      "license_note": "Verify the exact per-dump license before ingestion."
-    },
-    {
-      "id": "tatoeba-text",
-      "license": "per-record-audit-required",
-      "role": [
-        "short-dialogue",
-        "language-learning"
-      ],
-      "url": "https://tatoeba.org/",
-      "enabled": false,
-      "license_note": "Disabled until each selected record license is verified."
-    },
-    {
-      "id": "opus-dialogue-subsets",
-      "license": "per-source-audit-required",
-      "role": [
-        "multilingual-dialogue"
-      ],
-      "url": "https://opus.nlpl.eu/corpora",
-      "enabled": false,
-      "license_note": "Disabled until each selected source license is verified."
-    }
+    {"id":"nvidia-nemotron-chat-if","license":"ODC-BY-1.0","role":["multi-turn-chat","instruction-following"],"url":"https://huggingface.co/datasets/nvidia/Nemotron-Instruction-Following-Chat-v1","enabled":true,"characterization":"hybrid human/synthetic/automated"},
+    {"id":"openorca-slimorca","license":"MIT","role":["instruction","reasoning","conversation"],"url":"https://huggingface.co/datasets/Open-Orca/SlimOrca","enabled":true,"characterization":"synthetic GPT-4 augmented"},
+    {"id":"openassistant-oasst1","license":"Apache-2.0","role":["multi-turn","human-feedback"],"url":"https://huggingface.co/datasets/OpenAssistant/oasst1","enabled":false},
+    {"id":"databricks-dolly-15k","license":"CC-BY-SA-3.0","role":["instruction","qa","reasoning"],"url":"https://github.com/databrickslabs/dolly","enabled":false},
+    {"id":"multiwoz-2.2","license":"Apache-2.0","role":["multi-domain-dialogue"],"url":"https://github.com/budzianowski/multiwoz","enabled":false},
+    {"id":"tact","license":"CC-BY-4.0","role":["chitchat","task-dialogue"],"url":"https://huggingface.co/datasets/HYU-NLP/TACT","enabled":false},
+    {"id":"stackexchange-selected-sites","license":"CC-BY-SA-3.0","role":["long-form-qa","context"],"url":"https://meta.stackexchange.com/questions/224873/all-stack-exchange-data-dump-releases","enabled":false}
   ],
   "excluded": [
-    {
-      "id": "DailyDialog",
-      "reason": "CC-BY-NC-SA; excluded from redistributable master"
-    },
-    {
-      "id": "QED",
-      "reason": "research-only; excluded"
-    },
-    {
-      "id": "raw Common Crawl",
-      "reason": "record-level license/privacy provenance is not established"
-    },
-    {
-      "id": "commercial manga/manhwa/manhua",
-      "reason": "not an open redistribution source"
-    }
+    {"id":"DailyDialog","reason":"CC-BY-NC-SA; excluded"},
+    {"id":"QED","reason":"research-only; excluded"},
+    {"id":"raw Common Crawl","reason":"record-level license/privacy provenance not established"},
+    {"id":"commercial manga/manhwa/manhua","reason":"not an open redistribution source"}
   ]
 }
