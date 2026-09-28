@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application
+        android:name=".MangaLensApplication"
         android:allowBackup="true"
         android:label="MangaLens"
         android:supportsRtl="true"
