@@ -51,7 +51,10 @@ class MediaLinkResolver {
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
-            val html = response.body?.string().orEmpty()
+            val body = response.body ?: return null
+            val contentLength = body.contentLength()
+            if (contentLength > MAX_HTML_BYTES) return null
+            val html = body.source().readUtf8(MAX_HTML_BYTES)
             val provider = providerFor(clean)
             val title = Regex("""(?is)<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)""")
                 .find(html)?.groupValues?.getOrNull(1)?.let(::unescape)
@@ -159,6 +162,7 @@ class MediaLinkResolver {
     }
 
     companion object {
+        private const val MAX_HTML_BYTES = 8L * 1024L * 1024L
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36 MangaLens/13"
     }
 }
