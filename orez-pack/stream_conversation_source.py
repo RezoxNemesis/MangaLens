@@ -28,7 +28,7 @@ def turns_from(raw):
             if r in {"system","user","assistant"} and c: out.append({"speaker":r,"text":c})
     if not out:
         p=clean(raw.get("prompt",raw.get("question","")))
-        a=clean(raw.get("response",raw.get("answer","output","")))
+        a=clean(raw.get("response", raw.get("answer", raw.get("output", ""))))
         if p: out.append({"speaker":"user","text":p})
         if a: out.append({"speaker":"assistant","text":a})
     return out
