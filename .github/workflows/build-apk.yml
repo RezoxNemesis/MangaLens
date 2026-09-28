@@ -107,9 +107,13 @@ jobs:
           manifest = json.loads(Path("dist/conversation-pack-manifest.json").read_text(encoding="utf-8"))
           data = Path("dist/orez-conversation-master.jsonl").read_bytes()
           assert manifest["sha256"] == hashlib.sha256(data).hexdigest()
-          assert manifest["record_count"] >= sum(counts)
+          generated = [json.loads(line) for line in data.decode("utf-8").splitlines() if line.strip()]
+          assert len(generated) == manifest["record_count"]
+          assert manifest["record_count"] >= 100
+          assert len({r["key"] for r in generated}) == manifest["record_count"]
+          assert all(r["type"] == "conversation" and r["prompt"] and r["response"] for r in generated)
           assert manifest["target_size_bytes"]["max"] == 10 * 1024**3
-          print("Validated OREZ conversation pack:", counts, "records=", manifest["record_count"], "bytes=", manifest["generated_bytes"])
+          print("Validated OREZ conversation pack:", counts, "unique records=", manifest["record_count"], "bytes=", manifest["generated_bytes"])
           PY
 
       - name: Upload OREZ conversation pack
@@ -148,3 +152,4 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
+
