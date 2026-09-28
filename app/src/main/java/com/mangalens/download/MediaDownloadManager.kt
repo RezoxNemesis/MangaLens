@@ -1,16 +1,20 @@
 package com.mangalens.download
 
 import android.content.Context
-import androidx.work.*
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import java.time.Duration
 import java.util.UUID
 
 class MediaDownloadManager(private val context: Context) {
-    companion object {
-        private const val MEDIA_QUEUE_NAME = "mangalens-media-download-queue"
-    }
     private val resolver = MediaLinkResolver()
     private val dao = DownloadDatabase.get(context).downloads()
     val downloads: Flow<List<DownloadEntity>> = dao.observe()
@@ -22,7 +26,9 @@ class MediaDownloadManager(private val context: Context) {
         quality: DownloadQuality = DownloadQuality.P2160
     ): String = withContext(Dispatchers.IO) {
         val clean = url.trim()
-        require(clean.startsWith("http://") || clean.startsWith("https://")) { "Only HTTP(S) media links can be downloaded." }
+        require(clean.startsWith("http://") || clean.startsWith("https://")) {
+            "Only HTTP(S) media links can be downloaded."
+        }
         val resolved = resolver.resolve(clean, quality)
             ?: throw IllegalArgumentException("The page did not expose an accessible media source.")
         val mediaUrl = resolved.url
@@ -38,8 +44,11 @@ class MediaDownloadManager(private val context: Context) {
 
     suspend fun pause(id: String) = withContext(Dispatchers.IO) {
         val item = dao.get(id) ?: return@withContext
-        if (isAdaptive(item.sourceUrl)) MangaLensDownloadService.pauseAdaptive(context, id)
-        else WorkManager.getInstance(context).cancelAllWorkByTag(id)
+        if (isAdaptive(item.sourceUrl)) {
+            MangaLensDownloadService.pauseAdaptive(context, id)
+        } else {
+            WorkManager.getInstance(context).cancelUniqueWork(workName(id))
+        }
         dao.upsert(item.copy(state = DownloadState.PAUSED, error = null))
     }
 
@@ -50,14 +59,17 @@ class MediaDownloadManager(private val context: Context) {
             MangaLensDownloadService.resumeAdaptive(context, id)
             dao.upsert(item.copy(state = DownloadState.DOWNLOADING, error = null))
         } else {
+            dao.upsert(item.copy(state = DownloadState.QUEUED, error = null))
             start(id, item.sourceUrl, item.title, item.mimeType)
         }
     }
 
     suspend fun cancel(id: String) = withContext(Dispatchers.IO) {
-        WorkManager.getInstance(context).cancelAllWorkByTag(id)
+        WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         MangaLensDownloadService.remove(context, id)
-        dao.get(id)?.let { dao.upsert(it.copy(state = DownloadState.CANCELLED, error = "Cancelled by user")) }
+        dao.get(id)?.let {
+            dao.upsert(it.copy(state = DownloadState.CANCELLED, error = "Cancelled by user"))
+        }
     }
 
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
@@ -71,22 +83,32 @@ class MediaDownloadManager(private val context: Context) {
             return
         }
         val request = OneTimeWorkRequestBuilder<MediaDownloadWorker>()
-            .setInputData(workDataOf(
-                MediaDownloadWorker.KEY_ID to id,
-                MediaDownloadWorker.KEY_URL to url,
-                MediaDownloadWorker.KEY_TITLE to title,
-                MediaDownloadWorker.KEY_MIME to mime
-            ))
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, java.time.Duration.ofSeconds(10))
+            .setInputData(
+                workDataOf(
+                    MediaDownloadWorker.KEY_ID to id,
+                    MediaDownloadWorker.KEY_URL to url,
+                    MediaDownloadWorker.KEY_TITLE to title,
+                    MediaDownloadWorker.KEY_MIME to mime
+                )
+            )
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .setRequiresStorageNotLow(true)
+                    .build()
+            )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
+            .addTag("mangalens_download")
             .addTag(id)
             .build()
-        WorkManager.getInstance(context).beginUniqueWork(
-            MEDIA_QUEUE_NAME,
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            workName(id),
+            ExistingWorkPolicy.KEEP,
             request
-        ).enqueue()
+        )
     }
+
+    private fun workName(id: String) = "mangalens-download-$id"
 
     private fun isAdaptive(url: String): Boolean {
         val x = url.substringBefore("?").lowercase()
