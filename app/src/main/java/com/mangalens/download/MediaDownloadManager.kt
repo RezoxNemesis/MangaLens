@@ -8,6 +8,9 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class MediaDownloadManager(private val context: Context) {
+    companion object {
+        private const val MEDIA_QUEUE_NAME = "mangalens-media-download-queue"
+    }
     private val resolver = MediaLinkResolver()
     private val dao = DownloadDatabase.get(context).downloads()
     val downloads: Flow<List<DownloadEntity>> = dao.observe()
@@ -78,11 +81,11 @@ class MediaDownloadManager(private val context: Context) {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, java.time.Duration.ofSeconds(10))
             .addTag(id)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "media-download-$id",
-            ExistingWorkPolicy.KEEP,
+        WorkManager.getInstance(context).beginUniqueWork(
+            MEDIA_QUEUE_NAME,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
-        )
+        ).enqueue()
     }
 
     private fun isAdaptive(url: String): Boolean {
