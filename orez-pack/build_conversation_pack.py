@@ -69,7 +69,8 @@ def main():
     ap.add_argument("--allow-below-target", action="store_true")
     a = ap.parse_args()
 
-    policy = json.loads(Path("conversation-sources.json").read_text(encoding="utf-8"))
+    pack_root = Path(__file__).resolve().parent
+    policy = json.loads((pack_root / "conversation-sources.json").read_text(encoding="utf-8"))
     allowed = set(policy.get("license_policy", []))
     seen, total, count = set(), 0, 0
     a.output.parent.mkdir(parents=True, exist_ok=True)
@@ -101,9 +102,9 @@ def main():
                             emit(out, rec)
 
         seed_sources = [
-            (Path("orez-pack/seed/conversations_mangalens_seed.jsonl"), "mangalens-orez-seed", "MangaLens OREZ seed corpus"),
-            (Path("orez-pack/seed/conversations_hinglish_priority.jsonl"), "mangalens-orez-hinglish-seed", "MangaLens OREZ Hinglish seed corpus"),
-            (Path("orez-pack/seed/conversations_mangalens_core_hinglish.jsonl"), "mangalens-orez-core-authored", "MangaLens OREZ authored core conversation corpus"),
+            (pack_root / "seed/conversations_mangalens_seed.jsonl", "mangalens-orez-seed", "MangaLens OREZ seed corpus"),
+            (pack_root / "seed/conversations_hinglish_priority.jsonl", "mangalens-orez-hinglish-seed", "MangaLens OREZ Hinglish seed corpus"),
+            (pack_root / "seed/conversations_mangalens_core_hinglish.jsonl", "mangalens-orez-core-authored", "MangaLens OREZ authored core conversation corpus"),
         ]
         for seed, source_id, attribution in seed_sources:
             if not seed.is_file():
