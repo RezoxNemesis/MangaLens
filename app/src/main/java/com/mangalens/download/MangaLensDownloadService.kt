@@ -103,14 +103,16 @@ class MangaLensDownloadService : DownloadService(
             val dataSource = DefaultHttpDataSource.Factory()
                 .setUserAgent("MangaLens/13")
                 .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(20_000)
+                .setReadTimeoutMs(60_000)
             val created = DownloadManager(
                 app,
                 provider,
                 cache,
                 dataSource,
-                Executors.newFixedThreadPool(3)
+                Executors.newSingleThreadExecutor()
             )
-            created.maxParallelDownloads = 3
+            created.maxParallelDownloads = 1
 
             val dao = DownloadDatabase.get(app).downloads()
             created.addListener(object : DownloadManager.Listener {
