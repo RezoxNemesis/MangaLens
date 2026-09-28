@@ -1,3 +1,4 @@
 External OREZ conversation-pack validation trigger 2026-09-28T14:55Z
 Final cumulative OREZ sync, FTS retrieval, Hinglish corpus and downloader hardening validation trigger 2026-09-28T15:00Z
 Authored Hinglish conversation pack, builder repair and cumulative APK validation trigger 2026-09-28T15:20Z
+Builder path-resolution repair and full OREZ conversation-pack validation trigger 2026-09-28T12:15Z
