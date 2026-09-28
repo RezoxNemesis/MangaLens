@@ -1,0 +1,86 @@
+package com.mangalens.engine
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import com.mangalens.core.adblock.AdBlockEngine
+import com.mangalens.core.adblock.AdBlockWebViewClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+
+class MangaChapterScraper(
+    private val context: Context,
+    private val adBlock: AdBlockEngine = AdBlockEngine()
+) {
+    @SuppressLint("SetJavaScriptEnabled")
+    suspend fun extract(url: String, timeoutMs: Long = 18_000L): List<String> =
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                val web = WebView(context.applicationContext)
+                var finished = false
+                fun finish(values: List<String>) {
+                    if (finished) return
+                    finished = true
+                    web.stopLoading()
+                    web.destroy()
+                    continuation.resume(values.distinct())
+                }
+
+                web.settings.javaScriptEnabled = true
+                web.settings.domStorageEnabled = true
+                web.webViewClient = object : AdBlockWebViewClient(adBlock) {
+                    override fun onPageFinished(view: WebView?, pageUrl: String?) {
+                        view?.evaluateJavascript(
+                            """
+                            (function(){
+                              const out=[], seen=new Set();
+                              const add=(value)=>{
+                                if(!value || value.startsWith('data:')) return;
+                                try {
+                                  const u=new URL(value, location.href).href.split('#')[0];
+                                  if(!seen.has(u)){seen.add(u);out.push(u);}
+                                } catch(e){}
+                              };
+                              document.querySelectorAll('img').forEach(img=>{
+                                ['currentSrc','src','data-src','data-original','data-lazy-src','data-url'].forEach(k=>{
+                                  const value=k==='currentSrc'?img.currentSrc:img.getAttribute(k);
+                                  add(value);
+                                });
+                                [img.getAttribute('srcset'),img.getAttribute('data-srcset')].forEach(set=>{
+                                  (set||'').split(',').forEach(part=>add(part.trim().split(/\s+/)[0]));
+                                });
+                              });
+                              return JSON.stringify(out);
+                            })();
+                            """.trimIndent()
+                        ) { raw ->
+                            val decoded = runCatching { org.json.JSONTokener(raw).nextValue() as String }.getOrDefault("")
+                            val urls = Regex("https?://[^\\s\"]+")
+                                .findAll(decoded)
+                                .map { it.value }
+                                .filter(::looksLikeImage)
+                                .toList()
+                            finish(urls)
+                        }
+                    }
+                }
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                handler.postDelayed({ finish(emptyList()) }, timeoutMs)
+                continuation.invokeOnCancellation {
+                    web.stopLoading()
+                    web.destroy()
+                }
+                web.loadUrl(url)
+            }
+        }
+
+    private fun looksLikeImage(url: String): Boolean {
+        val value = url.lowercase()
+        return listOf(".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif").any(value::contains) ||
+            Regex("chapter|page|manga|comic|cdn").containsMatchIn(value)
+    }
+}

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <color name="mangalens_background">#FFFFFF</color>
-    <color name="mangalens_black">#111111</color>
-    <color name="mangalens_gray">#777777</color>
-
+    <color name="mangalens_background">#0A0A0A</color>
+    <color name="mangalens_surface">#121212</color>
+    <color name="mangalens_border">#22222A</color>
+    <color name="mangalens_primary">#7C4DFF</color>
+    <color name="mangalens_secondary">#00E5FF</color>
 </resources>

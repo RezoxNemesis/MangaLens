@@ -1,0 +1,82 @@
+package com.mangalens.core.adblock
+
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
+
+class EnterpriseAdBlockEngine(
+    private val base: AdBlockEngine = AdBlockEngine()
+) : WebViewClient() {
+
+    override fun shouldInterceptRequest(
+        view: WebView?,
+        request: WebResourceRequest?
+    ): WebResourceResponse? {
+        val safeRequest = request ?: return null
+        val destination = safeRequest.requestHeaders["Sec-Fetch-Dest"].orEmpty().lowercase()
+        if (destination in setOf("beacon", "object", "track")) return emptyResponse()
+        return base.shouldBlockRequest(safeRequest.url.toString())
+    }
+
+    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+        super.onPageStarted(view, url, favicon)
+        view?.post { view.evaluateJavascript(mutationObserverScript(), null) }
+    }
+
+    override fun onPageFinished(view: WebView?, url: String?) {
+        super.onPageFinished(view, url)
+        view?.post { view.evaluateJavascript(mutationObserverScript(), null) }
+    }
+
+    private fun emptyResponse(): WebResourceResponse =
+        WebResourceResponse(
+            "text/plain",
+            StandardCharsets.UTF_8.name(),
+            ByteArrayInputStream(ByteArray(0))
+        )
+
+    fun mutationObserverScript(): String = """
+        (function() {
+          if (window.__mangalensEnterpriseAdGuard) return;
+          window.__mangalensEnterpriseAdGuard = true;
+          const deny = /(batery|battery|esbal|casino|slot|gambl|popup|popunder|interstitial|advert|sponsor)/i;
+          const selectors = [
+            '[id*="ad" i]','[class*="ad-" i]','[class*="-ad" i]',
+            '[class*="popup" i]','[class*="popunder" i]',
+            '[class*="interstitial" i]','[class*="overlay-ad" i]',
+            'iframe[src*="ad" i]','iframe[src*="bet" i]'
+          ];
+          function remove(root) {
+            if (!root || root.nodeType !== 1) return;
+            const matched = root.matches && root.matches(selectors.join(',')) ? [root] : [];
+            const descendants = root.querySelectorAll ? Array.from(root.querySelectorAll(selectors.join(','))) : [];
+            matched.concat(descendants).forEach(function(el) {
+              if (el.tagName !== 'IMG' && el.tagName !== 'VIDEO') el.remove();
+            });
+            if (root.textContent && deny.test(root.textContent) && root.children.length < 8) {
+              const rect = root.getBoundingClientRect();
+              if (rect.width > 120 && rect.height > 40 && rect.height < window.innerHeight * .75) root.remove();
+            }
+          }
+          remove(document.documentElement);
+          const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+              Array.from(m.addedNodes).forEach(remove);
+            });
+          });
+          observer.observe(document.documentElement, {childList:true, subtree:true});
+          document.addEventListener('click', function(e) {
+            const target = e.target && e.target.closest ? e.target.closest('a') : null;
+            if (!target) return;
+            const href = target.href || '';
+            if (/popunder|clickunder|redirect.*ad|casino|bet|gambl/i.test(href)) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+            }
+          }, true);
+        })();
+    """.trimIndent()
+}
