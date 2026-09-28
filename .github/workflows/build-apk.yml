@@ -47,18 +47,14 @@ jobs:
           assert m["record_count"] >= 100000
           print("NVIDIA corpus gate:", m["generated_bytes"], "bytes", m["record_count"], "records")
           PY
-      - name: Create release container
-        run: |
-          set -euo pipefail
-          gh release create "$RELEASE_TAG" --target "$(git rev-parse HEAD^)" \
-            --title "OREZ conversation corpus ${{ github.run_id }}" \
-            --notes "Validated OREZ conversation corpus for commit ${{ github.sha }}."
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Publish NVIDIA shards
-        run: gh release upload "$RELEASE_TAG" dist/nvidia/*.jsonl.gz dist/nvidia/nvidia-source-manifest.json --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Upload NVIDIA corpus artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-nvidia-corpus
+          path: |
+            dist/nvidia/*.jsonl.gz
+            dist/nvidia/nvidia-source-manifest.json
+          retention-days: 7
 
   build-slimorca-corpus:
     if: github.event_name != 'pull_request'
@@ -86,10 +82,14 @@ jobs:
           print("SlimOrca corpus:", m["generated_bytes"], "bytes", m["record_count"], "records")
           Path("dist/slimorca/slimorca-source-manifest.json").write_text(Path("dist/slimorca/source-manifest.json").read_text())
           PY
-      - name: Publish SlimOrca shards
-        run: gh release upload "$RELEASE_TAG" dist/slimorca/*.jsonl.gz dist/slimorca/slimorca-source-manifest.json --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Upload SlimOrca corpus artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-slimorca-corpus
+          path: |
+            dist/slimorca/*.jsonl.gz
+            dist/slimorca/slimorca-source-manifest.json
+          retention-days: 7
 
   build-openorca-corpus:
     if: github.event_name != 'pull_request'
@@ -120,10 +120,14 @@ jobs:
           print('OpenOrca corpus:', m['generated_bytes'], 'bytes', m['record_count'], 'records')
           Path('dist/openorca/openorca-source-manifest.json').write_text(Path('dist/openorca/source-manifest.json').read_text())
           PY
-      - name: Publish OpenOrca shards
-        run: gh release upload "$RELEASE_TAG" dist/openorca/*.jsonl.gz dist/openorca/openorca-source-manifest.json --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Upload OpenOrca corpus artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-openorca-corpus
+          path: |
+            dist/openorca/*.jsonl.gz
+            dist/openorca/openorca-source-manifest.json
+          retention-days: 7
   publish-authored-seed:
     if: github.event_name != 'pull_request'
     needs: [build-slimorca-corpus, build-openorca-corpus]
@@ -138,10 +142,14 @@ jobs:
           python orez-pack/build_conversation_pack.py --allow-below-target
           gzip -9 -c dist/orez-conversation-master.jsonl > dist/orez-authored-seed.jsonl.gz
           sha256sum dist/orez-authored-seed.jsonl.gz > dist/orez-authored-seed.jsonl.gz.sha256
-      - name: Publish authored seed
-        run: gh release upload "$RELEASE_TAG" dist/orez-authored-seed.jsonl.gz dist/orez-authored-seed.jsonl.gz.sha256 --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Upload authored seed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-authored-seed
+          path: |
+            dist/orez-authored-seed.jsonl.gz
+            dist/orez-authored-seed.jsonl.gz.sha256
+          retention-days: 7
 
   validate-corpus-and-build-apk:
     if: github.event_name != 'pull_request'
@@ -150,14 +158,16 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
-      - name: Download published corpus
+      - name: Download published corpus artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: orez-*
+          path: dist/release
+          merge-multiple: true
+      - name: Verify downloaded corpus shards
         run: |
           set -euo pipefail
-          mkdir -p dist/release
-          gh release download "$RELEASE_TAG" --dir dist/release
           find dist/release -name '*.jsonl.gz' -print0 | xargs -0 -n1 gzip -t
-        env:
-          GH_TOKEN: ${{ github.token }}
       - name: Strict 5-10 GiB corpus gate
         run: |
           set -euo pipefail
@@ -191,10 +201,12 @@ jobs:
           Path("dist/orez-corpus-final-manifest.json").write_text(json.dumps(out,indent=2))
           print("STRICT CORPUS GREEN:",total,"bytes;",records,"unique records")
           PY
-      - name: Publish final corpus manifest
-        run: gh release upload "$RELEASE_TAG" dist/orez-corpus-final-manifest.json --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Upload final corpus manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-final-corpus-manifest
+          path: dist/orez-corpus-final-manifest.json
+          retention-days: 7
       - name: Prepare Android SDK
         run: |
           set -euo pipefail
@@ -231,10 +243,6 @@ jobs:
           test -s "$APK"
           test "$(wc -c < "$APK")" -gt 1000000
           sha256sum "$APK" | tee "$APK.sha256"
-      - name: Publish APK to corpus release
-        run: gh release upload "$RELEASE_TAG" app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug.apk.sha256 --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
       - name: Upload downloadable APK artifact
         uses: actions/upload-artifact@v4
         with:
