@@ -17,6 +17,7 @@ import kotlinx.coroutines.ensureActive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -78,7 +79,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             persistProgress(id, old, done, total)
 
             body.byteStream().buffered(BUFFER_SIZE).use { input ->
-                temp.outputStream().buffered(BUFFER_SIZE).use { output ->
+                FileOutputStream(temp, offset > 0L).buffered(BUFFER_SIZE).use { output ->
                     val buffer = ByteArray(BUFFER_SIZE)
                     while (true) {
                         currentCoroutineContext().ensureActive()
