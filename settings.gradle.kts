@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "MangaLens"
 include(":app")
+include(":orez-native")
