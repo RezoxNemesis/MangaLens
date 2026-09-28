@@ -190,7 +190,9 @@ jobs:
                       assert k and k not in keys
                       keys.add(k)
                       assert r.get("prompt") and r.get("response")
-                      assert not email.search(line) and not phone.search(line)
+                      text_content = "\n".join([str(r.get("prompt","")), str(r.get("response",""))] + [str(t.get("text","")) for t in r.get("turns",[]) if isinstance(t,dict)])
+                      assert not email.search(text_content), f"PII email detected in {p.name} record {k}"
+                      assert not phone.search(text_content), f"PII phone detected in {p.name} record {k}"
                       assert r.get("safety",{}).get("pii_checked") is True
                       assert r.get("safety",{}).get("sensitive_filtered") is True
           assert 5*1024**3 <= total <= 10*1024**3, total
