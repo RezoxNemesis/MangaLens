@@ -56,7 +56,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Publish NVIDIA shards
-        run: gh release upload "$RELEASE_TAG" dist/nvidia/*.jsonl.gz dist/nvidia/source-manifest.json --clobber
+        run: gh release upload "$RELEASE_TAG" dist/nvidia/*.jsonl.gz dist/nvidia/nvidia-source-manifest.json --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -84,9 +84,10 @@ jobs:
           m=json.loads(Path("dist/slimorca/source-manifest.json").read_text())
           assert m["generated_bytes"] > 500*1024**2, m
           print("SlimOrca corpus:", m["generated_bytes"], "bytes", m["record_count"], "records")
+          Path("dist/slimorca/slimorca-source-manifest.json").write_text(Path("dist/slimorca/source-manifest.json").read_text())
           PY
       - name: Publish SlimOrca shards
-        run: gh release upload "$RELEASE_TAG" dist/slimorca/*.jsonl.gz dist/slimorca/source-manifest.json --clobber
+        run: gh release upload "$RELEASE_TAG" dist/slimorca/*.jsonl.gz dist/slimorca/slimorca-source-manifest.json --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
