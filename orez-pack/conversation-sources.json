@@ -41,12 +41,13 @@
     },
     {
       "id": "multiwoz-2.2",
-      "license": "Apache-2.0",
+      "license": "MIT",
       "role": [
         "multi-domain-dialogue"
       ],
       "url": "https://github.com/budzianowski/multiwoz",
-      "enabled": true
+      "enabled": true,
+      "license_note": "MultiWOZ repository states MIT license; Phase 1 acquires the published MultiWOZ archive and normalizes dialogue turns."
     },
     {
       "id": "tact",
@@ -56,7 +57,8 @@
         "task-dialogue"
       ],
       "url": "https://huggingface.co/datasets/HYU-NLP/TACT",
-      "enabled": true
+      "enabled": false,
+      "license_note": "Disabled pending source-level license verification; current public dataset metadata is inconsistent with the previous CC-BY-4.0 assumption."
     },
     {
       "id": "stackexchange-selected-sites",

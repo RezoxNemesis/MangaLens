@@ -71,6 +71,32 @@ jobs:
           assert all(s.get("enabled", True) is False or s["license"] in allowed for s in p["sources"])
           print("OREZ conversation source policy validated.")
 
+      - name: Phase 1 acquire and normalize licensed conversation sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile orez-pack/acquire_phase1_sources.py
+          python orez-pack/acquire_phase1_sources.py
+          test -s dist/phase1-acquisition-manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m = json.loads(Path("dist/phase1-acquisition-manifest.json").read_text())
+          assert m["status"] == "acquired-and-normalized"
+          assert all(v > 0 for v in m["sources"].values())
+          for source in m["sources"]:
+              p = Path("data/raw") / source / "normalized.jsonl"
+              assert p.is_file() and p.stat().st_size > 0
+          print("Phase 1 acquisition validated:", m["sources"])
+          PY
+
+      - name: Upload Phase 1 acquisition manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-phase1-acquisition-manifest
+          if-no-files-found: error
+          path: dist/phase1-acquisition-manifest.json
+
       - name: Build and validate OREZ conversation pack
         shell: bash
         run: |
