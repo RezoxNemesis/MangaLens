@@ -13,7 +13,7 @@ class OrezConversationPackStore(context: Context) {
     private val root=File(context.filesDir,"orez/conversation-pack")
     private val index=File(root,"retrieval-index.jsonl.gz")
 
-    suspend fun search(query:String,limit:Int=3):List<OrezPackExample>=withContext(Dispatchers.IO){
+    suspend fun search(query: String, limit: Int = 3): List<OrezPackExample> = withContext(Dispatchers.IO) {
         if(query.isBlank()||!index.isFile)return@withContext emptyList()
         val terms=query.lowercase().split(Regex("[^\p{L}\p{N}]+")).filter{it.length>=3}.toSet()
         if(terms.isEmpty())return@withContext emptyList()
@@ -31,6 +31,6 @@ class OrezConversationPackStore(context: Context) {
         scored.sortedByDescending{it.first}.take(limit).map{it.second}
     }
 
-    fun isInstalled():Boolean=index.isFile
-    fun rootDirectory():File=root
+    fun isInstalled(): Boolean = index.isFile
+    fun rootDirectory(): File = root
 }
