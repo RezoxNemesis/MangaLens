@@ -15,7 +15,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
-import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +33,11 @@ class MangaLensDownloadService : DownloadService(
     0
 ) {
     override fun getDownloadManager(): DownloadManager = Holder.manager(this)
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
+    }
     override fun getScheduler(): Scheduler? = null
 
     override fun getForegroundNotification(downloads: List<Download>, notMetRequirements: Int): Notification {
@@ -56,6 +61,7 @@ class MangaLensDownloadService : DownloadService(
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 10003
         private const val CHANNEL_ID = "mangalens_media_downloads"
+        private const val MAX_CACHE_BYTES = 1024L * 1024L * 1024L
 
         fun addAdaptive(context: Context, id: String, uri: Uri, mime: String?) {
             val request = DownloadRequest.Builder(id, uri)
@@ -99,7 +105,7 @@ class MangaLensDownloadService : DownloadService(
             val app = context.applicationContext
             val directory = File(app.filesDir, "media_download_cache").apply { mkdirs() }
             val provider = StandaloneDatabaseProvider(app)
-            val cache = SimpleCache(directory, NoOpCacheEvictor(), provider)
+            val cache = SimpleCache(directory, LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES), provider)
             val dataSource = DefaultHttpDataSource.Factory()
                 .setUserAgent("MangaLens/13")
                 .setAllowCrossProtocolRedirects(true)
