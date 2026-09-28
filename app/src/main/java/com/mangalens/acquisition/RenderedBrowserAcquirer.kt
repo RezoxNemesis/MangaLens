@@ -117,12 +117,39 @@ class RenderedBrowserAcquirer(
 
                     val cleanUrl = reqUrl.substringBefore("#")
                     if (isVideoCandidate(cleanUrl)) {
-                        networkVideos.add(cleanUrl)
+                        if (networkVideos.size < MAX_VIDEO_URLS) networkVideos.add(cleanUrl)
                     } else if (isImageCandidate(cleanUrl)) {
-                        networkImages.add(cleanUrl)
+                        if (networkImages.size < MAX_IMAGE_URLS) networkImages.add(cleanUrl)
                     }
 
                     return super.shouldInterceptRequest(view, request)
+                }
+
+                override fun onRenderProcessGone(
+                    view: WebView?,
+                    detail: android.webkit.RenderProcessGoneDetail
+                ): Boolean {
+                    if (finished.compareAndSet(false, true)) {
+                        handler.removeCallbacksAndMessages(null)
+                        view?.stopLoading()
+                        view?.destroy()
+                        continuation.resume(
+                            RenderedPageSet(
+                                finalUrl = url,
+                                imageUrls = emptyList(),
+                                videoStreamUrls = emptyList(),
+                                resourceImageUrls = emptyList(),
+                                observations = 0,
+                                mainFrameHttpStatus = 0,
+                                navigationError = if (detail.didCrash()) {
+                                    "WebView renderer crashed during acquisition."
+                                } else {
+                                    "WebView renderer was reclaimed because of memory pressure."
+                                }
+                            )
+                        )
+                    }
+                    return true
                 }
 
                 override fun onPageFinished(view: WebView?, loadedUrl: String?) {
@@ -169,7 +196,10 @@ class RenderedBrowserAcquirer(
                             }
 
                             val parsedUrls = parseJsonArray(decoded)
-                            discoveredDomUrls.addAll(parsedUrls.filter { isImageCandidate(it) })
+                            for (candidate in parsedUrls) {
+                                if (discoveredDomUrls.size >= MAX_IMAGE_URLS) break
+                                if (isImageCandidate(candidate)) discoveredDomUrls.add(candidate)
+                            }
 
                             val finalImages = if (discoveredDomUrls.isNotEmpty()) {
                                 discoveredDomUrls.toList()
