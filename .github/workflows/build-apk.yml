@@ -37,7 +37,7 @@ jobs:
             --license ODC-BY-1.0 \
             --attribution 'NVIDIA Corporation; Nemotron-Instruction-Following-Chat-v1' \
             --output-dir dist/nvidia \
-            --source-max-bytes 8G
+            --source-max-bytes 8589934592
           python - <<'PY'
           import json
           from pathlib import Path
@@ -77,7 +77,7 @@ jobs:
             --license MIT \
             --attribution 'Open-Orca/SlimOrca contributors' \
             --output-dir dist/slimorca \
-            --source-max-bytes 2G
+            --source-max-bytes 2147483648
           python - <<'PY'
           import json
           from pathlib import Path
