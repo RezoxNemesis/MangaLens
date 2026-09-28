@@ -61,6 +61,67 @@ jobs:
           grep -q 'include(":orez-native")' settings.gradle.kts
           grep -q 'implementation(project(":orez-native"))' app/build.gradle.kts
 
+      - name: Validate OREZ conversation source policy
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          p = json.loads(Path("orez-pack/conversation-sources.json").read_text(encoding="utf-8"))
+          allowed = set(p["license_policy"])
+          assert all(s.get("enabled", True) is False or s["license"] in allowed for s in p["sources"])
+          print("OREZ conversation source policy validated.")
+
+      - name: Build and validate OREZ conversation pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile orez-pack/build_conversation_pack.py
+          python orez-pack/build_conversation_pack.py --allow-below-target
+          test -s dist/orez-conversation-master.jsonl
+          test -s dist/orez-conversation-master.jsonl.sha256
+          test -s dist/conversation-pack-manifest.json
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          seeds = [
+              Path("orez-pack/seed/conversations_mangalens_seed.jsonl"),
+              Path("orez-pack/seed/conversations_hinglish_priority.jsonl"),
+              Path("orez-pack/seed/conversations_mangalens_core_hinglish.jsonl"),
+          ]
+          counts = []
+          for p in seeds:
+              count = 0
+              for line in p.read_text(encoding="utf-8").splitlines():
+                  if not line.strip():
+                      continue
+                  x = json.loads(line)
+                  assert x["type"] == "conversation"
+                  assert x["prompt"] and x["response"]
+                  assert x["language"] in {"en", "hi-Latn"}
+                  assert x["license"] == "MIT"
+                  assert x["safety"]["pii_checked"] is True
+                  assert x["safety"]["sensitive_filtered"] is True
+                  count += 1
+              counts.append(count)
+          assert counts[0] >= 40 and counts[1] >= 20 and counts[2] >= 100
+          manifest = json.loads(Path("dist/conversation-pack-manifest.json").read_text(encoding="utf-8"))
+          data = Path("dist/orez-conversation-master.jsonl").read_bytes()
+          assert manifest["sha256"] == hashlib.sha256(data).hexdigest()
+          assert manifest["record_count"] >= sum(counts)
+          assert manifest["target_size_bytes"]["max"] == 10 * 1024**3
+          print("Validated OREZ conversation pack:", counts, "records=", manifest["record_count"], "bytes=", manifest["generated_bytes"])
+          PY
+
+      - name: Upload OREZ conversation pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: orez-conversation-pack
+          if-no-files-found: error
+          path: |
+            dist/orez-conversation-master.jsonl
+            dist/orez-conversation-master.jsonl.sha256
+            dist/conversation-pack-manifest.json
+
       - name: Run unit tests
         run: gradle --no-daemon clean testDebugUnitTest --stacktrace
 
