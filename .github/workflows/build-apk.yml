@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   validate-and-build:
@@ -71,11 +72,20 @@ jobs:
           assert all(s.get("enabled", True) is False or s["license"] in allowed for s in p["sources"])
           print("OREZ conversation source policy validated.")
 
+      - name: Restore Phase 1 conversation corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: orez-conversation-pack
+          path: phase1-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 36423358988
+
       - name: Phase 2 clean deduplicate and enrich conversations
         shell: bash
         run: |
           set -euo pipefail
           python -m py_compile orez-pack/process_phase2_conversations.py
+          test -s phase1-artifact/dist/orez-conversation-master.jsonl
           python orez-pack/process_phase2_conversations.py
           test -s dist/phase2-conversation-master.jsonl
           test -s dist/phase2-clean-enrich-manifest.json
