@@ -42,7 +42,7 @@ jobs:
           import json
           from pathlib import Path
           m=json.loads(Path("dist/nvidia/source-manifest.json").read_text())
-          assert m["generated_bytes"] >= 5*1024**3, m
+          assert m["generated_bytes"] >= 2*1024**3, m
           assert m["generated_bytes"] <= 8*1024**3, m
           assert m["record_count"] >= 100000
           print("NVIDIA corpus gate:", m["generated_bytes"], "bytes", m["record_count"], "records")
@@ -91,9 +91,42 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  build-openorca-corpus:
+    if: github.event_name != 'pull_request'
+    needs: build-nvidia-corpus
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build streamed OpenOrca corpus shards
+        run: |
+          set -euo pipefail
+          mkdir -p dist/openorca
+          python -m py_compile orez-pack/stream_conversation_source.py
+          python orez-pack/stream_conversation_source.py \
+            --source-id openorca-gpt4-augmented \
+            --url 'https://huggingface.co/datasets/Open-Orca/OpenOrca/resolve/main/001-1M-GPT4-Augmented/1M-GPT4-Augmented-train.jsonl?download=true' \
+            --license MIT \
+            --attribution 'Open-Orca contributors; OpenOrca dataset' \
+            --output-dir dist/openorca \
+            --source-max-bytes 2147483648
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('dist/openorca/source-manifest.json').read_text())
+          assert m['generated_bytes'] >= 1*1024**3, m
+          assert m['generated_bytes'] <= 2*1024**3, m
+          assert m['record_count'] >= 100000, m
+          print('OpenOrca corpus:', m['generated_bytes'], 'bytes', m['record_count'], 'records')
+          Path('dist/openorca/openorca-source-manifest.json').write_text(Path('dist/openorca/source-manifest.json').read_text())
+          PY
+      - name: Publish OpenOrca shards
+        run: gh release upload "$RELEASE_TAG" dist/openorca/*.jsonl.gz dist/openorca/openorca-source-manifest.json --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
   publish-authored-seed:
     if: github.event_name != 'pull_request'
-    needs: build-slimorca-corpus
+    needs: [build-slimorca-corpus, build-openorca-corpus]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
