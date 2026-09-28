@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 RAW=ROOT/"data"/"raw"
+PHASE1=ROOT/"phase1-artifact"
 DIST=ROOT/"dist"
 OUT=DIST/"phase2-conversation-master.jsonl"
 MAN=DIST/"phase2-clean-enrich-manifest.json"
@@ -36,6 +37,14 @@ def key(prompt,response):
  return hashlib.sha256((clean(prompt).lower()+"\n"+clean(response).lower()).encode()).hexdigest()
 
 def iter_records():
+ # Restore and process the authoritative Phase 1 corpus first.
+ phase1_files=sorted(PHASE1.rglob("orez-conversation-master.jsonl")) if PHASE1.exists() else []
+ for p in phase1_files:
+  with p.open(encoding="utf-8",errors="replace") as f:
+   for line in f:
+    if line.strip():
+     try: yield json.loads(line)
+     except json.JSONDecodeError: continue
  for p in sorted(RAW.glob("*/normalized.jsonl")):
   with p.open(encoding="utf-8",errors="replace") as f:
    for line in f:
@@ -77,7 +86,7 @@ def main():
   "phase":"2","status":"cleaned-deduplicated-enriched",
   "records":kept,"rejected":rejected,"unique_keys":len(seen),
   "bytes":OUT.stat().st_size,"sources":counts,"languages":langs,
-  "checks":["PII filtering","secret-pattern filtering","length normalization","duplicate removal","language tagging","authored seed preservation"],
+  "checks":["PII filtering","secret-pattern filtering","length normalization","duplicate removal","language tagging","authored seed preservation","phase1 corpus restoration"],
  }
  MAN.write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding="utf-8")
  print(json.dumps(manifest,indent=2,ensure_ascii=False))
