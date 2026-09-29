@@ -119,6 +119,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                     Button(enabled=!resourceState.active&&(resourceUrl.startsWith("http://")||resourceUrl.startsWith("https://")),onClick={runCatching{resourceManager.enqueue(resourceUrl);resourceUrl=""}}){Text(if(resourceState.active)"SYNCING…" else "SYNC REMOTE PACK")}
                     if(resourceState.active){LinearProgressIndicator(progress={resourceState.progress},modifier=Modifier.fillMaxWidth());Text(formatBytes(resourceState.bytes)+" / "+if(resourceState.total>0)formatBytes(resourceState.total) else "processing")}
                     resourceState.error?.let{Text("Pack error: "+it,color=MaterialTheme.colorScheme.error)}
+                    resourceState.message?.let{Text(it,color=MaterialTheme.colorScheme.primary)}
                     Text("Large archives are processed as streams. OREZ imports up to 100,000 usable records per selected pack to protect phone storage and memory.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
                 }
             }
