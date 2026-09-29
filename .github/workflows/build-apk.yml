@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: mangalens-cumulative-${{ github.ref }}
-  cancel-in-progress: true
+  group: mangalens-cumulative-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
