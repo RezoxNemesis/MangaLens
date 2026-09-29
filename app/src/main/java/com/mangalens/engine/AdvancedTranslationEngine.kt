@@ -63,9 +63,9 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                             }
                         }
                     }
-                    continuation.resume(regions)
+                    if (continuation.isActive) continuation.resume(regions)
                 }
-                .addOnFailureListener { continuation.resumeWithException(it) }
+                .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
         }
 
     suspend fun recognizeFast(bitmap: Bitmap): List<TranslationRegion> {
