@@ -28,15 +28,16 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         val contextualQuery=buildContextualQuery(clean,context)
         if(intent==OrezIntent.TRANSLATION){
             val sourceText = extractTranslationText(clean)
-            val result=retrieveTranslation(sourceText,context.targetLanguage)
+            val translationTarget = extractTargetLanguage(clean, context.targetLanguage)
+            val result=retrieveTranslation(sourceText,translationTarget)
             if(result!=null) return@withContext OrezBrainResponse(result,intent,usedLocalKnowledge=true)
             val modelAnswer=localModel.answer(
-                "Translate the following text to " + context.targetLanguage + ". Return only the translation, not instructions or a description of how to translate.\nTEXT:\n" + sourceText,
+                "Translate the following text to " + translationTarget + ". Return only the translation, not instructions or a description of how to translate.\nTEXT:\n" + sourceText,
                 context.recentMessages
             )
             if(!modelAnswer.isNullOrBlank()) return@withContext OrezBrainResponse(modelAnswer,intent,usedLocalKnowledge=true)
             try {
-                val translated = fallbackTranslator.translate(sourceText,context.targetLanguage)
+                val translated = fallbackTranslator.translate(sourceText,translationTarget)
                 if(translated.isNotBlank() && translated != sourceText) {
                     return@withContext OrezBrainResponse(translated,intent,usedLocalKnowledge=true)
                 }
@@ -83,6 +84,31 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             ""
         ).trim()
         return text.removeSurrounding("\"").removeSurrounding("'").ifBlank { input.trim() }
+    }
+
+    private fun extractTargetLanguage(input:String, fallback:String):String {
+        val requested = Regex(
+            """(?i)\b(?:to|into|in)\s+(hindi|english|japanese|korean|chinese|spanish|french|german|arabic|bengali|gujarati|marathi|tamil|telugu|urdu|roman hindi|hinglish)\b"""
+        ).find(input)?.groupValues?.get(1)?.lowercase(Locale.ROOT) ?: return fallback
+        return when (requested) {
+            "roman hindi", "hinglish" -> "hi"
+            "hindi" -> "hi"
+            "english" -> "en"
+            "japanese" -> "ja"
+            "korean" -> "ko"
+            "chinese" -> "zh"
+            "spanish" -> "es"
+            "french" -> "fr"
+            "german" -> "de"
+            "arabic" -> "ar"
+            "bengali" -> "bn"
+            "gujarati" -> "gu"
+            "marathi" -> "mr"
+            "tamil" -> "ta"
+            "telugu" -> "te"
+            "urdu" -> "ur"
+            else -> fallback
+        }
     }
 
     private fun shouldUseLiveSearch(input:String):Boolean {
