@@ -44,9 +44,13 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
                     onRoute(command.originalInput,command.route);return@launch
                 }
                 val recent=messages.value.takeLast(12)
-                val answer=brain.answer(input,OrezContext(recentMessages=recent))
+                val targetLanguage = getApplication<android.app.Application>()
+                    .getSharedPreferences("mangalens_preferences", android.content.Context.MODE_PRIVATE)
+                    .getString("translation_target", "hi") ?: "hi"
+                val answer=brain.answer(input,OrezContext(recentMessages=recent,targetLanguage=targetLanguage))
                 dao.insert(OrezMessageEntity(role="OREZ",text=answer.text))
             }catch(t:Throwable){
+                if(t is kotlinx.coroutines.CancellationException) throw t
                 dao.insert(OrezMessageEntity(role="OREZ",text="I hit a recoverable error: "+(t.message?:"unknown error")+". Please try again."))
             }finally{typing=false}
         }
