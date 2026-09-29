@@ -62,6 +62,8 @@ fun LocalVideoPlayerScreen(
     var subtitleBusy by rememberSaveable { mutableStateOf(false) }
     var subtitleStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var subtitleLanguage by rememberSaveable { mutableStateOf("hi") }
+    var liveTranslationEnabled by rememberSaveable { mutableStateOf(false) }
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val scope = rememberCoroutineScope()
 
     fun immersive(enabled: Boolean) {
@@ -146,13 +148,21 @@ fun LocalVideoPlayerScreen(
             })
     ) {
         AndroidView(
-            factory = { PlayerView(it).apply { vm.bind(this); useController = true; controllerAutoShow = false } },
+            factory = { PlayerView(it).apply { useTextureView = true; playerView = this; vm.bind(this); useController = true; controllerAutoShow = false } },
             update = { view ->
+                playerView = view
                 view.setResizeMode(resizeMode)
                 view.scaleX = zoom
                 view.scaleY = zoom
             },
             modifier = Modifier.fillMaxSize()
+        )
+
+        LiveVideoOcrTranslationOverlay(
+            enabled = liveTranslationEnabled,
+            targetLanguage = subtitleLanguage,
+            playerView = playerView,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (controls) 76.dp else 8.dp)
         )
 
         AnimatedVisibility(
@@ -187,6 +197,13 @@ fun LocalVideoPlayerScreen(
                 Column(Modifier.fillMaxWidth().padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Video controls", style = MaterialTheme.typography.headlineSmall)
                     Text("Fit, crop, stretch and pinch zoom are applied directly to the Media3 PlayerView.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Live OCR translation")
+                            Text("Recognize visible captions and translate to " + subtitleLanguage.uppercase(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = liveTranslationEnabled, onCheckedChange = { liveTranslationEnabled = it })
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT; zoom = 1f }) { Text("Fit") }
                         Button(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM }) { Text("Zoom") }
