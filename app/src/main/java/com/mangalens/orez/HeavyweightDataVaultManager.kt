@@ -145,7 +145,17 @@ class HeavyweightDataVaultManager(private val context: Context) {
 
     suspend fun importExternalJsonl(file: java.io.File): HeavyVaultStats = withContext(Dispatchers.IO) {
         require(file.exists()) { "Resource pack does not exist." }
-        openJsonlReader(file).use { importExternalReader(it) }
+        val buffered = file.inputStream().buffered(64 * 1024)
+        buffered.mark(4)
+        val header = ByteArray(4)
+        val read = buffered.read(header)
+        buffered.reset()
+        if (read >= 2 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte()) {
+            buffered.use { importExternalStream(it, file.name) }
+        } else {
+            buffered.close()
+            openJsonlReader(file).use { importExternalReader(it) }
+        }
     }
 
     suspend fun importExternalStream(input: java.io.InputStream, fileName: String): HeavyVaultStats = withContext(Dispatchers.IO) {
