@@ -44,6 +44,7 @@ fun MangaContinuousReader(
     pages: List<ChapterPage>,
     translated: Boolean,
     translating: Boolean = false,
+    error: String? = null,
     overlays: Map<Int, List<TranslationOverlay>>,
     targetLanguage: String = "hi",
     onTargetLanguageChanged: (String) -> Unit = {},
@@ -106,6 +107,17 @@ fun MangaContinuousReader(
                         modifier = Modifier.matchParentSize()
                     )
                 }
+            }
+        }
+
+        if (error != null) {
+            Surface(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 76.dp, start = 12.dp, end = 12.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Text(error, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
             }
         }
 
