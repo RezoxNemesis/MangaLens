@@ -29,7 +29,9 @@ class OrezLiveSearchConnector(
             .header("User-Agent", "Mozilla/5.0 (Android) MangaLens")
             .build()
         val html = runCatching {
-            client.newCall(request).execute().use { if (it.isSuccessful) it.body?.string().orEmpty() else "" }
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) readBounded(response.body?.byteStream(), MAX_HTML_BYTES) else ""
+            }
         }.getOrDefault("")
 
         val links = Regex(
@@ -81,7 +83,7 @@ class OrezLiveSearchConnector(
             .build()
         runCatching {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) "" else response.body?.string().orEmpty()
+                if (!response.isSuccessful) "" else readBounded(response.body?.byteStream(), MAX_HTML_BYTES)
                     .replace(Regex("(?is)<script[\\s\\S]*?</script>"), " ")
                     .replace(Regex("(?is)<style[\\s\\S]*?</style>"), " ")
                     .replace(Regex("(?is)<noscript[\\s\\S]*?</noscript>"), " ")
@@ -91,6 +93,22 @@ class OrezLiveSearchConnector(
                     .take(maxChars)
             }
         }.getOrDefault("")
+    }
+
+    private fun readBounded(input: java.io.InputStream?, maxBytes: Int): String {
+        if (input == null) return ""
+        return input.use { stream ->
+            val output = java.io.ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+            val buffer = ByteArray(16 * 1024)
+            var total = 0
+            while (total < maxBytes) {
+                val count = stream.read(buffer, 0, minOf(buffer.size, maxBytes - total))
+                if (count < 0) break
+                output.write(buffer, 0, count)
+                total += count
+            }
+            output.toString(Charsets.UTF_8.name())
+        }
     }
 
     private fun relevantSentences(text: String, query: String): List<String> {
@@ -113,6 +131,8 @@ class OrezLiveSearchConnector(
     }
 
     private fun cleanAttribute(value: String) = value.replace("&amp;", "&").replace("&#x2F;", "/")
+
+    companion object { private const val MAX_HTML_BYTES = 1_500_000 }
 
     private fun clean(value: String): String = value
         .replace(Regex("<[^>]+>"), " ")
