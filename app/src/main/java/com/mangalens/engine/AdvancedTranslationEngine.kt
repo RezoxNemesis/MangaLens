@@ -56,7 +56,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                                     translated = source,
                                     bounds = RectF(box),
                                     sourceLanguage = detect(source),
-                                    textColor = Color.BLACK,
+                                    textColor = contrastText(sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat())),
                                     backgroundColor = sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat()),
                                     textSize = maxOf(12f, box.height() * 0.72f)
                                 )
@@ -136,6 +136,11 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             text.any(Char::isLetter) -> LocalSourceLanguage.ENGLISH
             else -> LocalSourceLanguage.UNKNOWN
         }
+    }
+
+    private fun contrastText(background: Int): Int {
+        val luminance = (0.2126f * Color.red(background) + 0.7152f * Color.green(background) + 0.0722f * Color.blue(background)) / 255f
+        return if (luminance > 0.55f) Color.BLACK else Color.WHITE
     }
 
     private fun sample(bitmap: Bitmap, x: Float, y: Float): Int {
