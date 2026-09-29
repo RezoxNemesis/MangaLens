@@ -69,6 +69,7 @@ class TranslationService {
         if (text.any { it in '\uac00'..'\ud7af' }) return TranslateLanguage.KOREAN
         if (text.any { it in '\u4e00'..'\u9fff' }) return TranslateLanguage.CHINESE
         if (text.any { it in '\u0900'..'\u097f' }) return TranslateLanguage.HINDI
+        if (isRomanizedHindi(text)) return TranslateLanguage.HINDI
         return suspendCancellableCoroutine { continuation ->
             languageIdentifier.identifyLanguage(text)
                 .addOnSuccessListener { code ->
