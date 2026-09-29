@@ -128,13 +128,35 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
 
     private fun validateJsonlEnvelope(file: File) {
         val buffered = file.inputStream().buffered(64 * 1024)
-        buffered.mark(2)
-        val first = buffered.read()
-        val second = buffered.read()
+        buffered.mark(4)
+        val header = ByteArray(4)
+        val read = buffered.read(header)
         buffered.reset()
-        val decoded = if (first == 0x1f && second == 0x8b) GZIPInputStream(buffered, 64 * 1024) else buffered
+        if (read >= 2 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte()) {
+            java.util.zip.ZipInputStream(buffered).use { zip ->
+                var found = false
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (!entry.isDirectory && (entry.name.endsWith(".jsonl", true) || entry.name.endsWith(".jsonl.gz", true) || entry.name.endsWith(".ndjson", true))) {
+                        val source: java.io.InputStream = if (entry.name.endsWith(".gz", true)) GZIPInputStream(zip, 64 * 1024) else zip
+                        validateReader(BufferedReader(InputStreamReader(source, Charsets.UTF_8), 64 * 1024))
+                        found = true
+                        break
+                    }
+                    zip.closeEntry()
+                    entry = zip.nextEntry
+                }
+                check(found) { "ZIP pack contains no .jsonl or .jsonl.gz data file." }
+            }
+            return
+        }
+        val decoded = if (read >= 2 && header[0] == 0x1f.toByte() && header[1] == 0x8b.toByte()) GZIPInputStream(buffered, 64 * 1024) else buffered
+        validateReader(BufferedReader(InputStreamReader(decoded, Charsets.UTF_8), 64 * 1024))
+    }
+
+    private fun validateReader(reader: BufferedReader) {
         var valid = 0L
-        BufferedReader(InputStreamReader(decoded, Charsets.UTF_8), 64 * 1024).useLines { lines ->
+        reader.useLines { lines ->
             lines.take(100).forEach { line ->
                 if (line.isBlank()) return@forEach
                 val trimmed = line.trim()
