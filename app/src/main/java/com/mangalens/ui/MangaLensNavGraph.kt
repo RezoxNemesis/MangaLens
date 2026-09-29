@@ -30,6 +30,7 @@ fun MangaLensNavGraph(
     onPaste: () -> Unit,
     onModeSelected: (ContentType) -> Unit,
     onIngest: () -> Unit,
+    onIngestAndTranslate: () -> Unit,
     onTranslatePage: (com.mangalens.core.reader.ChapterPage) -> Unit,
     onTranslateChapter: () -> Unit,
     onTargetLanguageChanged: (String) -> Unit,
@@ -96,6 +97,9 @@ fun MangaLensNavGraph(
                         OrezRoute.MANGA_READER -> { onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") }
                         OrezRoute.VIDEO_PLAYER -> { onModeSelected(ContentType.VIDEO_STREAM); onIngest(); navController.navigate("video") }
                         OrezRoute.WEB_VIEW -> { onModeSelected(ContentType.GENERIC_WEB); navController.navigate("web") }
+                        OrezRoute.TRANSLATE_MANGA -> { onModeSelected(ContentType.IMAGE_CHAPTER); onIngestAndTranslate(); navController.navigate("reader") }
+                        OrezRoute.TRANSLATE_VIDEO -> { onModeSelected(ContentType.VIDEO_STREAM); onVideoTranslationChanged(true); onIngest(); navController.navigate("video") }
+                        OrezRoute.TRANSLATE_WEB -> { onModeSelected(ContentType.GENERIC_WEB); onWebTranslationChanged(true); navController.navigate("web") }
                         OrezRoute.CHAT -> Unit
                     }
                 }
@@ -140,7 +144,7 @@ fun MangaLensNavGraph(
                 val raw = entry.arguments?.getString("uri").orEmpty()
                 LocalVideoPlayerScreen(initialUri = raw.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse), modifier = Modifier.fillMaxSize())
             }
-            composable("web") { AdBlockedWebScreen(state.url, translationEnabled = state.webTranslationEnabled, modifier = Modifier.fillMaxSize()) }
+            composable("web") { AdBlockedWebScreen(state.url, translationEnabled = state.webTranslationEnabled, modifier = Modifier.fillMaxSize(), targetLanguage = state.targetLanguage) }
         }
     }
 }
