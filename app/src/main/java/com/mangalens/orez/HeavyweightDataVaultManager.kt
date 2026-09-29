@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.util.zip.GZIPInputStream
 import java.security.MessageDigest
 
 @Entity(
@@ -147,8 +148,10 @@ class HeavyweightDataVaultManager(private val context: Context) {
         val knowledge = ArrayList<HeavyKnowledgeEntity>(1000)
         val translations = ArrayList<HeavyTranslationEntity>(1000)
         val regex = ArrayList<HeavyRegexEntity>(1000)
-        file.bufferedReader(Charsets.UTF_8, 64 * 1024).useLines { lines ->
+        var importedRecords = 0
+        openJsonlReader(file).useLines { lines ->
             lines.forEach { line ->
+                if (importedRecords >= MAX_EXTERNAL_RECORDS) return@forEach
                 val obj = runCatching { JSONObject(line) }.getOrNull() ?: return@forEach
                 when (obj.optString("type").lowercase()) {
                     "translation" -> {
@@ -183,6 +186,7 @@ class HeavyweightDataVaultManager(private val context: Context) {
                         }
                     }
                 }
+                if (obj.has("prompt") || obj.has("source") || obj.has("pattern")) importedRecords++
                 if (knowledge.size >= 1000) { db.knowledge().insert(knowledge.toList()); knowledge.clear() }
                 if (translations.size >= 1000) { db.translations().insert(translations.toList()); translations.clear() }
                 if (regex.size >= 1000) { db.regex().insert(regex.toList()); regex.clear() }
@@ -193,6 +197,16 @@ class HeavyweightDataVaultManager(private val context: Context) {
         if (regex.isNotEmpty()) db.regex().insert(regex)
         prewarmIndexes()
         stats()
+    }
+
+    private fun openJsonlReader(file: java.io.File): BufferedReader {
+        val buffered = file.inputStream().buffered(64 * 1024)
+        buffered.mark(2)
+        val first = buffered.read()
+        val second = buffered.read()
+        buffered.reset()
+        val decoded = if (first == 0x1f && second == 0x8b) GZIPInputStream(buffered, 64 * 1024) else buffered
+        return BufferedReader(InputStreamReader(decoded, Charsets.UTF_8), 64 * 1024)
     }
 
     suspend fun prewarmIndexes() = withContext(Dispatchers.IO) {
@@ -323,5 +337,6 @@ class HeavyweightDataVaultManager(private val context: Context) {
 
     companion object {
         private const val BUNDLED_VERSION = 2
+        private const val MAX_EXTERNAL_RECORDS = 100_000
     }
 }
