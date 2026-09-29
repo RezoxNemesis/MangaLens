@@ -61,7 +61,13 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             if(evidence.isNotBlank()) return@withContext OrezBrainResponse(sanitizeLocal(composeLocal(evidence,intent)),intent,usedLocalKnowledge=true)
         }
         if(intent==OrezIntent.WEB_SEARCH || explicitOnline || intent in setOf(OrezIntent.QUESTION, OrezIntent.TROUBLESHOOTING)){
-            val live=runCatching{liveSearch(clean)}.getOrNull()
+            val live = try {
+                liveSearch(clean)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
             if(live!=null && live.results.isNotEmpty()){
                 val webPrompt="Answer the user request using this current public-information summary. Keep the answer natural, useful and conversational.\n\nCURRENT INFORMATION:\n"+live.summary+"\n\nUSER REQUEST:\n"+clean
                 val modelAnswer=localModel.answer(webPrompt,context.recentMessages)
