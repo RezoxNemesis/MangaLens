@@ -118,7 +118,7 @@ fun MangaLensNavGraph(
                 )
             }
             composable("reader") {
-                MangaContinuousReader(title = "Chapter", pages = state.pages, translated = state.translationEnabled, translating = state.translating, overlays = state.overlays, targetLanguage = state.targetLanguage, onTargetLanguageChanged = onTargetLanguageChanged, onTranslate = onTranslateChapter, onDownload = onDownloadChapter, onMenu = { navController.navigate("settings") }, onLongPressPage = onTranslatePage, modifier = Modifier.fillMaxSize())
+                MangaContinuousReader(title = "Chapter", pages = state.pages, translated = state.translationEnabled, translating = state.translating, error = state.error, overlays = state.overlays, targetLanguage = state.targetLanguage, onTargetLanguageChanged = onTargetLanguageChanged, onTranslate = onTranslateChapter, onDownload = onDownloadChapter, onMenu = { navController.navigate("settings") }, onLongPressPage = onTranslatePage, modifier = Modifier.fillMaxSize())
             }
             composable("video") {
                 state.videoUrl?.let { NativeVideoPlayer(it, translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize()) }
