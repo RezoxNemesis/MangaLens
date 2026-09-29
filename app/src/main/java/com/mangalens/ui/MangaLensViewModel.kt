@@ -1,6 +1,7 @@
 package com.mangalens.ui
 
 import android.app.Application
+import android.net.Uri
 import android.graphics.BitmapFactory
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -126,6 +127,28 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         _state.value = _state.value.copy(customTranslationStyle = normalized)
     }
     fun resetAdBlockStats() = statsStore.reset()
+
+    fun importLocalImages(uris: List<Uri>) {
+        ingestionJob?.cancel()
+        ingestionJob = viewModelScope.launch {
+            _state.value = _state.value.copy(loading = true, translating = false, error = null, overlays = emptyMap(), translationEnabled = false)
+            try {
+                val pages = repository.persistLocalImages(uris, app)
+                _state.value = _state.value.copy(
+                    pages = pages,
+                    mode = ContentType.IMAGE_CHAPTER,
+                    loading = false,
+                    mangaTranslationEnabled = true,
+                    error = null
+                )
+                prefs.edit().putBoolean("translation_manga", true).apply()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                _state.value = _state.value.copy(loading = false, error = "Image import failed: " + (failure.message ?: "Unable to read selected images"))
+            }
+        }
+    }
 
     fun ingest() {
         ingestionJob?.cancel()
