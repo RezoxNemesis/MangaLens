@@ -20,7 +20,11 @@ class TranslationService {
         val target = TranslateLanguage.fromLanguageTag(targetLanguage.trim().lowercase())
             ?: throw IllegalArgumentException("Unsupported translation language: $targetLanguage")
         val detected = detectSource(sourceText)
-        val source = TranslateLanguage.fromLanguageTag(detected) ?: TranslateLanguage.ENGLISH
+        val source = if (target == TranslateLanguage.HINDI && isRomanizedHindi(sourceText)) {
+            TranslateLanguage.ENGLISH
+        } else {
+            TranslateLanguage.fromLanguageTag(detected) ?: TranslateLanguage.ENGLISH
+        }
         if (source == target) return text
 
         val translator = synchronized(translatorLock) {
@@ -65,12 +69,6 @@ class TranslationService {
         if (text.any { it in '\uac00'..'\ud7af' }) return TranslateLanguage.KOREAN
         if (text.any { it in '\u4e00'..'\u9fff' }) return TranslateLanguage.CHINESE
         if (text.any { it in '\u0900'..'\u097f' }) return TranslateLanguage.HINDI
-        val romanHindi = Regex(
-            """\b(kya|hai|hain|haan|nahi|nahin|mujhe|tum|aap|mera|meri|kaise|kyun|bahut|acha|achha|hoon|karna|karo)\b""",
-            RegexOption.IGNORE_CASE
-        )
-        if (romanHindi.containsMatchIn(text)) return TranslateLanguage.HINDI
-
         return suspendCancellableCoroutine { continuation ->
             languageIdentifier.identifyLanguage(text)
                 .addOnSuccessListener { code ->
@@ -85,6 +83,11 @@ class TranslationService {
                 }
         }
     }
+
+    private fun isRomanizedHindi(text: String): Boolean = Regex(
+        """\b(kya|hai|hain|haan|nahi|nahin|mujhe|tum|aap|mera|meri|kaise|kyun|bahut|acha|achha|hoon|karna|karo)\b""",
+        RegexOption.IGNORE_CASE
+    ).containsMatchIn(text)
 
     fun close() {
         synchronized(translatorLock) {
