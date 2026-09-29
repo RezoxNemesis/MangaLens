@@ -166,6 +166,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 when (router.classifyUrl(target)) {
                     ContentType.VIDEO_STREAM -> _state.value = _state.value.copy(mode = ContentType.VIDEO_STREAM, videoUrl = target, loading = false)
                     ContentType.IMAGE_CHAPTER -> {
+                        repository.clearChapterCache()
+                        _state.value = _state.value.copy(pages = emptyList(), overlays = emptyMap(), translationEnabled = false)
                         val chapters = runCatching { chapterCatalog.extract(target) }.getOrDefault(emptyList())
                         _state.value = _state.value.copy(chapters = chapters.map { MangaChapter(it.title, it.url) })
                         val result = acquirer.discoverWithCookie(target, 15_000L, null)
@@ -182,10 +184,14 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     ContentType.GENERIC_WEB -> _state.value = _state.value.copy(mode = ContentType.GENERIC_WEB, loading = false)
                 }
                 val availablePages = repository.pages.value
-                if (translateWhenPagesReady && _state.value.mode == ContentType.IMAGE_CHAPTER && availablePages.isNotEmpty()) {
+                if (translateWhenPagesReady) {
                     translateWhenPagesReady = false
-                    _state.value = _state.value.copy(pages = availablePages, loading = false)
-                    translateChapter()
+                    if (_state.value.mode == ContentType.IMAGE_CHAPTER && availablePages.isNotEmpty()) {
+                        _state.value = _state.value.copy(pages = availablePages, loading = false)
+                        translateChapter()
+                    } else if (_state.value.mode == ContentType.IMAGE_CHAPTER) {
+                        _state.value = _state.value.copy(error = "No chapter images could be loaded. Check the URL or complete the site's verification, then retry.")
+                    }
                 }
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
@@ -291,7 +297,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 _state.value = _state.value.copy(
                     translating = false,
                     translationEnabled = hasTranslations,
-                    error = if (hasTranslations) _state.value.error else "No readable text was detected in this chapter. Try another page or a clearer source."
+                    error = if (hasTranslations) null else "No readable text was detected in this chapter. Try another page or a clearer source."
                 )
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
