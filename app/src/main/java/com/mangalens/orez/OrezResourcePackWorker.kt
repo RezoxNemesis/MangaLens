@@ -34,12 +34,17 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
 
             if(!uri.isNullOrBlank()){
                 val selected=Uri.parse(uri)
+                val total=runCatching{applicationContext.contentResolver.openAssetFileDescriptor(selected,"r")?.use{it.length}}.getOrDefault(-1L)
                 val input=applicationContext.contentResolver.openInputStream(selected) ?: error("Unable to open selected pack.")
-                input.use{source->FileOutputStream(target,false).use{output->
-                    val total=runCatching{applicationContext.contentResolver.openAssetFileDescriptor(selected,"r")?.use{it.length}}.getOrDefault(-1L)
-                    val buffer=ByteArray(1024*1024);done=0L
-                    while(true){currentCoroutineContext().ensureActive();val n=source.read(buffer);if(n<0)break;output.write(buffer,0,n);done+=n;check(done<=MAX_PACK_BYTES){"Pack exceeds the 10 GB conversation-pack limit."};setProgress(workDataOf(KEY_BYTES to done,KEY_TOTAL to total))}
-                }}
+                val stats=input.use { HeavyweightDataVaultManager(applicationContext).importExternalStream(it, selected.lastPathSegment.orEmpty()) }
+                setProgress(workDataOf(KEY_BYTES to total.coerceAtLeast(0L),KEY_TOTAL to total))
+                return Result.success(workDataOf(
+                    KEY_BYTES to total.coerceAtLeast(0L),
+                    KEY_TOTAL to total,
+                    "knowledgeRows" to stats.knowledgeRows,
+                    "translationRows" to stats.translationRows,
+                    "regexRows" to stats.regexRows
+                ))
             }else{
             val builder=Request.Builder().url(url!!).header("User-Agent","MangaLens/14 OREZ-Pack").header("Accept","application/x-ndjson,application/json,text/plain,*/*")
             if (done > 0L) builder.header("Range", "bytes=$done-")
