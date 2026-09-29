@@ -14,6 +14,8 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStreamReader
+import java.util.zip.GZIPInputStream
 import java.security.MessageDigest
 
 class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
@@ -120,9 +122,15 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
     private fun formatBytes(bytes:Long):String="%.1f MB".format(bytes/1048576.0)
 
     private fun validateJsonlEnvelope(file: File) {
+        val buffered = file.inputStream().buffered(64 * 1024)
+        buffered.mark(2)
+        val first = buffered.read()
+        val second = buffered.read()
+        buffered.reset()
+        val decoded = if (first == 0x1f && second == 0x8b) GZIPInputStream(buffered, 64 * 1024) else buffered
         var valid = 0L
-        file.bufferedReader(Charsets.UTF_8, 64 * 1024).useLines { lines ->
-            lines.forEach { line ->
+        BufferedReader(InputStreamReader(decoded, Charsets.UTF_8), 64 * 1024).useLines { lines ->
+            lines.take(100).forEach { line ->
                 if (line.isBlank()) return@forEach
                 val trimmed = line.trim()
                 require(trimmed.startsWith("{") && trimmed.endsWith("}")) { "Invalid JSONL record near row $valid" }
