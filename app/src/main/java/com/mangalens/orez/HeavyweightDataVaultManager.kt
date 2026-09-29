@@ -145,58 +145,102 @@ class HeavyweightDataVaultManager(private val context: Context) {
 
     suspend fun importExternalJsonl(file: java.io.File): HeavyVaultStats = withContext(Dispatchers.IO) {
         require(file.exists()) { "Resource pack does not exist." }
+        openJsonlReader(file).use { importExternalReader(it) }
+    }
+
+    suspend fun importExternalStream(input: java.io.InputStream, fileName: String): HeavyVaultStats = withContext(Dispatchers.IO) {
+        val buffered = java.io.PushbackInputStream(input.buffered(64 * 1024), 4)
+        val header = ByteArray(4)
+        val read = buffered.read(header)
+        if (read > 0) buffered.unread(header, 0, read)
+        when {
+            read >= 2 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte() -> {
+                java.util.zip.ZipInputStream(buffered).use { zip ->
+                    var imported = false
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory && (entry.name.endsWith(".jsonl", true) || entry.name.endsWith(".jsonl.gz", true) || entry.name.endsWith(".ndjson", true))) {
+                            val source: java.io.InputStream = if (entry.name.endsWith(".gz", true)) GZIPInputStream(zip, 64 * 1024) else zip
+                            val reader = BufferedReader(InputStreamReader(source, Charsets.UTF_8), 64 * 1024)
+                            importExternalReader(reader)
+                            imported = true
+                            break
+                        }
+                        zip.closeEntry()
+                        entry = zip.nextEntry
+                    }
+                    check(imported) { "ZIP pack contains no .jsonl or .jsonl.gz data file. Select the corpus data file, not a source-code archive." }
+                }
+                stats()
+            }
+            read >= 2 && header[0] == 0x1f.toByte() && header[1] == 0x8b.toByte() -> {
+                val reader = BufferedReader(InputStreamReader(GZIPInputStream(buffered, 64 * 1024), Charsets.UTF_8), 64 * 1024)
+                importExternalReader(reader)
+            }
+            else -> {
+                val reader = BufferedReader(InputStreamReader(buffered, Charsets.UTF_8), 64 * 1024)
+                importExternalReader(reader)
+            }
+        }
+    }
+
+    private suspend fun importExternalReader(reader: BufferedReader): HeavyVaultStats {
         val knowledge = ArrayList<HeavyKnowledgeEntity>(1000)
         val translations = ArrayList<HeavyTranslationEntity>(1000)
         val regex = ArrayList<HeavyRegexEntity>(1000)
         var importedRecords = 0
-        openJsonlReader(file).useLines { lines ->
-            lines.forEach { line ->
-                if (importedRecords >= MAX_EXTERNAL_RECORDS) return@forEach
-                val obj = runCatching { JSONObject(line) }.getOrNull() ?: return@forEach
-                when (obj.optString("type").lowercase()) {
-                    "translation" -> {
-                        val source = obj.optString("source").trim()
-                        val target = obj.optString("target").trim()
-                        val language = obj.optString("targetLanguage", "hi").trim()
-                        if (source.isNotBlank() && target.isNotBlank()) {
-                            translations += HeavyTranslationEntity(
-                                obj.optString("key").ifBlank { stableKey(source + "|" + language) },
-                                source, target, language
-                            )
-                        }
-                    }
-                    "regex" -> {
-                        val pattern = obj.optString("pattern")
-                        if (pattern.isNotBlank()) {
-                            regex += HeavyRegexEntity(
-                                obj.optString("key").ifBlank { stableKey(pattern) },
-                                obj.optString("kind", "ocr"), pattern, obj.optString("replacement")
-                            )
-                        }
-                    }
-                    else -> {
-                        val prompt = obj.optString("prompt").trim()
-                        val response = obj.optString("response").trim()
-                        if (prompt.isNotBlank() && response.isNotBlank()) {
-                            knowledge += HeavyKnowledgeEntity(
-                                obj.optString("key").ifBlank { stableKey(prompt) },
-                                obj.optString("domain", "general"),
-                                prompt, normalize(prompt), response
-                            )
-                        }
+        while (importedRecords < MAX_EXTERNAL_RECORDS) {
+            val line = reader.readLine() ?: break
+            if (line.isBlank()) continue
+            val obj = runCatching { JSONObject(line) }.getOrNull() ?: continue
+            var accepted = false
+            when (obj.optString("type").lowercase()) {
+                "translation" -> {
+                    val source = obj.optString("source").trim()
+                    val target = obj.optString("target").trim()
+                    val language = obj.optString("targetLanguage", "hi").trim()
+                    if (source.isNotBlank() && target.isNotBlank()) {
+                        translations += HeavyTranslationEntity(
+                            obj.optString("key").ifBlank { stableKey(source + "|" + language) },
+                            source, target, language
+                        )
+                        accepted = true
                     }
                 }
-                if (obj.has("prompt") || obj.has("source") || obj.has("pattern")) importedRecords++
-                if (knowledge.size >= 1000) { db.knowledge().insert(knowledge.toList()); knowledge.clear() }
-                if (translations.size >= 1000) { db.translations().insert(translations.toList()); translations.clear() }
-                if (regex.size >= 1000) { db.regex().insert(regex.toList()); regex.clear() }
+                "regex" -> {
+                    val pattern = obj.optString("pattern")
+                    if (pattern.isNotBlank()) {
+                        regex += HeavyRegexEntity(
+                            obj.optString("key").ifBlank { stableKey(pattern) },
+                            obj.optString("kind", "ocr"), pattern, obj.optString("replacement")
+                        )
+                        accepted = true
+                    }
+                }
+                else -> {
+                    val prompt = obj.optString("prompt").trim()
+                    val response = obj.optString("response").trim()
+                    if (prompt.isNotBlank() && response.isNotBlank()) {
+                        knowledge += HeavyKnowledgeEntity(
+                            obj.optString("key").ifBlank { stableKey(prompt) },
+                            obj.optString("domain", "general"),
+                            prompt, normalize(prompt), response
+                        )
+                        accepted = true
+                    }
+                }
             }
+            if (accepted) importedRecords++
+            if (knowledge.size >= 1000) { db.knowledge().insert(knowledge.toList()); knowledge.clear() }
+            if (translations.size >= 1000) { db.translations().insert(translations.toList()); translations.clear() }
+            if (regex.size >= 1000) { db.regex().insert(regex.toList()); regex.clear() }
         }
         if (knowledge.isNotEmpty()) db.knowledge().insert(knowledge)
         if (translations.isNotEmpty()) db.translations().insert(translations)
         if (regex.isNotEmpty()) db.regex().insert(regex)
+        check(importedRecords > 0) { "No usable OREZ records were found. Choose a JSONL or JSONL.GZ corpus pack." }
         prewarmIndexes()
-        stats()
+        return stats()
     }
 
     private fun openJsonlReader(file: java.io.File): BufferedReader {
