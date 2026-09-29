@@ -3,6 +3,7 @@ package com.mangalens.orez
 import com.mangalens.engine.LiveSearchAnswer
 import com.mangalens.core.orez.OrezDomain
 import com.mangalens.core.orez.OrezIntentRouterV12
+import com.mangalens.core.translation.TranslationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -17,6 +18,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
     private val modelManager = OrezModelManager(context)
     private val localModel = OrezLocalModelService(modelManager)
     private val heavyVault = HeavyweightDataVaultManager(context)
+    private val fallbackTranslator = TranslationService()
     suspend fun answer(input:String,context:OrezContext)=withContext(Dispatchers.Default){
         val clean=input.trim()
         if(clean.isBlank()) return@withContext OrezBrainResponse("Please tell me what you want to do.",OrezIntent.GENERAL)
@@ -25,32 +27,46 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
 
         val contextualQuery=buildContextualQuery(clean,context)
         if(intent==OrezIntent.TRANSLATION){
-            val result=retrieveTranslation(clean,context.targetLanguage)
+            val sourceText = extractTranslationText(clean)
+            val result=retrieveTranslation(sourceText,context.targetLanguage)
             if(result!=null) return@withContext OrezBrainResponse(result,intent,usedLocalKnowledge=true)
             val modelAnswer=localModel.answer(
-                "Translate this text to " + context.targetLanguage + ". Return only the translated text. Text: " + clean,
+                "Translate the following text to " + context.targetLanguage + ". Return only the translation, not instructions or a description of how to translate.\nTEXT:\n" + sourceText,
                 context.recentMessages
             )
-            if(modelAnswer!=null) return@withContext OrezBrainResponse(modelAnswer,intent,usedLocalKnowledge=true)
-            return@withContext OrezBrainResponse("Use the Translate button to run the on-device OCR/ML translation pipeline.",intent)
+            if(!modelAnswer.isNullOrBlank()) return@withContext OrezBrainResponse(modelAnswer,intent,usedLocalKnowledge=true)
+            try {
+                val translated = fallbackTranslator.translate(sourceText,context.targetLanguage)
+                if(translated.isNotBlank() && translated != sourceText) {
+                    return@withContext OrezBrainResponse(translated,intent,usedLocalKnowledge=true)
+                }
+            } catch (failure: Throwable) {
+                if(failure is kotlinx.coroutines.CancellationException) throw failure
+            }
+            return@withContext OrezBrainResponse(
+                "I couldn't translate this yet. Check your connection so the language model can download, then retry. Text received: " + sourceText.take(180),
+                intent
+            )
         }
 
         val local=retrieveConversation(contextualQuery)
         val heavy=if(intent!=OrezIntent.WEB_SEARCH) retrieveHeavyKnowledge(contextualQuery) else null
         val evidence=buildEvidence(local,heavy)
-        if(intent!=OrezIntent.WEB_SEARCH){
+        val explicitOnline = shouldUseLiveSearch(clean)
+        if(intent!=OrezIntent.WEB_SEARCH && !explicitOnline){
             val modelPrompt=if(evidence.isBlank()) clean else "Use the following local OREZ knowledge as evidence. Do not copy it blindly; answer naturally and directly.\n\nLOCAL KNOWLEDGE:\n$evidence\n\nUSER REQUEST:\n$clean"
             val modelAnswer=localModel.answer(modelPrompt, context.recentMessages)
             if(modelAnswer!=null) return@withContext OrezBrainResponse(modelAnswer,intent,usedLocalKnowledge=evidence.isNotBlank())
             if(evidence.isNotBlank()) return@withContext OrezBrainResponse(sanitizeLocal(composeLocal(evidence,intent)),intent,usedLocalKnowledge=true)
         }
-        if(intent==OrezIntent.WEB_SEARCH || intent in setOf(OrezIntent.QUESTION, OrezIntent.TROUBLESHOOTING)){
+        if(intent==OrezIntent.WEB_SEARCH || explicitOnline || intent in setOf(OrezIntent.QUESTION, OrezIntent.TROUBLESHOOTING)){
             val live=runCatching{liveSearch(clean)}.getOrNull()
             if(live!=null && live.results.isNotEmpty()){
                 val webPrompt="Answer the user request using this current public-information summary. Keep the answer natural, useful and conversational.\n\nCURRENT INFORMATION:\n"+live.summary+"\n\nUSER REQUEST:\n"+clean
                 val modelAnswer=localModel.answer(webPrompt,context.recentMessages)
                 if(modelAnswer!=null) return@withContext OrezBrainResponse(modelAnswer,intent,live.results.map{it.url},usedLiveSearch=true)
-                return@withContext OrezBrainResponse("Current public information found for: $clean\n\n"+live.summary,intent,live.results.map{it.url},usedLiveSearch=true)
+                val directAnswer = buildLiveAnswer(clean, live)
+                return@withContext OrezBrainResponse(directAnswer,intent,live.results.map{it.url},usedLiveSearch=true)
             }
         }
         OrezBrainResponse(fallback(intent),intent)
@@ -156,7 +172,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         return "Answer: "+if(r%1.0==0.0)r.toLong().toString() else String.format(Locale.US,"%.8f",r).trimEnd('0').trimEnd('.')
     }
 
-    fun close() = localModel.close()
+    fun close() { localModel.close(); fallbackTranslator.close() }
 
     private fun fallback(i:OrezIntent)=when(i){
         OrezIntent.GREETING->"Namaste! Main OREZ hoon. Batao kya karna hai."
