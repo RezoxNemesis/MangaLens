@@ -68,6 +68,17 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                 .addOnFailureListener { continuation.resumeWithException(it) }
         }
 
+    suspend fun recognizeFast(bitmap: Bitmap): List<TranslationRegion> {
+        val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
+        val configured = prefs?.getString("script", "AUTO") ?: "AUTO"
+        val recognizer = createRecognizer(if (configured == "AUTO") "LATIN" else configured)
+        return try {
+            recognizeWith(recognizer, bitmap)
+        } finally {
+            recognizer.close()
+        }
+    }
+
     suspend fun recognizeScriptAware(bitmap: Bitmap): List<TranslationRegion> {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
         val script = prefs?.getString("script", "AUTO") ?: "AUTO"
