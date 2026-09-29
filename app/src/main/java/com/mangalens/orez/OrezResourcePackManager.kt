@@ -82,9 +82,9 @@ class OrezResourcePackManager(private val context: Context) {
         withContext(Dispatchers.IO) {
             val work = runCatching {
                 WorkManager.getInstance(context)
-                    .getWorkInfosByTag(TAG)
+                    .getWorkInfosForUniqueWork(TAG)
                     .get()
-                    .firstOrNull()
+                    .lastOrNull()
             }.getOrNull()
 
             val label = prefs.getString("label", "OREZ knowledge pack").orEmpty()
