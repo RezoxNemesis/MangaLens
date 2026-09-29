@@ -21,7 +21,15 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
     val context=LocalContext.current
     val resourceManager=remember{OrezResourcePackManager(context)}
     val resourceState by resourceManager.state.collectAsState()
-    val localPackLauncher=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null) runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);resourceManager.enqueueUri(uri)}}
+    var packSelectionError by remember { mutableStateOf<String?>(null) }
+    val localPackLauncher=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->
+        if(uri!=null){
+            packSelectionError=null
+            runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
+            runCatching{resourceManager.enqueueUri(uri)}
+                .onFailure{packSelectionError=it.message ?: "Unable to queue this data pack."}
+        }
+    }
     var resourceUrl by remember{mutableStateOf("")}
     LaunchedEffect(resourceManager){resourceManager.refresh()}
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
@@ -98,13 +106,14 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
             Card(Modifier.fillMaxWidth()){
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
                     Text("5–10 GB conversation/reasoning data • separate from translation training",style=MaterialTheme.typography.titleLarge)
-                    Text("Select the OREZ conversation JSONL file or paste its HTTPS URL. MangaLens keeps the large file outside the APK and imports it into the private OREZ vault in bounded batches.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(enabled=!resourceState.active,onClick={localPackLauncher.launch(arrayOf("application/json","application/x-ndjson","text/plain","*/*"))}){Text(if(resourceState.active)"IMPORTING…" else "SELECT OREZ CONVERSATION PACK")}
+                    Text("Select a .jsonl, .jsonl.gz file, or a downloaded GitHub artifact ZIP from Files. The app streams the selected file directly (no second full-size copy), reads compressed data, and imports a bounded batch into the private OREZ vault.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(enabled=!resourceState.active,onClick={localPackLauncher.launch(arrayOf("*/*"))}){Text(if(resourceState.active)"IMPORTING…" else "SELECT OREZ DATA PACK FROM FILES")}
+                    packSelectionError?.let{Text("Pack selection error: "+it,color=MaterialTheme.colorScheme.error)}
                     OutlinedTextField(value=resourceUrl,onValueChange={resourceUrl=it},modifier=Modifier.fillMaxWidth(),singleLine=true,label={Text("HTTPS conversation pack URL")})
                     Button(enabled=!resourceState.active&&(resourceUrl.startsWith("http://")||resourceUrl.startsWith("https://")),onClick={runCatching{resourceManager.enqueue(resourceUrl);resourceUrl=""}}){Text(if(resourceState.active)"SYNCING…" else "SYNC REMOTE PACK")}
                     if(resourceState.active){LinearProgressIndicator(progress={resourceState.progress},modifier=Modifier.fillMaxWidth());Text(formatBytes(resourceState.bytes)+" / "+if(resourceState.total>0)formatBytes(resourceState.total) else "processing")}
                     resourceState.error?.let{Text("Pack error: "+it,color=MaterialTheme.colorScheme.error)}
-                    Text("Target pack size: 5–10 GB. The corpus stays outside the APK and is fed into OREZ after import.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+                    Text("Large archives are processed as streams. OREZ imports up to 100,000 usable records per selected pack to protect phone storage and memory.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
                 }
             }
         }
