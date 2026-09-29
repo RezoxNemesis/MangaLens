@@ -242,7 +242,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         textColorArgb = region.textColor,
                         backgroundColorArgb = region.backgroundColor,
                         fontSizePx = region.textSize,
-                        maxWidthPx = region.bounds.width()
+                        maxWidthPx = region.bounds.width(),
+                        imageWidthPx = bitmap.width,
+                        imageHeightPx = bitmap.height
                     )
                 }
                 _state.value = _state.value.copy(translating = false, translationEnabled = true, overlays = _state.value.overlays + (page.index to translated))
@@ -309,7 +311,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 textColorArgb = region.textColor,
                 backgroundColorArgb = region.backgroundColor,
                 fontSizePx = region.textSize,
-                maxWidthPx = region.bounds.width()
+                maxWidthPx = region.bounds.width(),
+                        imageWidthPx = bitmap.width,
+                        imageHeightPx = bitmap.height
             )
         }
         _state.value = _state.value.copy(
