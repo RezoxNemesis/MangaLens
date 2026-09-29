@@ -82,7 +82,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
     private fun extractTranslationText(input:String):String {
         var text = input.trim()
         text = text.replace(
-            Regex("""(?i)^\s*(please\s+)?(translate|translation|anuvad|translate kar do|translate karo)\s*[:,-]?\s*"""),
+            Regex("""(?i)^\s*(please\s+)?(translate kar do|translate karo|translation|translate|anuvad)\s*[:,-]?\s*"""),
             ""
         ).trim()
         text = text.replace(
