@@ -95,9 +95,15 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
             }
 
             validateJsonlEnvelope(final)
-            HeavyweightDataVaultManager(applicationContext).importExternalJsonl(final)
+            val stats = HeavyweightDataVaultManager(applicationContext).importExternalJsonl(final)
             final.delete()
-            Result.success()
+            Result.success(workDataOf(
+                KEY_BYTES to done,
+                KEY_TOTAL to done,
+                "knowledgeRows" to stats.knowledgeRows,
+                "translationRows" to stats.translationRows,
+                "regexRows" to stats.regexRows
+            ))
         } catch (t: kotlinx.coroutines.CancellationException) {
             throw t
         } catch (t: IOException) {
