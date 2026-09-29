@@ -72,6 +72,46 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         OrezBrainResponse(fallback(intent),intent)
     }
 
+    private fun extractTranslationText(input:String):String {
+        var text = input.trim()
+        text = text.replace(
+            Regex("""(?i)^\s*(please\s+)?(translate|translation|anuvad|translate kar do|translate karo)\s*[:,-]?\s*"""),
+            ""
+        ).trim()
+        text = text.replace(
+            Regex("""(?i)\s+(to|into|in)\s+(hindi|english|japanese|korean|chinese|spanish|french|roman hindi|hinglish)\s*[.!?]*$"""),
+            ""
+        ).trim()
+        return text.removeSurrounding("\"").removeSurrounding("'").ifBlank { input.trim() }
+    }
+
+    private fun shouldUseLiveSearch(input:String):Boolean {
+        val text = input.lowercase(Locale.ROOT)
+        return listOf(
+            "search online", "search the web", "look online", "on the internet",
+            "online sources", "latest", "today", "right now", "currently",
+            "current news", "recent news", "verify online", "fact check",
+            "find sources", "what happened today"
+        ).any { text.contains(it) }
+    }
+
+    private fun buildLiveAnswer(query:String, live:LiveSearchAnswer):String {
+        val findings = live.results.take(4).mapNotNull { result ->
+            val excerpt = result.snippet.trim()
+            if (excerpt.isBlank()) null else "• " + result.title + ": " + excerpt
+        }
+        if (findings.isEmpty()) return "I found search results, but their page text was not readable enough to answer reliably. Try a narrower question or ask for source links."
+        val sourceNames = live.results.take(4)
+            .mapNotNull { runCatching { java.net.URI(it.url).host?.removePrefix("www.") }.getOrNull() }
+            .distinct()
+        return buildString {
+            append("Here's the useful information I found about ").append(query).append(":\n\n")
+            append(findings.joinToString("\n\n"))
+            if (sourceNames.isNotEmpty()) append("\n\nSources checked: ").append(sourceNames.joinToString(", "))
+            append("\n\nThis is based on readable public-page text available now; dates and conflicting details should be checked in context.")
+        }
+    }
+
     private suspend fun retrieveConversation(query:String):OrezConversationEntity?{
         val tokens=keywords(query)
         if(tokens.isEmpty()) return database.datasets().searchConversations(query,5).firstOrNull()
