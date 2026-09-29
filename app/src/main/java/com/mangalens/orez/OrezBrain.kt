@@ -80,6 +80,10 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             ""
         ).trim()
         text = text.replace(
+            Regex("""(?i)^\s*(?:(?:this|the)\s+)?(?:text|sentence|phrase)?\s*(?:to|into|in)\s+(hindi|english|japanese|korean|chinese|spanish|french|roman hindi|hinglish)\s*[:,-]\s*"""),
+            ""
+        ).trim()
+        text = text.replace(
             Regex("""(?i)\s+(to|into|in)\s+(hindi|english|japanese|korean|chinese|spanish|french|roman hindi|hinglish)\s*[.!?]*$"""),
             ""
         ).trim()
