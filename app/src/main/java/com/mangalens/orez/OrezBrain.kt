@@ -162,13 +162,8 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
     }
 
     private suspend fun retrieveTranslation(source:String,targetLanguage:String):String?{
-        heavyVault.exactTranslation(source,targetLanguage)?.let{return it}
-        database.datasets().exactTranslation(source,targetLanguage)?.let{return it}
-        for(token in keywords(source).take(6)){
-            val hits=database.datasets().searchTranslations(token,targetLanguage,8)
-            if(hits.isNotEmpty()) return hits.first()
-        }
-        return null
+        heavyVault.exactTranslation(source.trim(),targetLanguage)?.let{return it}
+        return database.datasets().exactTranslation(source.trim(),targetLanguage)
     }
 
     private fun buildEvidence(local: OrezConversationEntity?, heavy: HeavyKnowledgeEntity?): String {
