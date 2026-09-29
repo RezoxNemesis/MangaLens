@@ -226,7 +226,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(error = "Manga translation is disabled in Settings → Translation Modules.")
             return
         }
-        val path = page.localPath ?: return
+        val path = page.localPath ?: run {
+            _state.value = _state.value.copy(error = "This page is not available as a local image yet. Reopen the chapter or import the image from Files.")
+            return
+        }
         translationJob = viewModelScope.launch(Dispatchers.Default) {
             _state.value = _state.value.copy(translating = true, error = null)
             var bitmap: android.graphics.Bitmap? = null
@@ -380,7 +383,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
     }
 
-    fun clearTranslations() { _state.value = _state.value.copy(translationEnabled = false, overlays = emptyMap()) }
+    fun clearTranslations() {
+        translationJob?.cancel()
+        _state.value = _state.value.copy(translating = false, translationEnabled = false, overlays = emptyMap())
+    }
 
     private suspend fun rememberTranslation(source: String, target: String, language: String) {
         if (source.isBlank() || target.isBlank()) return
