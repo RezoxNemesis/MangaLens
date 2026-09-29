@@ -4,23 +4,34 @@ import java.util.Base64
 
 object WebTranslationScript {
     fun build(targetLanguage: String): String {
-        val language = targetLanguage.replace("'", "")
+        val language = targetLanguage.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.take(12)
         return """
             (function() {
                 const target = '$language';
+                if (window.__mangalensTranslationOff) window.__mangalensTranslationOff();
                 const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
                 const nodes = [];
                 while (walker.nextNode()) {
                     const node = walker.currentNode;
                     const text = (node.nodeValue || '').trim();
-                    if (text.length > 1 && node.parentElement &&
-                        !['SCRIPT','STYLE','NOSCRIPT','TEXTAREA','INPUT'].includes(node.parentElement.tagName)) {
+                    const parent = node.parentElement;
+                    if (text.length > 1 && parent &&
+                        !['SCRIPT','STYLE','NOSCRIPT','TEXTAREA','INPUT','CODE','PRE'].includes(parent.tagName) &&
+                        !parent.closest('[data-mangalens-translation-ignore]')) {
                         nodes.push(node);
                     }
                 }
                 window.__mangalensTranslationNodes = nodes;
+                window.__mangalensTranslationOriginals = nodes.map(node => node.nodeValue);
                 window.__mangalensTargetLanguage = target;
-                return nodes.length;
+                window.__mangalensTranslationOff = function() {
+                    (window.__mangalensTranslationNodes || []).forEach(function(node, index) {
+                        if (node && node.isConnected && window.__mangalensTranslationOriginals[index] !== undefined) {
+                            node.nodeValue = window.__mangalensTranslationOriginals[index];
+                        }
+                    });
+                };
+                return JSON.stringify(nodes.map(node => node.nodeValue));
             })();
         """.trimIndent()
     }
