@@ -15,6 +15,7 @@ import com.mangalens.orez.OrezResourcePackManager
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.ui.MangaLensUiState
 import com.mangalens.ui.theme.ThemeMode
+import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,onMangaTranslationChanged:(Boolean)->Unit,onVideoTranslationChanged:(Boolean)->Unit,onWebTranslationChanged:(Boolean)->Unit,onTranslationStyleChanged:(String)->Unit,onCustomTranslationStyleChanged:(String)->Unit,onResetAdBlockStats:()->Unit){
@@ -31,7 +32,12 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
         }
     }
     var resourceUrl by remember{mutableStateOf("")}
-    LaunchedEffect(resourceManager){resourceManager.refresh()}
+    LaunchedEffect(resourceManager){
+        while(true){
+            resourceManager.refresh()
+            delay(1000L)
+        }
+    }
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
             Text("Settings",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,modifier=Modifier.padding(top=16.dp))
