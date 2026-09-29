@@ -46,7 +46,7 @@ class TranslationOcrEngine(
             suspendCancellableCoroutine { continuation ->
                 recognizer.process(InputImage.fromBitmap(bitmap, 0))
                     .addOnSuccessListener { result ->
-                        continuation.resume(result.textBlocks.flatMap { block ->
+                        if (continuation.isActive) continuation.resume(result.textBlocks.flatMap { block ->
                             block.lines.mapNotNull { line ->
                                 line.boundingBox?.let { box ->
                                     StyledTextRegion(
@@ -64,7 +64,7 @@ class TranslationOcrEngine(
                             }
                         })
                     }
-                    .addOnFailureListener { continuation.resumeWithException(it) }
+                    .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
             }
         } finally {
             recognizer.close()
