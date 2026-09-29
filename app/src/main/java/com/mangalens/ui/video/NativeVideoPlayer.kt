@@ -39,10 +39,14 @@ fun NativeVideoPlayer(
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var downloadQuality by remember { mutableStateOf(com.mangalens.download.DownloadQuality.P1080) }
     var downloadStatus by remember { mutableStateOf<String?>(null) }
+    var liveTranslationEnabled by remember { mutableStateOf(translationEnabled) }
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
     val playerVm: LocalVideoPlayerViewModel = viewModel()
     val player = playerVm.player
     val scope = rememberCoroutineScope()
     LaunchedEffect(url) { playerVm.openHttp(url) }
+    LaunchedEffect(translationEnabled) { liveTranslationEnabled = translationEnabled }
 
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window
@@ -59,6 +63,13 @@ fun NativeVideoPlayer(
     }
 
     LaunchedEffect(hudVisible) {
+        LiveVideoOcrTranslationOverlay(
+            enabled = liveTranslationEnabled,
+            targetLanguage = targetLanguage,
+            playerView = playerView,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (hudVisible) 132.dp else 8.dp)
+        )
+
         if (hudVisible) {
             delay(2000)
             hudVisible = false
@@ -119,6 +130,8 @@ fun NativeVideoPlayer(
             factory = {
                 PlayerView(it).apply {
                     this.player = player
+                    useTextureView = true
+                    playerView = this
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -127,7 +140,7 @@ fun NativeVideoPlayer(
                     this.resizeMode = resizeMode
                 }
             },
-            update = { it.resizeMode = resizeMode },
+            update = { it.resizeMode = resizeMode; playerView = it },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -150,7 +163,7 @@ fun NativeVideoPlayer(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         TextButton(onClick = { downloadQuality = when (downloadQuality) { com.mangalens.download.DownloadQuality.P480 -> com.mangalens.download.DownloadQuality.P720; com.mangalens.download.DownloadQuality.P720 -> com.mangalens.download.DownloadQuality.P1080; com.mangalens.download.DownloadQuality.P1080 -> com.mangalens.download.DownloadQuality.P1440; com.mangalens.download.DownloadQuality.P1440 -> com.mangalens.download.DownloadQuality.P2160; com.mangalens.download.DownloadQuality.P2160 -> com.mangalens.download.DownloadQuality.P480 } }) { Text("Quality") }
                         TextButton(onClick = {}) { Text("🔒 Lock") }
-                        TextButton(onClick = {}) { Text(if (translationEnabled) "Subtitles enabled" else "Subtitles off") }
+                        TextButton(onClick = { liveTranslationEnabled = !liveTranslationEnabled }) { Text(if (liveTranslationEnabled) "Live OCR on" else "Live OCR off") }
                         TextButton(onClick = {
                             scope.launch {
                                 runCatching { MediaDownloadManager(context).enqueue(url, "MangaLens video", quality = downloadQuality) }
