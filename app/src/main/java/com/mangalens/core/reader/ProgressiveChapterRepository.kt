@@ -1,6 +1,7 @@
 package com.mangalens.core.reader
 
 import android.content.Context
+import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +39,31 @@ class ProgressiveChapterRepository(
             result += persistPage(index + 1, url)
         }
         return result
+    }
+
+    suspend fun persistLocalImages(uris: List<Uri>, context: Context): List<ChapterPage> = withContext(Dispatchers.IO) {
+        require(uris.isNotEmpty()) { "Select at least one image." }
+        val imported = mutableListOf<ChapterPage>()
+        uris.forEachIndexed { index, uri ->
+            val key = sha256(uri.toString() + "|" + index)
+            val file = File(chapterDir, "local_" + key + ".img")
+            if (!file.exists() || file.length() == 0L) {
+                val input = context.contentResolver.openInputStream(uri)
+                    ?: throw java.io.IOException("Unable to open selected image " + (index + 1))
+                val temp = File(chapterDir, file.name + ".part")
+                try {
+                    input.use { source -> temp.outputStream().buffered().use { output -> source.copyTo(output, 64 * 1024) } }
+                    require(temp.length() > 0L) { "Selected image " + (index + 1) + " is empty." }
+                    if (!temp.renameTo(file)) temp.copyTo(file, true).also { temp.delete() }
+                } catch (failure: Throwable) {
+                    temp.delete()
+                    throw failure
+                }
+            }
+            imported += ChapterPage(index + 1, uri.toString(), file.absolutePath)
+        }
+        _pages.value = imported
+        imported
     }
 
     fun clearChapterCache() {
