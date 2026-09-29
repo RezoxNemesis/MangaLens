@@ -79,7 +79,8 @@ class MainActivity : ComponentActivity() {
                     onMangaTranslationChanged = viewModel::setMangaTranslationEnabled,
                     onVideoTranslationChanged = viewModel::setVideoTranslationEnabled,
                     onWebTranslationChanged = viewModel::setWebTranslationEnabled,
-                    onResetAdBlockStats = viewModel::resetAdBlockStats
+                    onResetAdBlockStats = viewModel::resetAdBlockStats,
+                    onImportImages = viewModel::importLocalImages
                 )
                 val verificationRequest = verification.request
                 if (
