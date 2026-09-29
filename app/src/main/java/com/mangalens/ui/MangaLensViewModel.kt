@@ -227,6 +227,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 bitmap = decodeForOcr(path) ?: error("Unable to decode page image")
                 val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
+                if (advancedRegions.isEmpty()) error("No readable text was detected on this page. Try a clearer, higher-resolution image.")
                 val translated = advancedRegions.map { region ->
                     val draft = translator.translate(region.source, targetLanguage)
                     val refined = orezRefiner.refine(
@@ -286,7 +287,12 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     if (page.localPath.isNullOrBlank()) continue
                     translatePageInternal(page, targetLanguage)
                 }
-                _state.value = _state.value.copy(translating = false, translationEnabled = true)
+                val hasTranslations = _state.value.overlays.values.any { it.isNotEmpty() }
+                _state.value = _state.value.copy(
+                    translating = false,
+                    translationEnabled = hasTranslations,
+                    error = if (hasTranslations) _state.value.error else "No readable text was detected in this chapter. Try another page or a clearer source."
+                )
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
@@ -300,6 +306,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         val bitmap = decodeForOcr(path) ?: return
         try {
         val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
+        if (advancedRegions.isEmpty()) {
+            _state.value = _state.value.copy(error = "No readable text was detected on page " + page.index + ".")
+            return
+        }
         val style = if (_state.value.translationStyle == "custom") {
             com.mangalens.core.translation.TranslationStyleProfile.custom(_state.value.customTranslationStyle)
         } else {
