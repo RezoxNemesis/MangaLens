@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onModeSelected = viewModel::setMode,
                     onIngest = viewModel::ingest,
+                    onIngestAndTranslate = viewModel::ingestAndTranslate,
                     onTranslatePage = viewModel::translatePage,
                     onTranslateChapter = viewModel::translateChapter,
                     onTargetLanguageChanged = viewModel::setTargetLanguage,
