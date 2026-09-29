@@ -40,7 +40,8 @@ fun MangaLensNavGraph(
     onMangaTranslationChanged: (Boolean) -> Unit,
     onVideoTranslationChanged: (Boolean) -> Unit,
     onWebTranslationChanged: (Boolean) -> Unit,
-    onResetAdBlockStats: () -> Unit
+    onResetAdBlockStats: () -> Unit,
+    onImportImages: (List<android.net.Uri>) -> Unit
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
@@ -81,7 +82,8 @@ fun MangaLensNavGraph(
                     onOpenReader = { navController.navigate("reader") },
                     onOpenVideo = { navController.navigate("video") },
                     onOpenDownloads = { navController.navigate("downloads") },
-                    onOpenChapter = { url -> onUrlChanged(url); onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") }
+                    onOpenChapter = { url -> onUrlChanged(url); onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") },
+                    onImportImages = { uris -> onImportImages(uris); navController.navigate("reader") }
                 )
             }
             composable("library") {
