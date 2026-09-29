@@ -63,6 +63,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val orezRefiner = com.mangalens.core.translation.TranslationOrezRefiner(application)
     private var translationJob: kotlinx.coroutines.Job? = null
     private var ingestionJob: kotlinx.coroutines.Job? = null
+    private var translateWhenPagesReady = false
     private val chapterScraper = MangaChapterScraper(application)
     private val chapterCatalog = MangaChapterCatalogScraper(application)
     private val translator = TranslationService()
@@ -150,6 +151,11 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun ingestAndTranslate() {
+        translateWhenPagesReady = true
+        ingest()
+    }
+
     fun ingest() {
         ingestionJob?.cancel()
         val target = _state.value.url
@@ -174,6 +180,12 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false, error = result.navigationError)
                     }
                     ContentType.GENERIC_WEB -> _state.value = _state.value.copy(mode = ContentType.GENERIC_WEB, loading = false)
+                }
+                val availablePages = repository.pages.value
+                if (translateWhenPagesReady && _state.value.mode == ContentType.IMAGE_CHAPTER && availablePages.isNotEmpty()) {
+                    translateWhenPagesReady = false
+                    _state.value = _state.value.copy(pages = availablePages, loading = false)
+                    translateChapter()
                 }
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
