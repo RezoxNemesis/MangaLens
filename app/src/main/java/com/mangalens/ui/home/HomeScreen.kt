@@ -1,6 +1,10 @@
 package com.mangalens.ui.home
 
 import android.content.ClipDescription
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,8 +19,14 @@ import com.mangalens.core.model.ContentType
 import com.mangalens.ui.MangaLensUiState
 
 @Composable
-fun HomeScreen(state:MangaLensUiState,onUrlChanged:(String)->Unit,onPaste:()->Unit,onModeSelected:(ContentType)->Unit,onIngest:()->Unit,onOpenReader:()->Unit,onOpenVideo:()->Unit,onOpenDownloads:()->Unit,onOpenChapter:(String)->Unit){
+fun HomeScreen(state:MangaLensUiState,onUrlChanged:(String)->Unit,onPaste:()->Unit,onModeSelected:(ContentType)->Unit,onIngest:()->Unit,onOpenReader:()->Unit,onOpenVideo:()->Unit,onOpenDownloads:()->Unit,onOpenChapter:(String)->Unit,onImportImages:(List<Uri>)->Unit){
     val context=LocalContext.current
+    val imagePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){uris->
+        if(uris.isNotEmpty()){
+            uris.forEach{uri->runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}}
+            onImportImages(uris)
+        }
+    }
     fun safePaste(){
         runCatching{
             val clipboard=context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return@runCatching
@@ -36,6 +46,7 @@ fun HomeScreen(state:MangaLensUiState,onUrlChanged:(String)->Unit,onPaste:()->Un
         Text("OPEN AS",fontWeight=FontWeight.Bold)
         LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){items(listOf(ContentType.IMAGE_CHAPTER to "Manga",ContentType.VIDEO_STREAM to "Video",ContentType.GENERIC_WEB to "Web")){(mode,label)->FilterChip(selected=state.mode==mode,onClick={onModeSelected(mode)},label={Text(label)})}}
         Button(onClick=onIngest,enabled=state.url.isNotBlank()&&!state.loading,modifier=Modifier.fillMaxWidth()){if(state.loading)CircularProgressIndicator(modifier=Modifier.height(18.dp))else Text("OPEN")}
+        OutlinedButton(onClick={imagePicker.launch(arrayOf("image/*"))},modifier=Modifier.fillMaxWidth()){Text("IMPORT IMAGES • OCR + TRANSLATE")}
         OutlinedButton(onClick=onOpenDownloads,modifier=Modifier.fillMaxWidth()){Text("UNIVERSAL DOWNLOADER • 480P → 4K")}
         if(state.chapters.isNotEmpty()){Text("CHAPTERS",fontWeight=FontWeight.Bold);state.chapters.take(20).forEach{chapter->ElevatedCard(onClick={onOpenChapter(chapter.url)},modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){Text(chapter.title.ifBlank{"Chapter"});Text(chapter.url,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)}}}}
         Text("RECENT",fontWeight=FontWeight.Bold)
