@@ -142,7 +142,7 @@ fun MangaLensNavGraph(
                 arguments = listOf(androidx.navigation.navArgument("uri") { type = androidx.navigation.NavType.StringType; defaultValue = "" })
             ) { entry ->
                 val raw = entry.arguments?.getString("uri").orEmpty()
-                LocalVideoPlayerScreen(initialUri = raw.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse), modifier = Modifier.fillMaxSize())
+                LocalVideoPlayerScreen(initialUri = raw.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse), translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize())
             }
             composable("web") { AdBlockedWebScreen(state.url, translationEnabled = state.webTranslationEnabled, modifier = Modifier.fillMaxSize(), targetLanguage = state.targetLanguage) }
         }
