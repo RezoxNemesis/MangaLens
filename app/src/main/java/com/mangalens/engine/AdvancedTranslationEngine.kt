@@ -14,6 +14,7 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.TextRecognizer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -88,7 +89,15 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
         )
         return try {
-            val results = candidates.map { recognizer -> runCatching { recognizeWith(recognizer, bitmap) }.getOrDefault(emptyList()) }
+            val results = candidates.map { recognizer ->
+                try {
+                    recognizeWith(recognizer, bitmap)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+            }
             results.maxByOrNull { it.sumOf { region -> region.source.length } } ?: emptyList()
         } finally {
             candidates.forEach { it.close() }
