@@ -265,9 +265,15 @@ jobs:
 
   build-and-validate-apk:
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      - name: Confirm runner allocation and workflow context
+        run: |
+          set -euo pipefail
+          echo "Runner acquired: $(uname -a)"
+          echo "Event: ${GITHUB_EVENT_NAME}"
+          echo "Commit: ${GITHUB_SHA}"
       - uses: actions/checkout@v4
       - name: Prepare Android SDK
         run: |
