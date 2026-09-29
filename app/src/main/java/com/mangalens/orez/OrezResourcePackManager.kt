@@ -19,7 +19,8 @@ data class OrezResourcePackState(
     val bytes: Long = 0L,
     val total: Long = 0L,
     val label: String = "",
-    val error: String? = null
+    val error: String? = null,
+    val message: String? = null
 ) {
     val progress: Float
         get() = if (total <= 0L) 0f else (bytes.toFloat() / total).coerceIn(0f, 1f)
@@ -106,7 +107,12 @@ class OrezResourcePackManager(private val context: Context) {
                     bytes = work.progress.getLong(OrezResourcePackWorker.KEY_BYTES, 0L),
                     total = work.progress.getLong(OrezResourcePackWorker.KEY_TOTAL, 0L),
                     label = label,
-                    error = work.outputData.getString(OrezResourcePackWorker.KEY_ERROR)
+                    error = work.outputData.getString(OrezResourcePackWorker.KEY_ERROR),
+                    message = if (work.state == androidx.work.WorkInfo.State.SUCCEEDED) {
+                        "Imported " + work.outputData.getLong("knowledgeRows", 0L) + " knowledge records, " +
+                            work.outputData.getLong("translationRows", 0L) + " translations, and " +
+                            work.outputData.getLong("regexRows", 0L) + " OCR rules."
+                    } else null
                 )
             }
         }
