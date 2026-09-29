@@ -45,6 +45,7 @@ import kotlin.math.roundToInt
 @Composable
 fun LocalVideoPlayerScreen(
     initialUri: Uri? = null,
+    translationEnabled: Boolean = false,
     modifier: Modifier = Modifier,
     vm: LocalVideoPlayerViewModel = viewModel()
 ) {
@@ -62,7 +63,7 @@ fun LocalVideoPlayerScreen(
     var subtitleBusy by rememberSaveable { mutableStateOf(false) }
     var subtitleStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var subtitleLanguage by rememberSaveable { mutableStateOf("hi") }
-    var liveTranslationEnabled by rememberSaveable { mutableStateOf(false) }
+    var liveTranslationEnabled by rememberSaveable { mutableStateOf(translationEnabled) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -99,6 +100,7 @@ fun LocalVideoPlayerScreen(
     val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> subtitle = uri; subtitleStatus = uri?.let { "Subtitle file selected." } }
 
     LaunchedEffect(initialUri) { initialUri?.let(vm::open) }
+    LaunchedEffect(translationEnabled) { liveTranslationEnabled = translationEnabled }
 
     DisposableEffect(vm.player) {
         val listener = object : androidx.media3.common.Player.Listener {
