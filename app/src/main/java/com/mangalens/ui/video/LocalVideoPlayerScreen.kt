@@ -150,7 +150,7 @@ fun LocalVideoPlayerScreen(
             })
     ) {
         AndroidView(
-            factory = { PlayerView(it).apply { useTextureView = true; playerView = this; vm.bind(this); useController = true; controllerAutoShow = false } },
+            factory = { PlayerView(it).apply { playerView = this; vm.bind(this); useController = true; controllerAutoShow = false } },
             update = { view ->
                 playerView = view
                 view.setResizeMode(resizeMode)
