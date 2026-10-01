@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
 import java.util.zip.GZIPInputStream
@@ -34,7 +35,7 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
 
             if(!uri.isNullOrBlank()){
                 val selected=Uri.parse(uri)
-                val total=runCatching{applicationContext.contentResolver.openAssetFileDescriptor(selected,"r")?.use{it.length}}.getOrDefault(-1L)
+                val total = runCatching { applicationContext.contentResolver.openAssetFileDescriptor(selected, "r")?.use { it.length } }.getOrNull() ?: -1L
                 val input=applicationContext.contentResolver.openInputStream(selected) ?: error("Unable to open selected pack.")
                 val stats=input.use { HeavyweightDataVaultManager(applicationContext).importExternalStream(it, selected.lastPathSegment.orEmpty()) }
                 setProgress(workDataOf(KEY_BYTES to total.coerceAtLeast(0L),KEY_TOTAL to total))
