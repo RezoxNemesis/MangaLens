@@ -63,13 +63,6 @@ fun NativeVideoPlayer(
     }
 
     LaunchedEffect(hudVisible) {
-        LiveVideoOcrTranslationOverlay(
-            enabled = liveTranslationEnabled,
-            targetLanguage = targetLanguage,
-            playerView = playerView,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (hudVisible) 132.dp else 8.dp)
-        )
-
         if (hudVisible) {
             delay(2000)
             hudVisible = false
@@ -130,7 +123,6 @@ fun NativeVideoPlayer(
             factory = {
                 PlayerView(it).apply {
                     this.player = player
-                    useTextureView = true
                     playerView = this
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -142,6 +134,13 @@ fun NativeVideoPlayer(
             },
             update = { it.resizeMode = resizeMode; playerView = it },
             modifier = Modifier.fillMaxSize()
+        )
+
+        LiveVideoOcrTranslationOverlay(
+            enabled = liveTranslationEnabled,
+            targetLanguage = targetLanguage,
+            playerView = playerView,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (hudVisible) 132.dp else 8.dp)
         )
 
         if (hudVisible) {
