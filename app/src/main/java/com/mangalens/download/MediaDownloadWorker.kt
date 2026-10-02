@@ -143,7 +143,9 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: error("Unable to create download destination")
             try {
-                resolver.openOutputStream(uri)!!.use { output ->
+                val destination = resolver.openOutputStream(uri)
+                    ?: throw IOException("Unable to open download destination for writing.")
+                destination.use { output ->
                     temp.inputStream().use { input -> input.copyTo(output, BUFFER_SIZE) }
                 }
                 values.clear()
