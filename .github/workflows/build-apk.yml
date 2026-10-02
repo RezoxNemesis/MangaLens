@@ -366,6 +366,8 @@ jobs:
           test "$(wc -c < "$APK")" -gt 1000000
           sha256sum "$APK" | tee "$APK.sha256"
       - name: Upload pull-request debug APK
+        id: upload_pr_apk
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: mangalens-pr-debug-apk
@@ -373,3 +375,18 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256
           retention-days: 7
+      - name: Publish APK release if artifact storage is unavailable
+        if: steps.upload_pr_apk.outcome == 'failure'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mangalens-pr-${{ github.event.pull_request.number }}-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: MangaLens PR #${{ github.event.pull_request.number }} APK build ${{ github.run_number }}
+          body: |
+            Fallback APK for testing because GitHub Actions artifact upload failed.
+            Built from workflow commit ${{ github.sha }}.
+          prerelease: true
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
