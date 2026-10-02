@@ -15,17 +15,35 @@ class ProgressiveChapterRepository(
     context: Context,
     private val client: OkHttpClient = OkHttpClient()
 ) {
-    private val chapterDir = File(context.cacheDir, "chapters").apply { mkdirs() }
+    private val chapterDir = File(context.filesDir, "chapters").apply {
+        check(isDirectory || mkdirs()) { "Unable to create persistent chapter storage." }
+    }
     private val _pages = MutableStateFlow<List<ChapterPage>>(emptyList())
     val pages: StateFlow<List<ChapterPage>> = _pages
 
     suspend fun persistPage(index: Int, sourceUrl: String): ChapterPage = withContext(Dispatchers.IO) {
         val file = File(chapterDir, index.toString() + "_" + sha256(sourceUrl) + ".img")
-        if (!file.exists()) {
-            client.newCall(Request.Builder().url(sourceUrl).build()).execute().use { response ->
-                check(response.isSuccessful) { "Page download failed: HTTP " + response.code }
-                val body = response.body ?: error("Empty image response")
-                body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+        if (file.length() == 0L) file.delete()
+        if (!file.isFile) {
+            val temp = File(chapterDir, file.name + ".part")
+            temp.delete()
+            try {
+                client.newCall(Request.Builder().url(sourceUrl).build()).execute().use { response ->
+                    check(response.isSuccessful) { "Page download failed: HTTP " + response.code }
+                    val body = response.body ?: error("Empty image response")
+                    body.byteStream().use { input ->
+                        temp.outputStream().buffered().use { output -> input.copyTo(output, 64 * 1024) }
+                    }
+                }
+                check(temp.length() > 0L) { "Downloaded chapter page is empty." }
+                if (!temp.renameTo(file)) {
+                    temp.copyTo(file, overwrite = true)
+                    temp.delete()
+                }
+                check(file.isFile && file.length() > 0L) { "Unable to persist downloaded chapter page." }
+            } catch (failure: Throwable) {
+                temp.delete()
+                throw failure
             }
         }
         val page = ChapterPage(index, sourceUrl, file.absolutePath)

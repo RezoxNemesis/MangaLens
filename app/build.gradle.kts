@@ -16,6 +16,15 @@ android {
         versionName = "1.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // Ship ABI-specific APKs so phone users don't download the emulator's native libraries.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
