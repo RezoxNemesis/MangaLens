@@ -55,6 +55,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -168,7 +169,7 @@ fun HomeScreen(
         if (state.chapters.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeading("Discovered chapters", "${state.chapters.size} available")
-                state.chapters.take(5).forEach { chapter ->
+                state.chapters.take(20).forEach { chapter ->
                     ElevatedCard(
                         onClick = { onOpenChapter(chapter.url) },
                         modifier = Modifier.fillMaxWidth(),
