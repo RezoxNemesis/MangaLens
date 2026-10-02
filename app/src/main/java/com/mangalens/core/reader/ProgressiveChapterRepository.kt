@@ -31,8 +31,14 @@ class ProgressiveChapterRepository(
                 client.newCall(Request.Builder().url(sourceUrl).build()).execute().use { response ->
                     check(response.isSuccessful) { "Page download failed: HTTP " + response.code }
                     val body = response.body ?: error("Empty image response")
+                    val declaredLength = body.contentLength()
+                    check(declaredLength <= MAX_PAGE_BYTES) {
+                        "Chapter page exceeds the safe per-page limit of " + formatLimit(MAX_PAGE_BYTES) + "."
+                    }
                     body.byteStream().use { input ->
-                        temp.outputStream().buffered().use { output -> input.copyTo(output, 64 * 1024) }
+                        temp.outputStream().buffered().use { output ->
+                            BoundedTransfer.copy(input, output, MAX_PAGE_BYTES)
+                        }
                     }
                 }
                 check(temp.length() > 0L) { "Downloaded chapter page is empty." }
@@ -70,7 +76,11 @@ class ProgressiveChapterRepository(
                     ?: throw java.io.IOException("Unable to open selected image " + (index + 1))
                 val temp = File(chapterDir, file.name + ".part")
                 try {
-                    input.use { source -> temp.outputStream().buffered().use { output -> source.copyTo(output, 64 * 1024) } }
+                    input.use { source ->
+                        temp.outputStream().buffered().use { output ->
+                            BoundedTransfer.copy(source, output, MAX_PAGE_BYTES)
+                        }
+                    }
                     require(temp.length() > 0L) { "Selected image " + (index + 1) + " is empty." }
                     if (!temp.renameTo(file)) temp.copyTo(file, true).also { temp.delete() }
                 } catch (failure: Throwable) {
@@ -92,4 +102,10 @@ class ProgressiveChapterRepository(
     private fun sha256(value: String): String =
         MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
             .joinToString("") { "%02x".format(it) }.take(16)
+
+    private fun formatLimit(bytes: Long): String = (bytes / (1024L * 1024L)).toString() + " MiB"
+
+    private companion object {
+        const val MAX_PAGE_BYTES = 40L * 1024L * 1024L
+    }
 }
