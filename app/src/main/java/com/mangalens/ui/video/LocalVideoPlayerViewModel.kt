@@ -50,14 +50,15 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openHttp(value: String, referer: String? = null) {
         if (uri?.toString() == value && player.mediaItemCount > 0) return
-        uri = Uri.parse(value)
+        val parsedUri = Uri.parse(value)
+        uri = parsedUri
         val properties = mutableMapOf(
             "User-Agent" to "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
             "Accept" to "*/*"
         )
         referer?.takeIf { it.startsWith("http") }?.let { properties["Referer"] = it }
         httpFactory.setDefaultRequestProperties(properties)
-        player.setMediaItem(MediaItem.fromUri(uri!!))
+        player.setMediaItem(MediaItem.fromUri(parsedUri))
         player.prepare()
         player.playWhenReady = true
     }
