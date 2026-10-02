@@ -258,7 +258,43 @@ jobs:
             test "$(wc -c < "$ABI_APK")" -gt 1000000
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
+      - name: Enable hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Launch MangaLens in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disk-size: 2048M
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          pre-emulator-launch-script: |
+            rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/wrapper/dists"
+            rm -rf "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmake"
+            rm -rf "$GITHUB_WORKSPACE/orez-native/build"
+            find "$GITHUB_WORKSPACE/app/build" -mindepth 1 -maxdepth 1 ! -name outputs -exec rm -rf {} + 2>/dev/null || true
+            df -h "$HOME"
+          script: bash .github/scripts/mangalens-startup-smoke.sh
+      - name: Upload MangaLens startup diagnostics
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangalens-startup-diagnostics
+          path: app/build/diagnostics/**
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload downloadable APK artifact
+        id: upload_main_apk
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: mangalens-debug-apk
@@ -336,11 +372,26 @@ jobs:
             app/build/outputs/apk/debug/app-*-debug.apk
             app/build/outputs/apk/debug/app-*-debug.apk.sha256
           retention-days: 7
+      - name: Publish main APK release if artifact storage is unavailable
+        if: steps.upload_main_apk.outcome == 'failure'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mangalens-build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: MangaLens APK build ${{ github.run_number }}
+          body: |
+            Automated MangaLens debug APKs built and launch-smoke-tested from commit ${{ github.sha }}.
+            GitHub Actions artifact storage was unavailable, so these files are published as a prerelease fallback.
+          prerelease: true
+          files: |
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
 
   pull-request-validation:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -377,6 +428,40 @@ jobs:
             test "$(wc -c < "$ABI_APK")" -gt 1000000
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
+      - name: Enable hardware acceleration for PR smoke test
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Launch PR APK in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disk-size: 2048M
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          pre-emulator-launch-script: |
+            rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/wrapper/dists"
+            rm -rf "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmake"
+            rm -rf "$GITHUB_WORKSPACE/orez-native/build"
+            find "$GITHUB_WORKSPACE/app/build" -mindepth 1 -maxdepth 1 ! -name outputs -exec rm -rf {} + 2>/dev/null || true
+            df -h "$HOME"
+          script: bash .github/scripts/mangalens-startup-smoke.sh
+      - name: Upload PR startup diagnostics
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangalens-pr-startup-diagnostics
+          path: app/build/diagnostics/**
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload pull-request debug APK
         id: upload_pr_apk
         continue-on-error: true
