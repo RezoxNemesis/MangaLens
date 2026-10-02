@@ -250,17 +250,21 @@ jobs:
       - name: Verify APK
         run: |
           set -euo pipefail
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          test -s "$APK"
-          test "$(wc -c < "$APK")" -gt 1000000
-          sha256sum "$APK" | tee "$APK.sha256"
+          APK_DIR=app/build/outputs/apk/debug
+          APK_COUNT="$(find "$APK_DIR" -maxdepth 1 -name 'app-*-debug.apk' -type f | wc -l)"
+          test "$APK_COUNT" -eq 2
+          for ABI_APK in "$APK_DIR"/app-*-debug.apk; do
+            test -s "$ABI_APK"
+            test "$(wc -c < "$ABI_APK")" -gt 1000000
+            sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
+          done
       - name: Upload downloadable APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: mangalens-debug-apk
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
           retention-days: 7
 
   build-and-validate-apk:
@@ -316,17 +320,21 @@ jobs:
       - name: Verify APK
         run: |
           set -euo pipefail
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          test -s "$APK"
-          test "$(wc -c < "$APK")" -gt 1000000
-          sha256sum "$APK" | tee "$APK.sha256"
+          APK_DIR=app/build/outputs/apk/debug
+          APK_COUNT="$(find "$APK_DIR" -maxdepth 1 -name 'app-*-debug.apk' -type f | wc -l)"
+          test "$APK_COUNT" -eq 2
+          for ABI_APK in "$APK_DIR"/app-*-debug.apk; do
+            test -s "$ABI_APK"
+            test "$(wc -c < "$ABI_APK")" -gt 1000000
+            sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
+          done
       - name: Upload downloadable APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: mangalens-debug-apk
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
           retention-days: 7
 
   pull-request-validation:
@@ -361,10 +369,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          test -s "$APK"
-          test "$(wc -c < "$APK")" -gt 1000000
-          sha256sum "$APK" | tee "$APK.sha256"
+          APK_DIR=app/build/outputs/apk/debug
+          APK_COUNT="$(find "$APK_DIR" -maxdepth 1 -name 'app-*-debug.apk' -type f | wc -l)"
+          test "$APK_COUNT" -eq 2
+          for ABI_APK in "$APK_DIR"/app-*-debug.apk; do
+            test -s "$ABI_APK"
+            test "$(wc -c < "$ABI_APK")" -gt 1000000
+            sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
+          done
       - name: Upload pull-request debug APK
         id: upload_pr_apk
         continue-on-error: true
@@ -372,8 +384,8 @@ jobs:
         with:
           name: mangalens-pr-debug-apk
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
           retention-days: 7
       - name: Publish APK release if artifact storage is unavailable
         if: steps.upload_pr_apk.outcome == 'failure'
@@ -388,5 +400,5 @@ jobs:
             Built from workflow commit ${{ github.sha }}.
           prerelease: true
           files: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
