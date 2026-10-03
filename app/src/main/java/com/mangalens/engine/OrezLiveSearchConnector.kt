@@ -7,7 +7,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
@@ -34,21 +33,7 @@ class OrezLiveSearchConnector(
             }
         }.getOrDefault("")
 
-        val links = Regex(
-            """<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>""",
-            RegexOption.IGNORE_CASE
-        ).findAll(html).take(limit.coerceIn(1, 10)).toList()
-        val snippets = Regex(
-            """<(?:a|div)[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>(.*?)</(?:a|div)>""",
-            RegexOption.IGNORE_CASE
-        ).findAll(html).map { clean(it.groupValues[1]) }.toList()
-
-        val results = links.mapIndexedNotNull { index, match ->
-            val title = clean(match.groupValues[2])
-            val url = unwrapUrl(match.groupValues[1])
-            if (title.isBlank() || !url.startsWith("http")) null
-            else OrezSearchResult(title, snippets.getOrNull(index).orEmpty(), url)
-        }.distinctBy { it.url }
+        val results = OrezSearchParser.parse(html, limit)
 
         val enriched = coroutineScope {
             results.take(4).map { result ->
@@ -123,14 +108,6 @@ class OrezLiveSearchConnector(
         val matched = ranked.filter { it.second > 0 }.take(3).map { it.first }
         return (matched.ifEmpty { sentences.take(2) }).map { it.take(650) }
     }
-
-    private fun unwrapUrl(raw: String): String {
-        val decoded = cleanAttribute(raw).replace("&amp;", "&")
-        val uddg = Regex("""(?:\?|&)uddg=([^&]+)""").find(decoded)?.groupValues?.get(1)
-        return if (uddg != null) runCatching { URLDecoder.decode(uddg, "UTF-8") }.getOrDefault(uddg) else decoded
-    }
-
-    private fun cleanAttribute(value: String) = value.replace("&amp;", "&").replace("&#x2F;", "/")
 
     companion object { private const val MAX_HTML_BYTES = 1_500_000 }
 

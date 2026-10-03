@@ -11,6 +11,7 @@ mkdir -p "$DIAGNOSTICS"
 collect_diagnostics() {
   adb logcat -d -v threadtime > "$DIAGNOSTICS/logcat.txt" 2>&1 || true
   adb shell dumpsys activity activities > "$DIAGNOSTICS/activities.txt" 2>&1 || true
+  adb shell dumpsys meminfo "$PACKAGE" > "$DIAGNOSTICS/memory-startup.txt" 2>&1 || true
   adb shell screencap -p /sdcard/mangalens-startup.png >/dev/null 2>&1 || true
   adb pull /sdcard/mangalens-startup.png "$DIAGNOSTICS/startup-screen.png" >/dev/null 2>&1 || true
 }
@@ -22,7 +23,7 @@ adb install -r "$APK"
 adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
 adb logcat -c
 adb shell am force-stop "$PACKAGE"
-adb shell am start -W -n "$ACTIVITY"
+adb shell am start -W -n "$ACTIVITY" | tee "$DIAGNOSTICS/startup-timing.txt"
 sleep 6
 
 if ! adb shell pidof "$PACKAGE" > "$DIAGNOSTICS/pid.txt" 2>&1; then
