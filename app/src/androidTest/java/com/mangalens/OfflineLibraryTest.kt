@@ -11,6 +11,19 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class OfflineLibraryTest {
+    @Test fun downloadProviderGrantsOnlyDownloadFiles() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val file = File(File(context.filesDir, "downloads").apply { mkdirs() }, "provider_fixture.txt").apply { writeText("fixture") }
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.downloads", file)
+            assertEquals("content", uri.scheme)
+            assertEquals("fixture", context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() })
+            try {
+                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.downloads", File(context.filesDir, "private.json"))
+                fail("Provider must not expose unrelated app files")
+            } catch (_: IllegalArgumentException) { }
+        } finally { file.delete() }
+    }
     @Test fun changingChapterRetainsOfflinePagesAndRestoresProgress() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.filesDir, "chapters").apply { mkdirs() }

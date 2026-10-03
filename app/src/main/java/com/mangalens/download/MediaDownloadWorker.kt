@@ -172,10 +172,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         }
 
         val dir = applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-            ?: applicationContext.filesDir
+            ?: File(applicationContext.filesDir, "downloads").apply { mkdirs() }
         val file = File(dir, safeName(title, mime))
         temp.copyTo(file, true)
-        return android.net.Uri.fromFile(file)
+        return androidx.core.content.FileProvider.getUriForFile(applicationContext, "${applicationContext.packageName}.downloads", file)
     }
 
     private fun safeName(title: String, mime: String): String {
