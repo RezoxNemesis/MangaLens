@@ -7,6 +7,24 @@
 static std::mutex g_mutex;
 static llama_model * g_model = nullptr;
 
+// Java strings expose modified UTF-8 through GetStringUTFChars, which corrupts emoji.
+static std::string java_utf8(JNIEnv * env, jstring value) {
+    jclass stringClass = env->FindClass("java/lang/String");
+    jmethodID getBytes = env->GetMethodID(stringClass, "getBytes", "(Ljava/lang/String;)[B");
+    jstring charset = env->NewStringUTF("UTF-8");
+    auto bytes = static_cast<jbyteArray>(env->CallObjectMethod(value, getBytes, charset));
+    std::string result;
+    if (bytes != nullptr && !env->ExceptionCheck()) {
+        result.resize(static_cast<size_t>(env->GetArrayLength(bytes)));
+        if (!result.empty()) env->GetByteArrayRegion(bytes, 0, static_cast<jsize>(result.size()), reinterpret_cast<jbyte *>(&result[0]));
+        env->DeleteLocalRef(bytes);
+    }
+    env->DeleteLocalRef(charset);
+    env->DeleteLocalRef(stringClass);
+    return result;
+}
+
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_mangalens_oreznative_OrezNativeEngine_nativeLoad(
         JNIEnv * env, jobject, jstring path) {
@@ -27,10 +45,8 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
         JNIEnv * env, jobject, jstring prompt, jint maxTokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_model == nullptr) return env->NewStringUTF("");
-    const char * promptChars = env->GetStringUTFChars(prompt, nullptr);
-    if (promptChars == nullptr) return env->NewStringUTF("");
-    std::string input(promptChars);
-    env->ReleaseStringUTFChars(prompt, promptChars);
+    std::string input = java_utf8(env, prompt);
+    if (env->ExceptionCheck()) return nullptr;
 
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
     const int nPrompt = -llama_tokenize(vocab, input.c_str(), input.size(), nullptr, 0, true, true);
@@ -74,6 +90,14 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
 
     llama_sampler_free(sampler);
     llama_free(ctx);
+    // A token budget can stop inside a UTF-8 character split across model tokens.
+    if (!output.empty()) {
+        size_t lead = output.size() - 1;
+        while (lead > 0 && (static_cast<unsigned char>(output[lead]) & 0xc0) == 0x80) --lead;
+        const auto byte = static_cast<unsigned char>(output[lead]);
+        const size_t expected = byte < 0x80 ? 1 : ((byte & 0xe0) == 0xc0 ? 2 : ((byte & 0xf0) == 0xe0 ? 3 : ((byte & 0xf8) == 0xf0 ? 4 : 1)));
+        if (output.size() - lead < expected) output.resize(lead);
+    }
     // llama emits standard UTF-8; NewStringUTF expects modified UTF-8 and can crash on emoji.
     jbyteArray bytes = env->NewByteArray(static_cast<jsize>(output.size()));
     if (bytes == nullptr) return nullptr;

@@ -367,8 +367,8 @@ jobs:
           api-level: 35
           target: default
           arch: x86_64
-          disk-size: 2048M
-          ram-size: 2048M
+          disk-size: 4096M
+          ram-size: 3072M
           heap-size: 512M
           emulator-boot-timeout: 600
           disable-linux-hw-accel: ${{ steps.emulator_accel.outputs.available != 'true' }}
@@ -486,8 +486,8 @@ jobs:
           api-level: 35
           target: default
           arch: x86_64
-          disk-size: 2048M
-          ram-size: 2048M
+          disk-size: 4096M
+          ram-size: 3072M
           heap-size: 512M
           emulator-boot-timeout: 600
           disable-linux-hw-accel: ${{ steps.pr_emulator_accel.outputs.available != 'true' }}
