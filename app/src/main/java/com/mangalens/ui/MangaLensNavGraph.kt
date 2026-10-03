@@ -124,7 +124,7 @@ fun MangaLensNavGraph(
                 MangaContinuousReader(title = state.activeChapter?.title ?: "Chapter", chapterId = state.activeChapter?.id ?: "", initialPosition = state.activeChapter?.position ?: 0, initialOffset = state.activeChapter?.scrollOffset ?: 0, onPositionChanged = { id, position, offset -> onReadingPositionChanged(id, position, offset) }, loading = state.loading, pages = state.pages, translated = state.translationEnabled, translating = state.translating, error = state.error, overlays = state.overlays, targetLanguage = state.targetLanguage, onTargetLanguageChanged = onTargetLanguageChanged, onTranslate = onTranslateChapter, onDownload = onDownloadChapter, onMenu = { navController.navigate("settings") }, onRetry = onIngest, onOpenWeb = { navController.navigate("web") }, onLongPressPage = onTranslatePage, modifier = Modifier.fillMaxSize())
             }
             composable("video") {
-                state.videoUrl?.let { NativeVideoPlayer(it, translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize()) }
+                state.videoUrl?.let { NativeVideoPlayer(it, translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize(), onBack = { navController.popBackStack() }) }
             }
             composable("local_video") {
                 LocalVideoGalleryScreen(
