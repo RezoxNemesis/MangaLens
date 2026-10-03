@@ -71,9 +71,14 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         currentCoroutineContext().ensureActive()
         check(temp.length() > 0L) { "The downloaded file is empty." }
         val uri = publish(temp, title, mime)
-        if (dao.completeIfActive(id, uri.toString(), temp.length()) == 0) {
+        try {
+            currentCoroutineContext().ensureActive()
+            if (dao.completeIfActive(id, uri.toString(), temp.length()) == 0) {
+                throw CancellationException("Download stopped before publication")
+            }
+        } catch (failure: Throwable) {
             applicationContext.contentResolver.delete(uri, null, null)
-            throw CancellationException("Download stopped before publication")
+            throw failure
         }
         temp.delete()
         validatorFile.delete()
