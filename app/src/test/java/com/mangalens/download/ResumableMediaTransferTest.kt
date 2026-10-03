@@ -2,6 +2,7 @@ package com.mangalens.download
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -115,10 +116,12 @@ class ResumableMediaTransferTest {
     }
 
     @Test fun cancellationInterruptsAStalledSocket() = fixture { server, transfer, temp, validator ->
+        coroutineScope {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
         val download = launch(Dispatchers.IO) { transfer.download(server.url("/media").toString(), temp, validator) }
         assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
         withTimeout(5_000) { download.cancelAndJoin() }
         assertTrue(download.isCancelled)
+        }
     }
 }

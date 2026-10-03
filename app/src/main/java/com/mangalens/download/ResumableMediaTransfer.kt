@@ -28,7 +28,7 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
         if (temp.length() > 0L && validator == null) reset(temp, validatorFile)
         var offset = temp.length()
         val request = Request.Builder().url(url)
-            .header("User-Agent", "MangaLens/13")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36 MangaLens/13")
             .header("Accept", "*/*")
             // Ranges and persisted bytes must refer to the same, uncompressed representation.
             .header("Accept-Encoding", "identity")
