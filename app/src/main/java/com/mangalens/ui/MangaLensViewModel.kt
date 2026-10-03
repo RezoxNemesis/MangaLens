@@ -10,7 +10,12 @@ import com.mangalens.core.adblock.AdBlockEngine
 import com.mangalens.core.adblock.AdBlockStats
 import com.mangalens.core.adblock.AdBlockStatsStore
 import com.mangalens.core.model.ContentType
+import com.mangalens.core.reader.ChapterLibrary
+import com.mangalens.core.reader.SavedChapter
 import com.mangalens.core.reader.ChapterPage
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.withLock
 import com.mangalens.core.reader.ProgressiveChapterRepository
 import com.mangalens.core.router.UrlEngineRouter
 import com.mangalens.core.translation.OcrInpaintingEngine
@@ -31,6 +36,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 
 data class MangaLensUiState(
+    val library: List<SavedChapter> = emptyList(),
+    val activeChapter: SavedChapter? = null,
     val url: String = "",
     val mode: ContentType = ContentType.GENERIC_WEB,
     val pages: List<ChapterPage> = emptyList(),
@@ -41,7 +48,7 @@ data class MangaLensUiState(
     val translationEnabled: Boolean = false,
     val overlays: Map<Int, List<TranslationOverlay>> = emptyMap(),
     val error: String? = null,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DARK,
     val mangaTranslationEnabled: Boolean = false,
     val videoTranslationEnabled: Boolean = false,
     val webTranslationEnabled: Boolean = false,
@@ -56,11 +63,14 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val prefs = application.getSharedPreferences("mangalens_preferences", Application.MODE_PRIVATE)
     private val statsStore = AdBlockStatsStore.shared
     private val router = UrlEngineRouter()
+    private val persistenceMutex = kotlinx.coroutines.sync.Mutex()
+    private val library = ChapterLibrary(application)
     private val repository = ProgressiveChapterRepository(application)
     private val acquirer = RenderedBrowserAcquirer(application, AdBlockEngine(statsStore))
     private val ocr = OcrInpaintingEngine()
     private val advancedOcr = AdvancedTranslationEngine(application)
     private val orezRefiner = com.mangalens.core.translation.TranslationOrezRefiner(application)
+    private val translationMutex = kotlinx.coroutines.sync.Mutex()
     private var translationJob: kotlinx.coroutines.Job? = null
     private var ingestionJob: kotlinx.coroutines.Job? = null
     private var translateWhenPagesReady = false
@@ -71,7 +81,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _state = MutableStateFlow(
         MangaLensUiState(
-            themeMode = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme_mode", ThemeMode.SYSTEM.name) } ?: ThemeMode.SYSTEM,
+            url = prefs.getString("last_url", "") ?: "",
+            themeMode = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme_mode", ThemeMode.DARK.name) } ?: ThemeMode.DARK,
             mangaTranslationEnabled = prefs.getBoolean("translation_manga", false),
             videoTranslationEnabled = prefs.getBoolean("translation_video", false),
             webTranslationEnabled = prefs.getBoolean("translation_web", false),
@@ -83,11 +94,24 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     val state: StateFlow<MangaLensUiState> = _state
 
     init {
-        viewModelScope.launch { repository.pages.collect { pages -> _state.value = _state.value.copy(pages = pages) } }
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) { library.list() }
+            val recent = saved.firstOrNull()
+            _state.value = _state.value.copy(library = saved)
+            if (recent != null && _state.value.activeChapter == null && !_state.value.loading) {
+                _state.value = _state.value.copy(activeChapter = recent)
+                repository.restorePages(recent.pages)
+            }
+        }
+        viewModelScope.launch { repository.pages.collect { pages ->
+            _state.value = _state.value.copy(pages = pages)
+            if (pages.isNotEmpty()) persistCurrentChapter()
+        } }
         viewModelScope.launch { statsStore.stats.collect { stats -> _state.value = _state.value.copy(adBlockStats = stats) } }
     }
 
     fun setUrl(value: String) {
+        prefs.edit().putString("last_url", value.trim()).apply()
         _state.value = _state.value.copy(url = value.trim(), mode = if (value.isBlank()) ContentType.GENERIC_WEB else router.classifyUrl(value))
     }
     fun setMode(mode: ContentType) { _state.value = _state.value.copy(mode = mode) }
@@ -110,6 +134,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun setTargetLanguage(language: String) {
         val normalized = language.lowercase().trim()
+        if (normalized == _state.value.targetLanguage) return
+        clearTranslations()
         if (normalized.isBlank()) return
         prefs.edit().putString("translation_target", normalized).apply()
         _state.value = _state.value.copy(targetLanguage = normalized)
@@ -117,6 +143,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setTranslationStyle(styleId: String) {
         val normalized = styleId.lowercase().trim()
+        if (normalized == _state.value.translationStyle) return
+        clearTranslations()
         if (normalized.isBlank()) return
         prefs.edit().putString("translation_style", normalized).apply()
         _state.value = _state.value.copy(translationStyle = normalized)
@@ -124,16 +152,24 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setCustomTranslationStyle(instruction: String) {
         val normalized = instruction.trim().take(1200)
+        if (normalized == _state.value.customTranslationStyle) return
+        clearTranslations()
         prefs.edit().putString("translation_custom_style", normalized).apply()
         _state.value = _state.value.copy(customTranslationStyle = normalized)
     }
     fun resetAdBlockStats() = statsStore.reset()
 
     fun importLocalImages(uris: List<Uri>) {
-        ingestionJob?.cancel()
+        clearTranslations()
+        val previousIngestion = ingestionJob
+        previousIngestion?.cancel()
         ingestionJob = viewModelScope.launch {
+            previousIngestion?.join()
             _state.value = _state.value.copy(loading = true, translating = false, error = null, overlays = emptyMap(), translationEnabled = false)
             try {
+                repository.clearChapterCache()
+                val key = "local:" + uris.joinToString("|")
+                _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(key), "Imported chapter", "", emptyList()))
                 val pages = repository.persistLocalImages(uris, app)
                 _state.value = _state.value.copy(
                     pages = pages,
@@ -157,24 +193,32 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun ingest() {
-        ingestionJob?.cancel()
+        val previousIngestion = ingestionJob
+        previousIngestion?.cancel()
+        clearTranslations()
         val target = _state.value.url
-        if (target.isBlank()) return
+        val selectedMode = _state.value.mode
+        if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(target)) {
+            _state.value = _state.value.copy(error = "Enter a complete HTTP or HTTPS URL.", loading = false)
+            return
+        }
         ingestionJob = viewModelScope.launch {
+            previousIngestion?.join()
             _state.value = _state.value.copy(loading = true, error = null)
             try {
-                when (router.classifyUrl(target)) {
+                when (selectedMode) {
                     ContentType.VIDEO_STREAM -> _state.value = _state.value.copy(mode = ContentType.VIDEO_STREAM, videoUrl = target, loading = false)
                     ContentType.IMAGE_CHAPTER -> {
+                        _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
                         repository.clearChapterCache()
                         _state.value = _state.value.copy(pages = emptyList(), overlays = emptyMap(), translationEnabled = false)
-                        val chapters = runCatching { chapterCatalog.extract(target) }.getOrDefault(emptyList())
+                        val chapters = try { chapterCatalog.extract(target) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { emptyList() }
                         _state.value = _state.value.copy(chapters = chapters.map { MangaChapter(it.title, it.url) })
                         val result = acquirer.discoverWithCookie(target, 15_000L, null)
-                        if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls)
+                        if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls, result.finalUrl)
                         if (result.imageUrls.isEmpty()) {
                             val fallback = chapterScraper.extract(target)
-                            if (fallback.isNotEmpty()) repository.persistDiscoveredPages(fallback)
+                            if (fallback.isNotEmpty()) repository.persistDiscoveredPages(fallback, target)
                         }
                         if (result.imageUrls.isEmpty() && result.videoStreamUrls.isEmpty() && repository.pages.value.isEmpty()) {
                             captchaBridge.requestVerification(target, target.substringAfter("//").substringBefore("/").substringBefore(":").ifBlank { "unknown" }, "Security verification or inaccessible chapter detected.")
@@ -202,13 +246,18 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun ingestWithCookie(cookie: String) {
-        ingestionJob?.cancel()
+        val previousIngestion = ingestionJob
+        previousIngestion?.cancel()
+        clearTranslations()
         val target = _state.value.url
         ingestionJob = viewModelScope.launch {
+            previousIngestion?.join()
             _state.value = _state.value.copy(loading = true, error = null)
             try {
+                repository.clearChapterCache()
+                _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
                 val result = acquirer.discoverWithCookie(target, 20_000L, cookie)
-                if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls)
+                if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls, result.finalUrl)
                 _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false, error = result.navigationError)
                 captchaBridge.completeVerification(cookie, "Android")
             } catch (t: kotlinx.coroutines.CancellationException) {
@@ -230,7 +279,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(error = "This page is not available as a local image yet. Reopen the chapter or import the image from Files.")
             return
         }
-        translationJob = viewModelScope.launch(Dispatchers.Default) {
+        translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
             _state.value = _state.value.copy(translating = true, error = null)
             var bitmap: android.graphics.Bitmap? = null
             try {
@@ -269,6 +318,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         imageHeightPx = bitmap.height
                     )
                 }
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 _state.value = _state.value.copy(translating = false, translationEnabled = true, overlays = _state.value.overlays + (page.index to translated))
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
@@ -277,7 +327,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             } finally {
                 bitmap?.recycle()
             }
-        }
+        } }
     }
 
     fun translateChapter(targetLanguage: String = _state.value.targetLanguage) {
@@ -289,12 +339,14 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
         prefs.edit().putBoolean("translation_manga", true).apply()
         _state.value = _state.value.copy(mangaTranslationEnabled = true, translating = true, error = null)
-        translationJob = viewModelScope.launch(Dispatchers.Default) {
+        translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
             try {
                 for (page in pages) {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     if (page.localPath.isNullOrBlank()) continue
-                    translatePageInternal(page, targetLanguage)
+                    try { translatePageInternal(page, targetLanguage) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (failure: Exception) { _state.value = _state.value.copy(error = "Page ${page.index} translation failed. Retry this page.") }
                 }
                 val hasTranslations = _state.value.overlays.values.any { it.isNotEmpty() }
                 _state.value = _state.value.copy(
@@ -307,7 +359,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             } catch (t: Throwable) {
                 _state.value = _state.value.copy(translating = false, error = t.message ?: "Chapter translation failed")
             }
-        }
+        } }
     }
 
     private suspend fun translatePageInternal(page: ChapterPage, targetLanguage: String) {
@@ -347,6 +399,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         imageHeightPx = bitmap.height
             )
         }
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         _state.value = _state.value.copy(
             translating = true,
             translationEnabled = true,
@@ -354,6 +407,32 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         )
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    fun openSavedChapter(id: String) {
+        val chapter = _state.value.library.firstOrNull { it.id == id } ?: return
+        ingestionJob?.cancel()
+        clearTranslations()
+        _state.value = _state.value.copy(activeChapter = chapter, url = chapter.sourceUrl, mode = ContentType.IMAGE_CHAPTER, loading = false)
+        repository.restorePages(chapter.pages)
+    }
+
+    fun saveReadingPosition(id: String, position: Int, offset: Int) {
+        val chapter = _state.value.activeChapter ?: return
+        if (chapter.id != id) return
+        _state.value = _state.value.copy(activeChapter = chapter.copy(position = position.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0)))
+        viewModelScope.launch { persistCurrentChapter() }
+    }
+
+    private suspend fun persistCurrentChapter() = persistenceMutex.withLock {
+        val chapter = _state.value.activeChapter ?: return@withLock
+        val pages = _state.value.pages
+        if (pages.isEmpty()) return@withLock
+        val saved = chapter.copy(pages = pages, updatedAt = System.currentTimeMillis())
+        withContext(Dispatchers.IO) { library.save(saved) }
+        if (_state.value.activeChapter?.id == saved.id) {
+            _state.value = _state.value.copy(activeChapter = _state.value.activeChapter?.copy(pages = saved.pages), library = (listOf(saved) + _state.value.library.filterNot { it.id == saved.id }))
         }
     }
 

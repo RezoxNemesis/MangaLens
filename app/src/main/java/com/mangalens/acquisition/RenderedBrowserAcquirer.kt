@@ -56,28 +56,23 @@ class RenderedBrowserAcquirer(
             val handler = Handler(Looper.getMainLooper())
 
             val webView = WebView(context.applicationContext).apply {
-                settings.javaScriptEnabled = true
+                com.mangalens.core.web.SafeWebView.configure(this)
                 settings.domStorageEnabled = true
-                settings.mediaPlaybackRequiresUserGesture = false
-                settings.userAgentString =
-                    "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                settings.mediaPlaybackRequiresUserGesture = true
+
             }
 
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(webView, true)
+            cookieManager.setAcceptThirdPartyCookies(webView, false)
 
-            if (!cookie.isNullOrBlank()) {
-                cookieManager.setCookie(url, cookie)
-                cookieManager.flush()
-            }
 
             fun finishAcquisition(result: RenderedPageSet) {
                 if (finished.compareAndSet(false, true)) {
                     handler.removeCallbacksAndMessages(null)
                     webView.stopLoading()
                     webView.destroy()
-                    continuation.resume(result)
+                    if (continuation.isActive) continuation.resume(result)
                 }
             }
 
@@ -103,13 +98,13 @@ class RenderedBrowserAcquirer(
                 )
             }, timeoutMs.coerceIn(5_000L, 20_000L))
 
-            continuation.invokeOnCancellation {
+            continuation.invokeOnCancellation { handler.post {
                 if (finished.compareAndSet(false, true)) {
                     handler.removeCallbacksAndMessages(null)
                     webView.stopLoading()
                     webView.destroy()
                 }
-            }
+            } }
 
             webView.webViewClient = object : AdBlockWebViewClient(adBlockEngine) {
 

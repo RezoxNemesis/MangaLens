@@ -19,6 +19,7 @@ import com.mangalens.ui.MangaLensUiState
 @Composable
 fun LibraryScreen(
     state: MangaLensUiState,
+    onOpenSavedChapter: (String) -> Unit,
     onOpenReader: () -> Unit,
     onOpenLocalVideo: () -> Unit
 ) {
@@ -39,7 +40,15 @@ fun LibraryScreen(
                 }
             }
         }
-        if (state.pages.isEmpty()) {
+        items(state.library, key = { it.id }) { chapter ->
+            ElevatedCard(onClick = { onOpenSavedChapter(chapter.id) }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(chapter.title, style = MaterialTheme.typography.titleMedium)
+                    Text("${chapter.pages.size} pages saved • Resume page ${(chapter.position + 1).coerceAtMost(chapter.pages.size)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (state.pages.isEmpty() && state.library.isEmpty()) {
             item { Text("No saved chapter pages yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp)) }
         } else {
             item {

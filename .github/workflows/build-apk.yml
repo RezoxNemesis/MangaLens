@@ -253,7 +253,7 @@ jobs:
       - name: Run lint
         run: gradle --no-daemon lintDebug --stacktrace
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug --stacktrace
+        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Verify APK
         run: |
           set -euo pipefail
@@ -330,7 +330,7 @@ jobs:
       - name: Run lint
         run: gradle --no-daemon lintDebug --stacktrace
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug --stacktrace
+        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Verify APK
         run: |
           set -euo pipefail
@@ -372,7 +372,9 @@ jobs:
           disable-linux-hw-accel: ${{ steps.emulator_accel.outputs.available != 'true' }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash .github/scripts/mangalens-startup-smoke.sh
+          script: |
+            bash .github/scripts/mangalens-startup-smoke.sh
+            gradle --no-daemon connectedDebugAndroidTest --stacktrace
       - name: Upload MangaLens startup diagnostics
         if: failure()
         continue-on-error: true
@@ -380,6 +382,7 @@ jobs:
         with:
           name: mangalens-startup-diagnostics
           path: app/build/diagnostics/**
+            app/build/reports/androidTests/**
           if-no-files-found: warn
           retention-days: 7
       - name: Upload downloadable APK artifact
@@ -443,7 +446,7 @@ jobs:
           gradle-version: "8.9"
           cache-disabled: true
       - name: Build, test, lint, and assemble debug APK
-        run: gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug --stacktrace
+        run: gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Verify APK and generate checksum
         shell: bash
         run: |
@@ -486,7 +489,9 @@ jobs:
           disable-linux-hw-accel: ${{ steps.pr_emulator_accel.outputs.available != 'true' }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash .github/scripts/mangalens-startup-smoke.sh
+          script: |
+            bash .github/scripts/mangalens-startup-smoke.sh
+            gradle --no-daemon connectedDebugAndroidTest --stacktrace
       - name: Upload PR startup diagnostics
         if: failure()
         continue-on-error: true
@@ -494,6 +499,7 @@ jobs:
         with:
           name: mangalens-pr-startup-diagnostics
           path: app/build/diagnostics/**
+            app/build/reports/androidTests/**
           if-no-files-found: warn
           retention-days: 7
       - name: Upload pull-request debug APK

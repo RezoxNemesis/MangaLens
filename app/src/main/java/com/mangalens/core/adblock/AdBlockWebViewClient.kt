@@ -8,6 +8,9 @@ import android.webkit.WebViewClient
 open class AdBlockWebViewClient(
     private val adBlockEngine: AdBlockEngine = AdBlockEngine()
 ) : WebViewClient() {
+    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+        request == null || !com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(request.url.toString())
+
     private val enterpriseGuard = EnterpriseAdBlockEngine(adBlockEngine)
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {

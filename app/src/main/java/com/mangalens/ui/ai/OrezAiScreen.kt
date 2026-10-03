@@ -48,7 +48,8 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
                     .getSharedPreferences("mangalens_preferences", android.content.Context.MODE_PRIVATE)
                     .getString("translation_target", "hi") ?: "hi"
                 val answer=brain.answer(input,OrezContext(recentMessages=recent,targetLanguage=targetLanguage))
-                dao.insert(OrezMessageEntity(role="OREZ",text=answer.text))
+                val sources = answer.sources.distinct().filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl).take(6)
+                dao.insert(OrezMessageEntity(role="OREZ",text=answer.text + if (sources.isEmpty()) "" else "\n\nSources:\n" + sources.joinToString("\n")))
             }catch(t:Throwable){
                 if(t is kotlinx.coroutines.CancellationException) throw t
                 dao.insert(OrezMessageEntity(role="OREZ",text="I hit a recoverable error: "+(t.message?:"unknown error")+". Please try again."))
@@ -63,13 +64,14 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
 
 @Composable
 fun OrezAiScreen(vm:OrezAiViewModel=viewModel(),onRoute:(String,OrezRoute)->Unit){
+    val context = androidx.compose.ui.platform.LocalContext.current
     val messages by vm.messages.collectAsState()
     var input by rememberSaveable{mutableStateOf("")}
     val list=rememberLazyListState()
     LaunchedEffect(messages.size){if(messages.isNotEmpty())list.animateScrollToItem(messages.lastIndex)}
     LaunchedEffect(Unit){ while(true){ vm.refreshLocalModel(); kotlinx.coroutines.delay(5000L) } }
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha=.25f),MaterialTheme.colorScheme.background)))){
-        Column(Modifier.fillMaxSize().padding(16.dp)){
+        Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(16.dp)){
             Text("OREZ AI",style=MaterialTheme.typography.headlineLarge)
             Text("LOCAL BRAIN • KNOWLEDGE • REASONING • LIVE SEARCH",color=MaterialTheme.colorScheme.onSurfaceVariant)
             val modelState = vm.modelState.collectAsState().value
@@ -80,7 +82,13 @@ fun OrezAiScreen(vm:OrezAiViewModel=viewModel(),onRoute:(String,OrezRoute)->Unit
             LazyColumn(state=list,modifier=Modifier.weight(1f).fillMaxWidth().padding(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
                 items(messages,key={it.id}){m->
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=if(m.role=="YOU")Arrangement.End else Arrangement.Start){
-                        Card(Modifier.widthIn(max=340.dp)){Column(Modifier.padding(14.dp)){Text(m.role,style=MaterialTheme.typography.labelSmall);Text(m.text,Modifier.padding(top=5.dp))}}
+                        Card(Modifier.widthIn(max=340.dp)){Column(Modifier.padding(14.dp)){Text(m.role,style=MaterialTheme.typography.labelSmall);Text(m.text.substringBefore("\n\nSources:"),Modifier.padding(top=5.dp))
+                            if (m.text.contains("\n\nSources:")) m.text.substringAfter("\n\nSources:").lineSequence()
+                                .map { it.trim() }.filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl).take(6).forEach { url ->
+                                    TextButton(onClick = { runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) } }) {
+                                        Text(java.net.URI(url).host ?: "Source", maxLines = 1)
+                                    }
+                                }}}
                     }
                 }
                 item{if(vm.typing)Text("OREZ is thinking…",color=MaterialTheme.colorScheme.onSurfaceVariant)}

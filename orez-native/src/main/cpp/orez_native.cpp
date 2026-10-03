@@ -13,6 +13,7 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeLoad(
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_model != nullptr) return JNI_TRUE;
     const char * chars = env->GetStringUTFChars(path, nullptr);
+    if (chars == nullptr) return JNI_FALSE;
     llama_backend_init();
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
@@ -27,12 +28,13 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_model == nullptr) return env->NewStringUTF("");
     const char * promptChars = env->GetStringUTFChars(prompt, nullptr);
+    if (promptChars == nullptr) return env->NewStringUTF("");
     std::string input(promptChars);
     env->ReleaseStringUTFChars(prompt, promptChars);
 
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
     const int nPrompt = -llama_tokenize(vocab, input.c_str(), input.size(), nullptr, 0, true, true);
-    if (nPrompt <= 0) return env->NewStringUTF("");
+    if (nPrompt <= 0 || nPrompt > 4096) return env->NewStringUTF("");
 
     std::vector<llama_token> tokens(nPrompt);
     if (llama_tokenize(vocab, input.c_str(), input.size(), tokens.data(), tokens.size(), true, true) < 0) {
@@ -40,7 +42,7 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
     }
 
     llama_context_params cp = llama_context_default_params();
-    const int safeTokens = maxTokens > 512 ? 512 : maxTokens;
+    const int safeTokens = maxTokens < 1 ? 1 : (maxTokens > 512 ? 512 : maxTokens);
     const uint32_t requestedCtx = static_cast<uint32_t>(nPrompt + safeTokens + 64);
     cp.n_ctx = requestedCtx > 8192 ? 8192 : requestedCtx;
     cp.n_batch = static_cast<uint32_t>(nPrompt);
@@ -72,7 +74,18 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
 
     llama_sampler_free(sampler);
     llama_free(ctx);
-    return env->NewStringUTF(output.c_str());
+    // llama emits standard UTF-8; NewStringUTF expects modified UTF-8 and can crash on emoji.
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(output.size()));
+    if (bytes == nullptr) return nullptr;
+    env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(output.size()), reinterpret_cast<const jbyte *>(output.data()));
+    jclass stringClass = env->FindClass("java/lang/String");
+    jmethodID constructor = env->GetMethodID(stringClass, "<init>", "([BLjava/lang/String;)V");
+    jstring charset = env->NewStringUTF("UTF-8");
+    auto result = static_cast<jstring>(env->NewObject(stringClass, constructor, bytes, charset));
+    env->DeleteLocalRef(bytes);
+    env->DeleteLocalRef(charset);
+    env->DeleteLocalRef(stringClass);
+    return result;
 }
 
 extern "C" JNIEXPORT void JNICALL

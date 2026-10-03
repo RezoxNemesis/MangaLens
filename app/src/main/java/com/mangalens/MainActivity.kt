@@ -81,6 +81,8 @@ class MainActivity : ComponentActivity() {
                     onVideoTranslationChanged = viewModel::setVideoTranslationEnabled,
                     onWebTranslationChanged = viewModel::setWebTranslationEnabled,
                     onResetAdBlockStats = viewModel::resetAdBlockStats,
+                    onOpenSavedChapter = viewModel::openSavedChapter,
+                    onReadingPositionChanged = viewModel::saveReadingPosition,
                     onImportImages = viewModel::importLocalImages
                 )
                 val verificationRequest = verification.request

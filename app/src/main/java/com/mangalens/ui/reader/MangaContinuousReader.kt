@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -36,11 +37,18 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mangalens.core.reader.ChapterPage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun MangaContinuousReader(
     title: String,
     pages: List<ChapterPage>,
+    chapterId: String = "",
+    initialPosition: Int = 0,
+    initialOffset: Int = 0,
+    onPositionChanged: (String, Int, Int) -> Unit = { _, _, _ -> },
+    loading: Boolean = false,
     translated: Boolean,
     translating: Boolean = false,
     error: String? = null,
@@ -53,17 +61,37 @@ fun MangaContinuousReader(
     onLongPressPage: (ChapterPage) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var positionRestored by remember(chapterId) { mutableStateOf(false) }
+    var originalVisible by remember { mutableStateOf(false) }
     var hudVisible by remember { mutableStateOf(true) }
     var scale by remember { mutableFloatStateOf(1f) }
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var languageMenu by remember { mutableStateOf(false) }
+    val currentPages by rememberUpdatedState(pages)
+    val currentPositionCallback by rememberUpdatedState(onPositionChanged)
     val listState = rememberLazyListState()
     val transformState = rememberTransformableState { zoom, _, _ ->
         scale = (scale * zoom).coerceIn(1f, 4f)
         hudVisible = true
     }
 
+    LaunchedEffect(chapterId) {
+        scale = 1f
+        autoScroll = false
+        originalVisible = false
+        if (pages.isNotEmpty()) listState.scrollToItem(initialPosition.coerceIn(0, pages.lastIndex), initialOffset)
+        positionRestored = true
+    }
+    LaunchedEffect(listState, chapterId) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .debounce(500)
+            .collect { (position, offset) -> if (positionRestored && currentPages.isNotEmpty()) currentPositionCallback(chapterId, position, offset) }
+    }
+
+    DisposableEffect(chapterId) { onDispose {
+        if (positionRestored && currentPages.isNotEmpty()) currentPositionCallback(chapterId, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+    } }
     LaunchedEffect(autoScroll, speed) {
         while (autoScroll) {
             listState.scrollBy(3.5f * speed)
@@ -101,7 +129,7 @@ fun MangaContinuousReader(
                         modifier = Modifier.fillMaxWidth(),
                         contentScale = ContentScale.FillWidth
                     )
-                    MangaTranslationOverlay(
+                    if (translated && !originalVisible) MangaTranslationOverlay(
                         overlays = overlays[page.index].orEmpty(),
                         modifier = Modifier.matchParentSize()
                     )
@@ -109,6 +137,12 @@ fun MangaContinuousReader(
             }
         }
 
+        if (pages.isEmpty()) {
+            Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (loading) androidx.compose.material3.CircularProgressIndicator()
+                Text(if (loading) "Loading chapter pages…" else "No pages loaded. Open a chapter URL or import images from Home.")
+            }
+        }
         if (error != null) {
             Surface(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 76.dp, start = 12.dp, end = 12.dp),
@@ -151,15 +185,15 @@ fun MangaContinuousReader(
             visible = hudVisible,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).navigationBarsPadding()
         ) {
             Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Button(onClick = onTranslate, enabled = !translating) {
                             Text(if (translating) "Translating…" else "Translate chapter")
                         }
-                        Spacer(Modifier.width(8.dp))
+                        if (translated) TextButton(onClick = { originalVisible = !originalVisible }) { Text(if (originalVisible) "Show translation" else "Show original") }
                         TextButton(onClick = { languageMenu = true }) { Text("Language") }
                         Button(onClick = { autoScroll = !autoScroll }) {
                             Text(if (autoScroll) "Pause scroll" else "Auto-scroll")

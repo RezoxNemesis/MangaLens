@@ -21,13 +21,19 @@ object MangaLensDesignTokens {
     val DarkSurfaceBorder = Color(0xFF22222A)
     val DarkTextPrimary = Color(0xFFFFFFFF)
     val DarkTextSecondary = Color(0xFFA0A0B0)
-    val Primary = Color(0xFF7C4DFF)
-    val Secondary = Color(0xFF00E5FF)
+    val Primary = Color(0xFFD91936)
+    val LogoViolet = Color(0xFF7C4DFF)
+    val LogoCyan = Color(0xFF00E5FF)
+    val Secondary = Color(0xFFFF667D)
 }
 
 private val LightColors = lightColorScheme(
     primary = MangaLensDesignTokens.Primary,
     secondary = MangaLensDesignTokens.Secondary,
+    primaryContainer = Color(0xFF480A16),
+    onPrimaryContainer = Color(0xFFFFD9DF),
+    secondaryContainer = Color(0xFF2B111A),
+    onSecondaryContainer = Color(0xFFFFD9DF),
     background = MangaLensDesignTokens.LightBackground,
     surface = MangaLensDesignTokens.LightSurface,
     surfaceVariant = MangaLensDesignTokens.LightSurfaceBorder,
@@ -42,6 +48,10 @@ private val LightColors = lightColorScheme(
 private val DarkColors = darkColorScheme(
     primary = MangaLensDesignTokens.Primary,
     secondary = MangaLensDesignTokens.Secondary,
+    primaryContainer = Color(0xFF480A16),
+    onPrimaryContainer = Color(0xFFFFD9DF),
+    secondaryContainer = Color(0xFF2B111A),
+    onSecondaryContainer = Color(0xFFFFD9DF),
     background = MangaLensDesignTokens.DarkBackground,
     surface = MangaLensDesignTokens.DarkSurface,
     surfaceVariant = MangaLensDesignTokens.DarkSurfaceBorder,
@@ -56,7 +66,7 @@ private val DarkColors = darkColorScheme(
 val MangaLensTypography = Typography()
 
 @Composable
-fun MangaLensTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
+fun MangaLensTheme(themeMode: ThemeMode = ThemeMode.DARK, content: @Composable () -> Unit) {
     val darkTheme = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.DARK -> true

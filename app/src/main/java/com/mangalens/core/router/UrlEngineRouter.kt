@@ -14,10 +14,20 @@ class UrlEngineRouter {
         option = RegexOption.IGNORE_CASE
     )
 
+    companion object {
+        fun isSafeWebUrl(value: String): Boolean = runCatching {
+            val uri = URI(value.trim())
+            uri.scheme?.lowercase(Locale.ROOT) in setOf("http", "https") &&
+                !uri.host.isNullOrBlank() && uri.rawUserInfo == null
+        }.getOrDefault(false)
+    }
+
     fun classifyUrl(url: String): ContentType {
         val normalized = url.trim()
         if (normalized.isBlank()) return ContentType.GENERIC_WEB
-        val lower = normalized.lowercase(Locale.ROOT)
+        if (!isSafeWebUrl(normalized)) return ContentType.GENERIC_WEB
+        val uri = URI(normalized)
+        val lower = ((uri.host ?: "") + (uri.rawPath ?: "")).lowercase(Locale.ROOT)
 
         if (videoExtensions.any { lower.endsWith(it) || lower.contains("$it?") || lower.contains("$it#") }) {
             return ContentType.VIDEO_STREAM
