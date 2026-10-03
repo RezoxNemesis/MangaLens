@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
                     onMangaTranslationChanged = viewModel::setMangaTranslationEnabled,
                     onVideoTranslationChanged = viewModel::setVideoTranslationEnabled,
                     onWebTranslationChanged = viewModel::setWebTranslationEnabled,
+                    onAdBlockEnabledChanged = viewModel::setAdBlockEnabled,
                     onResetAdBlockStats = viewModel::resetAdBlockStats,
                     onDeleteSavedChapter = viewModel::deleteSavedChapter,
                     onOpenSavedChapter = viewModel::openSavedChapter,
