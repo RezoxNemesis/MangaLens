@@ -185,11 +185,10 @@ fun MangaContinuousReader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        "$title • Page ${if (pages.isEmpty()) 0 else listState.firstVisibleItemIndex + 1} / ${pages.size}",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Page ${if (pages.isEmpty()) 0 else listState.firstVisibleItemIndex + 1} / ${pages.size}", style = MaterialTheme.typography.labelSmall)
+                    }
                     Row {
                         if (translated) Text("Translated", color = MaterialTheme.colorScheme.secondary)
                         TextButton(onClick = onMenu) { Text("⋮") }
