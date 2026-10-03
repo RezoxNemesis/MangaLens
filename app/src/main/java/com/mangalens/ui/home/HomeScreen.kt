@@ -67,6 +67,7 @@ fun HomeScreen(
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -86,7 +87,7 @@ fun HomeScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
-            Surface(
+            if (maxWidth >= 360.dp) Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(50)
             ) {
@@ -98,6 +99,8 @@ fun HomeScreen(
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+
         }
 
         state.activeChapter?.takeIf { state.pages.isNotEmpty() }?.let { chapter ->

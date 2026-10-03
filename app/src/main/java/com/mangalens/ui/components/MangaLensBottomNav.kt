@@ -15,6 +15,9 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
 
 private data class NavItem(
     val route: String,
@@ -32,14 +35,15 @@ private val navItems = listOf(
 
 @Composable
 fun MangaLensBottomNav(currentRoute: String?, onNavigate: (String) -> Unit) {
-    NavigationBar(modifier = Modifier.navigationBarsPadding()) {
+    NavigationBar {
         Row(modifier = Modifier.fillMaxWidth()) {
             navItems.forEach { item ->
                 NavigationBarItem(
                     selected = currentRoute == item.route,
+                    modifier = Modifier.semantics { contentDescription = item.label },
                     onClick = { onNavigate(item.route) },
-                    icon = { Icon(item.icon, contentDescription = item.label) },
-                    label = { Text(item.label) }
+                    icon = { Icon(item.icon, contentDescription = null) },
+                    label = { Text(item.label, maxLines = 1, softWrap = false, fontSize = 10.sp) }
                 )
             }
         }

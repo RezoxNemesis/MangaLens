@@ -6,6 +6,9 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
 
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
@@ -71,6 +74,17 @@ fun MangaLensTheme(themeMode: ThemeMode = ThemeMode.DARK, content: @Composable (
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
+    }
+    val view = LocalView.current
+    if (!view.isInEditMode) SideEffect {
+        (view.context as? android.app.Activity)?.window?.let { window ->
+            androidx.core.view.WindowInsetsControllerCompat(window, view).apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
+            }
+            window.navigationBarColor = Color.Transparent.toArgb()
+            if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
+        }
     }
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,

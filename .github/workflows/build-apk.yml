@@ -265,6 +265,7 @@ jobs:
             test "$(wc -c < "$ABI_APK")" -gt 1000000
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
+          python .github/scripts/verify-debug-apks.py
       - name: Upload downloadable APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -342,6 +343,7 @@ jobs:
             test "$(wc -c < "$ABI_APK")" -gt 1000000
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
+          python .github/scripts/verify-debug-apks.py
       - name: Detect Android emulator acceleration
         id: emulator_accel
         shell: bash
@@ -374,9 +376,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             bash .github/scripts/mangalens-startup-smoke.sh
-            mkdir -p app/build/diagnostics/screenshots
-            trap 'adb pull /sdcard/Android/data/com.mangalens/files/qa app/build/diagnostics/screenshots || true' EXIT
-            gradle --no-daemon connectedDebugAndroidTest --stacktrace
+            bash .github/scripts/mangalens-device-regression.sh
       - name: Upload MangaLens startup diagnostics
         if: always()
         continue-on-error: true
@@ -462,6 +462,7 @@ jobs:
             test "$(wc -c < "$ABI_APK")" -gt 1000000
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
+          python .github/scripts/verify-debug-apks.py
       - name: Detect PR emulator acceleration
         id: pr_emulator_accel
         shell: bash
@@ -494,9 +495,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             bash .github/scripts/mangalens-startup-smoke.sh
-            mkdir -p app/build/diagnostics/screenshots
-            trap 'adb pull /sdcard/Android/data/com.mangalens/files/qa app/build/diagnostics/screenshots || true' EXIT
-            gradle --no-daemon connectedDebugAndroidTest --stacktrace
+            bash .github/scripts/mangalens-device-regression.sh
       - name: Upload PR startup diagnostics
         if: always()
         continue-on-error: true
