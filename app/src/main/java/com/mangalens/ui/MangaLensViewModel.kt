@@ -25,6 +25,7 @@ import com.mangalens.engine.MangaChapterCatalogScraper
 import com.mangalens.core.model.MangaChapter
 import com.mangalens.download.MediaDownloadManager
 import com.mangalens.core.translation.TranslationService
+import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.core.verification.CaptchaBridge
 import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.ui.reader.TranslationOverlay
@@ -311,21 +312,20 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 bitmap = decodeForOcr(path) ?: error("Unable to decode page image")
                 val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
                 if (advancedRegions.isEmpty()) error("No readable text was detected on this page. Try a clearer, higher-resolution image.")
+                val style = currentTranslationStyle()
+                val chapterContext = _state.value.overlays.values.flatten().takeLast(8)
+                    .joinToString("\n") { it.translatedText }
                 val translated = advancedRegions.map { region ->
-                    val draft = translator.translate(region.source, targetLanguage)
-                    val refined = orezRefiner.refine(
-                        region.source,
-                        draft,
-                        targetLanguage,
-                        if (_state.value.translationStyle == "custom") {
-                            com.mangalens.core.translation.TranslationStyleProfile.custom(_state.value.customTranslationStyle)
-                        } else {
-                            com.mangalens.core.translation.TranslationStyleProfile.fromId(_state.value.translationStyle)
-                        },
-                        chapterContext = _state.value.overlays.values.flatten().takeLast(8)
-                            .joinToString("\n") { it.translatedText },
-                    )
-                    rememberTranslation(region.source, refined, targetLanguage)
+                    val refined = recallTranslation(region.source, targetLanguage, style) ?: run {
+                        val draft = translator.translate(region.source, targetLanguage)
+                        orezRefiner.refine(
+                            region.source,
+                            draft,
+                            targetLanguage,
+                            style,
+                            chapterContext = chapterContext,
+                        ).also { rememberTranslation(region.source, it, targetLanguage, style) }
+                    }
                     TranslationOverlay(
                         region = com.mangalens.core.translation.OcrRegion(
                             region.source,
@@ -399,11 +399,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(error = "No readable text was detected on page " + page.index + ".")
             return
         }
-        val style = if (_state.value.translationStyle == "custom") {
-            com.mangalens.core.translation.TranslationStyleProfile.custom(_state.value.customTranslationStyle)
-        } else {
-            com.mangalens.core.translation.TranslationStyleProfile.fromId(_state.value.translationStyle)
-        }
+        val style = currentTranslationStyle()
         val chapterContext = _state.value.overlays.values.flatten().takeLast(12)
             .joinToString("\n") { it.translatedText }
         val translated = advancedRegions.map { region ->
@@ -412,13 +408,16 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     region.source, region.bounds.left.toInt(), region.bounds.top.toInt(),
                     region.bounds.right.toInt(), region.bounds.bottom.toInt()
                 ),
-                translatedText = orezRefiner.refine(
-                    region.source,
-                    translator.translate(region.source, targetLanguage),
-                    targetLanguage,
-                    style,
-                    chapterContext = chapterContext,
-                ).also { rememberTranslation(region.source, it, targetLanguage) },
+                translatedText = recallTranslation(region.source, targetLanguage, style) ?: run {
+                    val draft = translator.translate(region.source, targetLanguage)
+                    orezRefiner.refine(
+                        region.source,
+                        draft,
+                        targetLanguage,
+                        style,
+                        chapterContext = chapterContext,
+                    ).also { rememberTranslation(region.source, it, targetLanguage, style) }
+                },
                 textColorArgb = region.textColor,
                 backgroundColorArgb = region.backgroundColor,
                 fontSizePx = region.textSize,
@@ -535,13 +534,54 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         _state.value = _state.value.copy(translating = false, translationPaused = false, translationDone = 0, translationTotal = 0, translationEnabled = false, overlays = emptyMap())
     }
 
-    private suspend fun rememberTranslation(source: String, target: String, language: String) {
+    private fun currentTranslationStyle(): TranslationStyleProfile =
+        if (_state.value.translationStyle == "custom") {
+            TranslationStyleProfile.custom(_state.value.customTranslationStyle)
+        } else {
+            TranslationStyleProfile.fromId(_state.value.translationStyle)
+        }
+
+    private fun translationMemoryScope(): String =
+        "chapter:" + (_state.value.activeChapter?.id ?: "unspecified")
+
+    private suspend fun recallTranslation(
+        source: String,
+        language: String,
+        style: TranslationStyleProfile
+    ): String? {
+        if (source.isBlank()) return null
+        return runCatching {
+            OrezRoomDatabase.get(app).datasets().exactTranslationScoped(
+                source.trim(),
+                language.trim(),
+                style.memoryKey,
+                translationMemoryScope()
+            )
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun rememberTranslation(
+        source: String,
+        target: String,
+        language: String,
+        style: TranslationStyleProfile
+    ) {
         if (source.isBlank() || target.isBlank()) return
         runCatching {
-            _state.value
-            val key = (source.trim() + "|" + language.trim()).hashCode().toUInt().toString(16)
-            OrezRoomDatabase.get(app).datasets().insertTranslations(
-                listOf(com.mangalens.orez.OrezTranslationEntity(key, source.trim(), target.trim(), language.trim()))
+            val scope = translationMemoryScope()
+            val identity = listOf(source.trim(), language.trim(), style.memoryKey, scope).joinToString("|")
+            val key = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(identity.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            OrezRoomDatabase.get(app).datasets().upsertTranslation(
+                com.mangalens.orez.OrezTranslationEntity(
+                    key = key,
+                    source = source.trim(),
+                    target = target.trim(),
+                    targetLanguage = language.trim(),
+                    style = style.memoryKey,
+                    scope = scope
+                )
             )
         }
     }
