@@ -20,7 +20,7 @@ import com.mangalens.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,onMangaTranslationChanged:(Boolean)->Unit,onVideoTranslationChanged:(Boolean)->Unit,onWebTranslationChanged:(Boolean)->Unit,onTranslationStyleChanged:(String)->Unit,onCustomTranslationStyleChanged:(String)->Unit,onResetAdBlockStats:()->Unit){
+fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,onMangaTranslationChanged:(Boolean)->Unit,onVideoTranslationChanged:(Boolean)->Unit,onWebTranslationChanged:(Boolean)->Unit,onTranslationStyleChanged:(String)->Unit,onCustomTranslationStyleChanged:(String)->Unit,onAdBlockEnabledChanged:(Boolean)->Unit,onResetAdBlockStats:()->Unit){
     val context=LocalContext.current
     val resourceManager=remember{OrezResourcePackManager(context)}
     val resourceState by resourceManager.state.collectAsState()
@@ -84,7 +84,23 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
         }
         item{Text("Appearance",fontWeight=FontWeight.Bold)}
         item{Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){ThemeMode.entries.forEach{mode->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(mode.name.lowercase().replaceFirstChar{it.uppercase()});RadioButton(selected=state.themeMode==mode,onClick={onThemeModeChanged(mode)})}}}}}
-        item{Text("Ad-block activity",fontWeight=FontWeight.Bold);Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Text(state.adBlockStats.blockedRequests.toString()+" requests blocked",style=MaterialTheme.typography.titleLarge);Text((state.adBlockStats.knownBytesSaved/1024).toString()+" KB saved",color=MaterialTheme.colorScheme.onSurfaceVariant);Button(onClick=onResetAdBlockStats){Text("Reset stats")}}}}
+        item{
+            Text("Ad-block activity",fontWeight=FontWeight.Bold)
+            Card(Modifier.fillMaxWidth()){
+                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                        Column(Modifier.weight(1f)){
+                            Text("Block ads & trackers",fontWeight=FontWeight.SemiBold)
+                            Text("Disable this if blocking breaks a website. You can also toggle it temporarily inside Web mode.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(state.adBlockEnabled,onAdBlockEnabledChanged)
+                    }
+                    Text(state.adBlockStats.blockedRequests.toString()+" requests blocked",style=MaterialTheme.typography.titleLarge)
+                    Text((state.adBlockStats.knownBytesSaved/1024).toString()+" KB saved",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick=onResetAdBlockStats){Text("Reset stats")}
+                }
+            }
+        }
         item{
             Text("OCR Engine",fontWeight=FontWeight.Bold)
             val ocrPrefs=context.getSharedPreferences("mangalens_ocr",android.content.Context.MODE_PRIVATE)
