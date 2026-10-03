@@ -45,7 +45,7 @@ class MediaDownloadManager(private val context: Context) {
     suspend fun pause(id: String) = withContext(Dispatchers.IO) {
         val item = dao.get(id) ?: return@withContext
         if (dao.stopIfActive(id, DownloadState.PAUSED, null) == 0) return@withContext
-        if (isAdaptive(item.sourceUrl)) {
+        if (item.isAdaptive) {
             MangaLensDownloadService.pauseAdaptive(context, id)
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(workName(id))
@@ -55,7 +55,7 @@ class MediaDownloadManager(private val context: Context) {
     suspend fun resume(id: String) = withContext(Dispatchers.IO) {
         val item = dao.get(id) ?: return@withContext
         if (item.state != DownloadState.PAUSED && item.state != DownloadState.FAILED) return@withContext
-        if (isAdaptive(item.sourceUrl)) {
+        if (item.isAdaptive) {
             MangaLensDownloadService.resumeAdaptive(context, id)
             dao.upsert(item.copy(state = DownloadState.DOWNLOADING, error = null))
         } else {
@@ -76,7 +76,7 @@ class MediaDownloadManager(private val context: Context) {
     }
 
     private fun start(id: String, url: String, title: String, mime: String) {
-        if (isAdaptive(url)) {
+        if (isAdaptiveMediaSource(url, mime)) {
             MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(url), mime)
             return
         }
@@ -108,8 +108,4 @@ class MediaDownloadManager(private val context: Context) {
 
     private fun workName(id: String) = "mangalens-download-$id"
 
-    private fun isAdaptive(url: String): Boolean {
-        val x = url.substringBefore("?").lowercase()
-        return x.endsWith(".m3u8") || x.endsWith(".mpd") || x.contains("/manifest/")
-    }
 }

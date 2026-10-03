@@ -41,6 +41,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
     }
     var storage by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var cacheBytes by remember { mutableLongStateOf(0L) }
+    var adaptiveMediaBytes by remember { mutableLongStateOf(0L) }
     var clearCache by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
@@ -48,6 +49,11 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
             val disk = android.os.StatFs(context.filesDir.absolutePath)
             storage = disk.availableBytes to disk.totalBytes
             cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            adaptiveMediaBytes = java.io.File(context.filesDir, "media_download_cache")
+                .takeIf { it.exists() }
+                ?.walkTopDown()
+                ?.filter { it.isFile }
+                ?.sumOf { it.length() } ?: 0L
         }
     }
     if (clearCache) AlertDialog(onDismissRequest = { clearCache = false }, title = { Text("Clear temporary cache?") }, text = { Text("Saved chapters, downloads, models and reading progress are retained. Temporary files can be recreated.") },
@@ -79,6 +85,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                     LinearProgressIndicator(progress = { 1f - available.toFloat() / total.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
                 }
                 Text("Temporary cache: " + formatBytes(cacheBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Adaptive offline media: " + formatBytes(adaptiveMediaBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton({ clearCache = true }) { Text("Clear cache →") }
             }
         }

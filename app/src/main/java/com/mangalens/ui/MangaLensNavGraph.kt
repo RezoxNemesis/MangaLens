@@ -114,7 +114,7 @@ fun MangaLensNavGraph(
                     }
                 }
             }
-            composable("downloads") { DownloadsScreen(onBack = { navController.popBackStack() }, appState = state, onImport = { onImportImages(it); navController.navigate("reader") }, onOpenLibrary = { navController.navigate("library") }, onOpenTools = { navController.navigate("settings") }, onPauseTranslation = onTranslationPaused, onCancelTranslation = onTranslationCancelled) }
+            composable("downloads") { DownloadsScreen(onBack = { navController.popBackStack() }, appState = state, onImport = { onImportImages(it); navController.navigate("reader") }, onOpenLibrary = { navController.navigate("library") }, onOpenTools = { navController.navigate("settings") }, onPlayVideo = { value -> onUrlChanged(value); onModeSelected(ContentType.VIDEO_STREAM); onIngest(); navController.navigate("video") }, onPauseTranslation = onTranslationPaused, onCancelTranslation = onTranslationCancelled) }
             composable("settings") {
                 SettingsScreen(
                     state = state,

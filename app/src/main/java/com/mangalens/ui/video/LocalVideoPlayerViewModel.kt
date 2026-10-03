@@ -7,6 +7,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import com.mangalens.download.MangaLensDownloadService
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -25,8 +27,14 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
             )
         )
 
+    private val cachedHttpFactory = CacheDataSource.Factory()
+        .setCache(MangaLensDownloadService.Holder.cache(app))
+        .setUpstreamDataSourceFactory(httpFactory)
+        .setCacheWriteDataSinkFactory(null)
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
     private val mediaSourceFactory = DefaultMediaSourceFactory(
-        DefaultDataSource.Factory(app, httpFactory)
+        DefaultDataSource.Factory(app, cachedHttpFactory)
     )
 
     val player: ExoPlayer = ExoPlayer.Builder(

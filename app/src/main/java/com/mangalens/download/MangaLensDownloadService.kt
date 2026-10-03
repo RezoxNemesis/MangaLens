@@ -15,7 +15,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +61,6 @@ class MangaLensDownloadService : DownloadService(
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 10003
         private const val CHANNEL_ID = "mangalens_media_downloads"
-        private const val MAX_CACHE_BYTES = 1024L * 1024L * 1024L
 
         fun addAdaptive(context: Context, id: String, uri: Uri, mime: String?) {
             val request = DownloadRequest.Builder(id, uri)
@@ -97,15 +96,30 @@ class MangaLensDownloadService : DownloadService(
 
     object Holder {
         @Volatile private var manager: DownloadManager? = null
+        @Volatile private var downloadCache: SimpleCache? = null
+        @Volatile private var databaseProvider: StandaloneDatabaseProvider? = null
         private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        @Synchronized
+        private fun storage(context: Context): Pair<StandaloneDatabaseProvider, SimpleCache> {
+            val app = context.applicationContext
+            val provider = databaseProvider ?: StandaloneDatabaseProvider(app).also { databaseProvider = it }
+            val cache = downloadCache ?: run {
+                val directory = File(app.filesDir, "media_download_cache").apply { mkdirs() }
+                // Explicit user downloads are durable offline data, not an evictable streaming cache.
+                SimpleCache(directory, NoOpCacheEvictor(), provider).also { downloadCache = it }
+            }
+            return provider to cache
+        }
+
+        @Synchronized
+        fun cache(context: Context): SimpleCache = storage(context).second
 
         @Synchronized
         fun manager(context: Context): DownloadManager {
             manager?.let { return it }
             val app = context.applicationContext
-            val directory = File(app.filesDir, "media_download_cache").apply { mkdirs() }
-            val provider = StandaloneDatabaseProvider(app)
-            val cache = SimpleCache(directory, LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES), provider)
+            val (provider, cache) = storage(app)
             val dataSource = DefaultHttpDataSource.Factory()
                 .setUserAgent("MangaLens/13")
                 .setAllowCrossProtocolRedirects(true)

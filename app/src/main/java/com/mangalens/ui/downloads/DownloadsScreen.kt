@@ -40,7 +40,7 @@ class DownloadsViewModel(app: android.app.Application) : AndroidViewModel(app) {
 }
 
 @Composable
-fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiState, onImport: (List<Uri>) -> Unit, onOpenLibrary: () -> Unit, onOpenTools: () -> Unit, onPauseTranslation: (Boolean) -> Unit, onCancelTranslation: () -> Unit, vm: DownloadsViewModel = viewModel()) {
+fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiState, onImport: (List<Uri>) -> Unit, onOpenLibrary: () -> Unit, onOpenTools: () -> Unit, onPlayVideo: (String) -> Unit, onPauseTranslation: (Boolean) -> Unit, onCancelTranslation: () -> Unit, vm: DownloadsViewModel = viewModel()) {
     val context = LocalContext.current
     val items by vm.items.collectAsState()
     var url by remember { mutableStateOf("") }
@@ -166,18 +166,22 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
                                 DownloadState.PAUSED, DownloadState.FAILED ->
                                     TextButton(onClick = { vm.resume(item.id) }) { Text("Resume") }
                                 DownloadState.COMPLETED -> {
-                                    item.destination?.let { destination ->
-                                        TextButton(onClick = {
-                                            val uri = Uri.parse(destination)
-                                            val type = if (item.isVideo) "video/*" else if (item.mimeType.startsWith("image/")) "image/*" else "*/*"
-                                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                setDataAndType(uri, type)
-                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            runCatching {
-                                                context.startActivity(Intent.createChooser(intent, "Open with…"))
-                                            }
-                                        }) { Text("Open") }
+                                    if (item.isAdaptive) {
+                                        TextButton(onClick = { onPlayVideo(item.sourceUrl) }) { Text("Play offline") }
+                                    } else {
+                                        item.destination?.let { destination ->
+                                            TextButton(onClick = {
+                                                val uri = Uri.parse(destination)
+                                                val type = if (item.isVideo) "video/*" else if (item.mimeType.startsWith("image/")) "image/*" else "*/*"
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(uri, type)
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                runCatching {
+                                                    context.startActivity(Intent.createChooser(intent, "Open with…"))
+                                                }
+                                            }) { Text("Open") }
+                                        }
                                     }
                                 }
                                 else -> Unit

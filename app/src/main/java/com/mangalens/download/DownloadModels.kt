@@ -5,6 +5,17 @@ import kotlinx.coroutines.flow.Flow
 
 enum class DownloadState { QUEUED, DOWNLOADING, PAUSED, COMPLETED, FAILED, CANCELLED }
 
+internal fun isAdaptiveMediaSource(sourceUrl: String, mimeType: String? = null): Boolean {
+    val clean = sourceUrl.substringBefore('?').lowercase()
+    val mime = mimeType.orEmpty().lowercase()
+    return clean.endsWith(".m3u8") ||
+        clean.endsWith(".mpd") ||
+        clean.contains("/manifest/") ||
+        mime == "application/x-mpegurl" ||
+        mime == "application/vnd.apple.mpegurl" ||
+        mime == "application/dash+xml"
+}
+
 @Entity(tableName = "media_downloads", indices = [Index("state"), Index("createdAt")])
 data class DownloadEntity(
     @PrimaryKey val id: String,
@@ -19,8 +30,9 @@ data class DownloadEntity(
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val progress: Float get() = if (totalBytes <= 0L) 0f else (bytesDownloaded.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
-    val isVideo: Boolean get() = mimeType.startsWith("video/")
-    val canPreview: Boolean get() = isVideo && bytesDownloaded >= 5L * 1024L * 1024L && !destination.isNullOrBlank()
+    val isAdaptive: Boolean get() = isAdaptiveMediaSource(sourceUrl, mimeType)
+    val isVideo: Boolean get() = mimeType.startsWith("video/") || isAdaptive
+    val canPreview: Boolean get() = isVideo && bytesDownloaded >= 5L * 1024L * 1024L && (!destination.isNullOrBlank() || isAdaptive)
 }
 
 @Dao
