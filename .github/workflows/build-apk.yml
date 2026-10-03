@@ -209,6 +209,13 @@ jobs:
           name: orez-final-corpus-manifest
           path: dist/orez-corpus-final-manifest.json
           retention-days: 7
+      - name: Free runner disk before Android toolchain and emulator installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Prepare Android SDK
         run: |
           set -euo pipefail
@@ -279,6 +286,13 @@ jobs:
           echo "Event: ${GITHUB_EVENT_NAME}"
           echo "Commit: ${GITHUB_SHA}"
       - uses: actions/checkout@v4
+      - name: Free runner disk before Android toolchain and emulator installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Prepare Android SDK
         run: |
           set -euo pipefail
@@ -349,7 +363,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: google_apis
+          target: default
           arch: x86_64
           disk-size: 2048M
           ram-size: 2048M
@@ -358,12 +372,6 @@ jobs:
           disable-linux-hw-accel: ${{ steps.emulator_accel.outputs.available != 'true' }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          pre-emulator-launch-script: |
-            rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/wrapper/dists"
-            rm -rf "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmake"
-            rm -rf "$GITHUB_WORKSPACE/orez-native/build"
-            find "$GITHUB_WORKSPACE/app/build" -mindepth 1 -maxdepth 1 ! -name outputs -exec rm -rf {} + 2>/dev/null || true
-            df -h "$HOME"
           script: bash .github/scripts/mangalens-startup-smoke.sh
       - name: Upload MangaLens startup diagnostics
         if: failure()
@@ -375,6 +383,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Upload downloadable APK artifact
+        if: always()
         id: upload_main_apk
         continue-on-error: true
         uses: actions/upload-artifact@v4
@@ -411,6 +420,13 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
+      - name: Free runner disk before Android toolchain and emulator installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Accept Android SDK licenses and install native toolchain
         shell: bash
         run: |
@@ -461,7 +477,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: google_apis
+          target: default
           arch: x86_64
           disk-size: 2048M
           ram-size: 2048M
@@ -470,12 +486,6 @@ jobs:
           disable-linux-hw-accel: ${{ steps.pr_emulator_accel.outputs.available != 'true' }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          pre-emulator-launch-script: |
-            rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/wrapper/dists"
-            rm -rf "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmake"
-            rm -rf "$GITHUB_WORKSPACE/orez-native/build"
-            find "$GITHUB_WORKSPACE/app/build" -mindepth 1 -maxdepth 1 ! -name outputs -exec rm -rf {} + 2>/dev/null || true
-            df -h "$HOME"
           script: bash .github/scripts/mangalens-startup-smoke.sh
       - name: Upload PR startup diagnostics
         if: failure()
@@ -487,6 +497,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Upload pull-request debug APK
+        if: always()
         id: upload_pr_apk
         continue-on-error: true
         uses: actions/upload-artifact@v4
