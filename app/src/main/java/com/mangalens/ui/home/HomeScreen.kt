@@ -68,6 +68,7 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val wideHeader = maxWidth >= 360.dp
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -87,7 +88,7 @@ fun HomeScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
-            if (maxWidth >= 360.dp) Surface(
+            if (wideHeader) Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(50)
             ) {
