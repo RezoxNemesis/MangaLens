@@ -41,6 +41,7 @@ fun MangaLensNavGraph(
     onMangaTranslationChanged: (Boolean) -> Unit,
     onVideoTranslationChanged: (Boolean) -> Unit,
     onWebTranslationChanged: (Boolean) -> Unit,
+    onAdBlockEnabledChanged: (Boolean) -> Unit,
     onResetAdBlockStats: () -> Unit,
     onDeleteSavedChapter: (String) -> Unit,
     onOpenSavedChapter: (String) -> Unit,
@@ -123,6 +124,7 @@ fun MangaLensNavGraph(
                     onWebTranslationChanged = onWebTranslationChanged,
                     onTranslationStyleChanged = onTranslationStyleChanged,
                     onCustomTranslationStyleChanged = onCustomTranslationStyleChanged,
+                    onAdBlockEnabledChanged = onAdBlockEnabledChanged,
                     onResetAdBlockStats = onResetAdBlockStats
                 )
             }
@@ -153,7 +155,7 @@ fun MangaLensNavGraph(
                 val raw = entry.arguments?.getString("uri").orEmpty()
                 LocalVideoPlayerScreen(initialUri = raw.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse), translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize())
             }
-            composable("web") { AdBlockedWebScreen(state.url, translationEnabled = state.webTranslationEnabled, modifier = Modifier.fillMaxSize(), targetLanguage = state.targetLanguage, onOpenManga = { value -> onUrlChanged(value); onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") }) }
+            composable("web") { AdBlockedWebScreen(state.url, translationEnabled = state.webTranslationEnabled, adBlockEnabled = state.adBlockEnabled, modifier = Modifier.fillMaxSize(), targetLanguage = state.targetLanguage, onOpenManga = { value -> onUrlChanged(value); onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") }) }
         }
     }
 }
