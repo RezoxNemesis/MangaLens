@@ -34,6 +34,45 @@ class OfflineLibraryTest {
         } finally { dao.delete(id) }
     }
 
+    @Test fun bookmarksAndReadingStatusSurviveRestart() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val image = File(File(context.filesDir, "chapters").apply { mkdirs() }, "status_fixture.img").apply { writeBytes(byteArrayOf(1)) }
+        val id = ChapterLibrary.id("qa:status")
+        try {
+            ChapterLibrary(context).save(SavedChapter(id, "My story", "", listOf(ChapterPage(1, "local:qa", image.absolutePath)), bookmarked = true, readingStatus = ReadingStatus.ON_HOLD))
+            val restored = ChapterLibrary(context).list().first { it.id == id }
+            assertTrue(restored.bookmarked)
+            assertEquals(ReadingStatus.ON_HOLD, restored.readingStatus)
+            ChapterLibrary(context).save(restored.copy(readingStatus = ReadingStatus.COMPLETED))
+            assertEquals(ReadingStatus.COMPLETED, ChapterLibrary(context).list().first { it.id == id }.readingStatus)
+        } finally { ChapterLibrary(context).remove(id); image.delete() }
+    }
+
+    @Test fun importsPdfPagesIntoPersistentOfflineLibrary() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val source = File(context.cacheDir, "qa_chapter.pdf")
+        android.graphics.pdf.PdfDocument().use { document ->
+            repeat(2) { index ->
+                val page = document.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(400, 600, index + 1).create())
+                val paint = android.graphics.Paint().apply { textSize = 30f }
+                page.canvas.drawText("Chapter page ${index + 1}", 20f, 80f, paint)
+                document.finishPage(page)
+            }
+            source.outputStream().use { document.writeTo(it) }
+        }
+        val id = ChapterLibrary.id("qa:pdf")
+        val imported = DocumentImporter.prepare(context, listOf(android.net.Uri.fromFile(source)))
+        try {
+            val pages = ProgressiveChapterRepository(context).persistLocalImages(imported.images, context)
+            assertEquals(2, pages.size)
+            ChapterLibrary(context).save(SavedChapter(id, imported.title, "", pages))
+            imported.close()
+            val restored = ChapterLibrary(context).list().first { it.id == id }
+            assertEquals(2, restored.pages.size)
+            restored.pages.forEach { page -> assertNotNull(android.graphics.BitmapFactory.decodeFile(page.localPath)) }
+        } finally { imported.close(); ChapterLibrary(context).remove(id); source.delete() }
+    }
+
     @Test fun downloadProviderGrantsOnlyDownloadFiles() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val file = File(File(context.filesDir, "downloads").apply { mkdirs() }, "provider_fixture.txt").apply { writeText("fixture") }

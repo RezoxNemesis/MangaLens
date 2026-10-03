@@ -39,7 +39,7 @@ class ProductSmokeTest {
         assertTrue(device.wait(Until.hasObject(By.pkg(context.packageName).depth(0)), 15_000))
         device.waitForIdle()
         assertTrue(device.takeScreenshot(File(screenshots, "home.png")))
-        for ((label, expected) in listOf("Library" to "Local Media Player", "Orez AI" to "OREZ AI", "Downloads" to "Download Room", "Settings" to "Appearance")) {
+        for ((label, expected) in listOf("Library" to "My Library", "Orez AI" to "OREZ AI", "Downloads" to "Download Room", "Settings" to "Tools & Settings")) {
             val navigation = device.wait(Until.findObject(By.descContains(label)), 10_000)
             assertNotNull("Missing navigation: $label", navigation)
             navigation.click()

@@ -10,6 +10,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
@@ -66,7 +67,12 @@ private val DarkColors = darkColorScheme(
     outline = MangaLensDesignTokens.DarkSurfaceBorder
 )
 
-val MangaLensTypography = Typography()
+val MangaLensTypography = Typography(
+    headlineLarge = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(30f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+    headlineMedium = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(26f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+    titleLarge = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(22f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+    titleMedium = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(17f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+)
 
 @Composable
 fun MangaLensTheme(themeMode: ThemeMode = ThemeMode.DARK, content: @Composable () -> Unit) {
@@ -89,6 +95,7 @@ fun MangaLensTheme(themeMode: ThemeMode = ThemeMode.DARK, content: @Composable (
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = MangaLensTypography,
+        shapes = androidx.compose.material3.Shapes(medium = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), large = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
         content = content
     )
 }

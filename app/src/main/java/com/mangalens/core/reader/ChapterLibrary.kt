@@ -7,6 +7,8 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
+enum class ReadingStatus(val label: String) { READING("Reading"), COMPLETED("Completed"), ON_HOLD("On hold") }
+
 data class SavedChapter(
     val id: String,
     val title: String,
@@ -14,7 +16,9 @@ data class SavedChapter(
     val pages: List<ChapterPage>,
     val position: Int = 0,
     val scrollOffset: Int = 0,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val bookmarked: Boolean = false,
+    val readingStatus: ReadingStatus = ReadingStatus.READING
 )
 
 /** Small chapter manifests; images remain in managed files and are never read into RAM here. */
@@ -31,7 +35,7 @@ class ChapterLibrary(context: Context) {
         val json = JSONObject().put("version", 1).put("id", chapter.id)
             .put("title", chapter.title).put("sourceUrl", chapter.sourceUrl)
             .put("position", chapter.position).put("offset", chapter.scrollOffset)
-            .put("updatedAt", chapter.updatedAt)
+            .put("updatedAt", chapter.updatedAt).put("bookmarked", chapter.bookmarked).put("readingStatus", chapter.readingStatus.name)
             .put("pages", JSONArray().apply {
                 chapter.pages.forEach { page -> put(JSONObject().put("index", page.index)
                     .put("source", page.sourceUrl).put("file", page.localPath?.let { File(it).name })) }
@@ -68,7 +72,8 @@ class ChapterLibrary(context: Context) {
                     val image = File(images, name)
                     if (!image.isFile || image.length() == 0L) null else ChapterPage(row.getInt("index"), row.getString("source"), image.absolutePath)
                 }
-            }, json.optInt("position").coerceAtLeast(0), json.optInt("offset").coerceAtLeast(0), json.optLong("updatedAt"))
+            }, json.optInt("position").coerceAtLeast(0), json.optInt("offset").coerceAtLeast(0), json.optLong("updatedAt"), json.optBoolean("bookmarked"),
+            ReadingStatus.entries.firstOrNull { it.name == json.optString("readingStatus") } ?: ReadingStatus.READING)
     }.getOrNull()?.takeIf { it.pages.isNotEmpty() }
 
     companion object {

@@ -32,6 +32,7 @@ import com.mangalens.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 
@@ -45,6 +46,9 @@ data class MangaLensUiState(
     val videoUrl: String? = null,
     val loading: Boolean = false,
     val translating: Boolean = false,
+    val translationPaused: Boolean = false,
+    val translationDone: Int = 0,
+    val translationTotal: Int = 0,
     val translationEnabled: Boolean = false,
     val overlays: Map<Int, List<TranslationOverlay>> = emptyMap(),
     val error: String? = null,
@@ -71,6 +75,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val advancedOcr = AdvancedTranslationEngine(application)
     private val orezRefiner = com.mangalens.core.translation.TranslationOrezRefiner(application)
     private val translationMutex = kotlinx.coroutines.sync.Mutex()
+    private val translationPause = MutableStateFlow(false)
     private var translationJob: kotlinx.coroutines.Job? = null
     private var ingestionJob: kotlinx.coroutines.Job? = null
     private var translateWhenPagesReady = false
@@ -169,9 +174,11 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(loading = true, translating = false, error = null, overlays = emptyMap(), translationEnabled = false)
             try {
                 repository.clearChapterCache()
+                val imported = com.mangalens.core.reader.DocumentImporter.prepare(app, uris)
+                try {
                 val key = "local:" + uris.joinToString("|")
-                _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(key), "Imported chapter", "", emptyList()))
-                val pages = repository.persistLocalImages(uris, app)
+                _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(key), imported.title, "", emptyList()))
+                val pages = repository.persistLocalImages(imported.images, app)
                 _state.value = _state.value.copy(
                     pages = pages,
                     mode = ContentType.IMAGE_CHAPTER,
@@ -179,7 +186,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     mangaTranslationEnabled = true,
                     error = null
                 )
+                persistCurrentChapter()
                 prefs.edit().putBoolean("translation_manga", true).apply()
+                } finally { imported.close() }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
@@ -344,15 +353,18 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
         prefs.edit().putBoolean("translation_manga", true).apply()
-        _state.value = _state.value.copy(mangaTranslationEnabled = true, translating = true, error = null)
+        translationPause.value = false
+        _state.value = _state.value.copy(mangaTranslationEnabled = true, translating = true, translationPaused = false, translationDone = 0, translationTotal = pages.size, error = null)
         translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
             try {
-                for (page in pages) {
+                for ((index, page) in pages.withIndex()) {
+                    translationPause.first { !it }
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     if (page.localPath.isNullOrBlank()) continue
                     try { translatePageInternal(page, targetLanguage) }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (failure: Exception) { _state.value = _state.value.copy(error = "Page ${page.index} translation failed. Retry this page.") }
+                    _state.value = _state.value.copy(translationDone = index + 1)
                 }
                 val hasTranslations = _state.value.overlays.values.any { it.isNotEmpty() }
                 _state.value = _state.value.copy(
@@ -413,6 +425,20 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         )
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    fun setChapterDetails(id: String, bookmarked: Boolean, status: com.mangalens.core.reader.ReadingStatus) {
+        viewModelScope.launch {
+            persistenceMutex.withLock {
+                val old = _state.value.library.firstOrNull { it.id == id } ?: return@withLock
+                val changed = old.copy(bookmarked = bookmarked, readingStatus = status)
+                withContext(Dispatchers.IO) { library.save(changed) }
+                _state.value = _state.value.copy(
+                    library = _state.value.library.map { if (it.id == id) changed else it },
+                    activeChapter = _state.value.activeChapter?.let { if (it.id == id) it.copy(bookmarked = bookmarked, readingStatus = status) else it }
+                )
+            }
         }
     }
 
@@ -483,9 +509,20 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
     }
 
+    fun pauseTranslation(paused: Boolean) {
+        translationPause.value = paused
+        _state.value = _state.value.copy(translationPaused = paused)
+    }
+
+    fun cancelTranslation() {
+        translationJob?.cancel()
+        translationPause.value = false
+        _state.value = _state.value.copy(translating = false, translationPaused = false)
+    }
+
     fun clearTranslations() {
         translationJob?.cancel()
-        _state.value = _state.value.copy(translating = false, translationEnabled = false, overlays = emptyMap())
+        _state.value = _state.value.copy(translating = false, translationPaused = false, translationDone = 0, translationTotal = 0, translationEnabled = false, overlays = emptyMap())
     }
 
     private suspend fun rememberTranslation(source: String, target: String, language: String) {

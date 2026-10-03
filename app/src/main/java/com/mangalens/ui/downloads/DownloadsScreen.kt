@@ -40,23 +40,53 @@ class DownloadsViewModel(app: android.app.Application) : AndroidViewModel(app) {
 }
 
 @Composable
-fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
+fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiState, onImport: (List<Uri>) -> Unit, onOpenLibrary: () -> Unit, onOpenTools: () -> Unit, onPauseTranslation: (Boolean) -> Unit, onCancelTranslation: () -> Unit, vm: DownloadsViewModel = viewModel()) {
     val context = LocalContext.current
     val items by vm.items.collectAsState()
     var url by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf(DownloadQuality.P2160) }
 
+    var tab by remember { mutableStateOf("Downloads") }
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImport(it) }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Download Room", style = MaterialTheme.typography.headlineMedium)
             TextButton(onClick = onBack) { Text("Back") }
         }
-        Text(
-            "Paste an accessible video, image or page URL. MangaLens selects the highest source-supported quality up to your selected ceiling.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Downloads", "Local files", "Offline packs").forEach { label -> FilterChip(tab == label, { tab = label }, label = { Text(label) }) }
+        }
+        com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()) {
+            Text("Import & translate", style = MaterialTheme.typography.titleMedium)
+            Text("Images · ZIP · CBZ · PDF", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton({ picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }) { Text("Choose a chapter →") }
+        }
+        if (appState.translating || appState.translationDone > 0) {
+            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Text("Translation queue", style = MaterialTheme.typography.titleMedium)
+                Text((appState.activeChapter?.title ?: "Chapter") + " · ${appState.translationDone}/${appState.translationTotal} pages processed")
+                LinearProgressIndicator(progress = { appState.translationDone.toFloat() / appState.translationTotal.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
+                if (appState.translating) Row {
+                    TextButton({ onPauseTranslation(!appState.translationPaused) }) { Text(if (appState.translationPaused) "Resume" else "Pause after page") }
+                    TextButton(onCancelTranslation) { Text("Cancel") }
+                }
+            }
+        }
+        if (tab == "Local files") {
+            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Text("${appState.library.size} saved chapters · ${appState.library.sumOf { it.pages.size }} pages")
+                TextButton(onOpenLibrary) { Text("Open library →") }
+            }
+            return@Column
+        }
+        if (tab == "Offline packs") {
+            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Text("On-device OCR is included. Translation languages download when first used.")
+                TextButton(onOpenTools) { Text("Manage Orez data and translation →") }
+            }
+            return@Column
+        }
         Spacer(Modifier.height(12.dp))
-
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
@@ -66,26 +96,13 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
         )
 
         Spacer(Modifier.height(10.dp))
-        Text("QUALITY CEILING", style = MaterialTheme.typography.labelLarge)
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            DownloadQuality.selectable.forEach { option ->
-                FilterChip(
-                    selected = quality == option,
-                    onClick = { quality = option },
-                    label = { Text(option.label) }
-                )
+        var qualityMenu by remember { mutableStateOf(false) }
+        Box {
+            TextButton({ qualityMenu = true }) { Text("Quality ceiling: ${quality.label} ▾") }
+            DropdownMenu(qualityMenu, { qualityMenu = false }) {
+                DownloadQuality.selectable.forEach { option -> DropdownMenuItem(text = { Text(option.label) }, onClick = { quality = option; qualityMenu = false }) }
             }
         }
-        Text(
-            "480p → 4K • source-limited automatically • no DRM/private/paywall bypass",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(8.dp))
-
         Button(
             onClick = {
                 vm.enqueue(url.trim(), quality)
@@ -106,6 +123,7 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
             modifier = Modifier.fillMaxSize().padding(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (items.isEmpty()) item { Text("No media downloads yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(items, key = { it.id }) { item ->
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {

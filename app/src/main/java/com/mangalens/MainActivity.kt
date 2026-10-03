@@ -84,6 +84,9 @@ class MainActivity : ComponentActivity() {
                     onDeleteSavedChapter = viewModel::deleteSavedChapter,
                     onOpenSavedChapter = viewModel::openSavedChapter,
                     onReadingPositionChanged = viewModel::saveReadingPosition,
+                    onChapterDetails = viewModel::setChapterDetails,
+                    onTranslationPaused = viewModel::pauseTranslation,
+                    onTranslationCancelled = viewModel::cancelTranslation,
                     onImportImages = viewModel::importLocalImages
                 )
                 val verificationRequest = verification.request

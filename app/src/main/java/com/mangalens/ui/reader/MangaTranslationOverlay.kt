@@ -29,6 +29,7 @@ data class TranslationOverlay(
 @Composable
 fun MangaTranslationOverlay(
     overlays: List<TranslationOverlay>,
+    textScale: Float = 1f,
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(modifier) {
@@ -45,7 +46,7 @@ fun MangaTranslationOverlay(
                 color = textColor,
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = (overlay.fontSizePx * scale).coerceIn(8f, 28f).sp
+                    fontSize = (overlay.fontSizePx * scale * textScale).coerceIn(8f, 28f).sp
                 ),
                 modifier = Modifier
                     .offset(x = left.dp, y = top.dp)

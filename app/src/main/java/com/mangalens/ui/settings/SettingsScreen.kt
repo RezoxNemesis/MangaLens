@@ -17,7 +17,7 @@ import com.mangalens.orez.OrezResourcePackManager
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.ui.MangaLensUiState
 import com.mangalens.ui.theme.ThemeMode
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,onMangaTranslationChanged:(Boolean)->Unit,onVideoTranslationChanged:(Boolean)->Unit,onWebTranslationChanged:(Boolean)->Unit,onTranslationStyleChanged:(String)->Unit,onCustomTranslationStyleChanged:(String)->Unit,onResetAdBlockStats:()->Unit){
@@ -39,10 +39,48 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
             resourceManager.refresh()
         }
     }
+    var storage by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var cacheBytes by remember { mutableLongStateOf(0L) }
+    var clearCache by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val disk = android.os.StatFs(context.filesDir.absolutePath)
+            storage = disk.availableBytes to disk.totalBytes
+            cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        }
+    }
+    if (clearCache) AlertDialog(onDismissRequest = { clearCache = false }, title = { Text("Clear temporary cache?") }, text = { Text("Saved chapters, downloads, models and reading progress are retained. Temporary files can be recreated.") },
+        confirmButton = { TextButton({ clearCache = false; scope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                // Imported documents can be active; leave their working directory untouched.
+                context.cacheDir.listFiles().orEmpty().filterNot { it.name == "chapter_imports" }.forEach { it.deleteRecursively() }
+                cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            }
+        } }) { Text("Clear cache") } }, dismissButton = { TextButton({ clearCache = false }) { Text("Cancel") } })
     LazyColumn(Modifier.fillMaxWidth().statusBarsPadding().imePadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
-            Text("Settings",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,modifier=Modifier.padding(top=16.dp))
+            Text("Tools & Settings",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,modifier=Modifier.padding(top=16.dp))
             Text("Appearance, translation modules, OREZ data and network protection.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            Text("Translation modules", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(Triple("Manga", state.mangaTranslationEnabled, onMangaTranslationChanged), Triple("Video", state.videoTranslationEnabled, onVideoTranslationChanged), Triple("Web", state.webTranslationEnabled, onWebTranslationChanged)).forEach { (name, enabled, change) ->
+                    com.mangalens.ui.components.Panel(Modifier.weight(1f)) { Text(name, fontWeight = FontWeight.Bold); Switch(enabled, change) }
+                }
+            }
+        }
+        item {
+            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()) {
+                Text("Device storage", style = MaterialTheme.typography.titleMedium)
+                storage?.let { (available, total) ->
+                    Text(formatBytes(available) + " free of " + formatBytes(total))
+                    LinearProgressIndicator(progress = { 1f - available.toFloat() / total.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
+                }
+                Text("Temporary cache: " + formatBytes(cacheBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton({ clearCache = true }) { Text("Clear cache →") }
+            }
         }
         item{Text("Appearance",fontWeight=FontWeight.Bold)}
         item{Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){ThemeMode.entries.forEach{mode->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(mode.name.lowercase().replaceFirstChar{it.uppercase()});RadioButton(selected=state.themeMode==mode,onClick={onThemeModeChanged(mode)})}}}}}
@@ -112,7 +150,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
             Text("OREZ Conversation Master Pack",fontWeight=FontWeight.Bold)
             Card(Modifier.fillMaxWidth()){
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                    Text("5–10 GB conversation/reasoning data • separate from translation training",style=MaterialTheme.typography.titleLarge)
+                    Text("Import your conversation and reasoning data",style=MaterialTheme.typography.titleLarge)
                     Text("Select a .jsonl, .jsonl.gz file, or a downloaded GitHub artifact ZIP from Files. The app streams the selected file directly (no second full-size copy), reads compressed data, and imports a bounded batch into the private OREZ vault.",color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Button(enabled=!resourceState.active,onClick={localPackLauncher.launch(arrayOf("*/*"))}){Text(if(resourceState.active)"IMPORTING…" else "SELECT OREZ DATA PACK FROM FILES")}
                     packSelectionError?.let{Text("Pack selection error: "+it,color=MaterialTheme.colorScheme.error)}

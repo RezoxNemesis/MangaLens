@@ -63,42 +63,57 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
 }
 
 @Composable
-fun OrezAiScreen(vm:OrezAiViewModel=viewModel(),onRoute:(String,OrezRoute)->Unit){
+fun OrezAiScreen(vm: OrezAiViewModel = viewModel(), library: List<com.mangalens.core.reader.SavedChapter> = emptyList(), chapterText: String = "", onImport: (List<android.net.Uri>) -> Unit = {}, onRoute: (String, OrezRoute) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val messages by vm.messages.collectAsState()
-    var input by rememberSaveable{mutableStateOf("")}
-    val list=rememberLazyListState()
-    LaunchedEffect(messages.size){if(messages.isNotEmpty())list.animateScrollToItem(messages.lastIndex)}
-
-    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha=.25f),MaterialTheme.colorScheme.background)))){
-        Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(16.dp)){
-            Text("OREZ AI",style=MaterialTheme.typography.headlineLarge)
-            Text("LOCAL BRAIN • KNOWLEDGE • REASONING • LIVE SEARCH",color=MaterialTheme.colorScheme.onSurfaceVariant)
-            val modelState = vm.modelState.collectAsState().value
-            val modelSize = "${com.mangalens.orez.OrezModelManager.MODEL_BYTES / 1_000_000L} MB"
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
-                Text(if(modelState.installed) "LOCAL MODEL READY • $modelSize" else if(modelState.downloading) "DOWNLOADING LOCAL MODEL • " + (modelState.progress*100).toInt() + "%" else "LOCAL MODEL • $modelSize", modifier = Modifier.weight(1f))
-                if(!modelState.installed && !modelState.downloading) Button(onClick={vm.downloadLocalModel()}){Text("Get model", maxLines = 1)}
+    var input by rememberSaveable { mutableStateOf("") }
+    val list = rememberLazyListState()
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImport(it) }
+    LaunchedEffect(messages.size) { if (messages.size > 1) list.animateScrollToItem(messages.size + 1) }
+    Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 16.dp)) {
+        com.mangalens.ui.components.BrandHeader("OREZ AI", "YOUR READING COMPANION")
+        LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
+            item {
+                com.mangalens.ui.components.ArtworkHero("Hello, I’m Orez", "Let’s explore your stories together.", com.mangalens.R.drawable.orez_portrait, "Translate a chapter") { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }
             }
-            LazyColumn(state=list,modifier=Modifier.weight(1f).fillMaxWidth().padding(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                items(messages,key={it.id}){m->
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=if(m.role=="YOU")Arrangement.End else Arrangement.Start){
-                        Card(Modifier.widthIn(max=340.dp)){Column(Modifier.padding(14.dp)){Text(m.role,style=MaterialTheme.typography.labelSmall);Text(m.text.substringBefore("\n\nSources:"),Modifier.padding(top=5.dp))
-                            if (m.text.contains("\n\nSources:")) m.text.substringAfter("\n\nSources:").lineSequence()
-                                .map { it.trim() }.filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl).take(6).forEach { url ->
-                                    TextButton(onClick = { runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) } }) {
-                                        Text(java.net.URI(url).host ?: "Source", maxLines = 1)
-                                    }
-                                }}}
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Quick actions", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton({ input = "Find manga: " }, Modifier.weight(1f)) { Text("Find manga") }
+                        OutlinedButton({ input = if (chapterText.isBlank()) "How do I import and translate a chapter?" else "Summarize this chapter text. Do not infer missing pages.\n" + chapterText.take(6000) }, Modifier.weight(1f)) { Text("Summarize") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton({ input = "Help me plan my reading list from these saved chapters only: " + library.joinToString { it.title }.take(6000) }, Modifier.weight(1f)) { Text("Reading list") }
+                        OutlinedButton({ input = "Explain how on-device OCR translation works" }, Modifier.weight(1f)) { Text("Translation help") }
+                    }
+                    val modelState by vm.modelState.collectAsState()
+                    com.mangalens.ui.components.Panel {
+                        val size = com.mangalens.orez.OrezModelManager.MODEL_BYTES / 1_000_000L
+                        Text(if (modelState.installed) "Local model ready · $size MB" else if (modelState.downloading) "Downloading model · ${(modelState.progress * 100).toInt()}%" else "Optional offline model · $size MB", style = MaterialTheme.typography.bodySmall)
+                        if (modelState.downloading) LinearProgressIndicator(progress = { modelState.progress }, modifier = Modifier.fillMaxWidth())
+                        if (!modelState.installed && !modelState.downloading) TextButton({ vm.downloadLocalModel() }) { Text("Download local model →") }
                     }
                 }
-                item{if(vm.typing)Text("OREZ is thinking…",color=MaterialTheme.colorScheme.onSurfaceVariant)}
             }
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                OutlinedTextField(value=input,onValueChange={input=it},modifier=Modifier.weight(1f),singleLine=true,placeholder={Text("Ask OREZ…")})
-                Spacer(Modifier.width(8.dp))
-                Button(onClick={val q=input;input="";vm.sendMessage(q,onRoute)},enabled=input.isNotBlank()&&!vm.typing){Text("SEND")}
+            items(messages, key = { it.id }) { message ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.role == "YOU") Arrangement.End else Arrangement.Start) {
+                    Card(Modifier.widthIn(max = 340.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = if (message.role == "YOU") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(message.role, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                            Text(message.text.substringBefore("\n\nSources:"))
+                            if (message.text.contains("\n\nSources:")) message.text.substringAfter("\n\nSources:").lineSequence().map { it.trim() }.filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl).take(6).forEach { url ->
+                                TextButton({ runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) } }) { Text(java.net.URI(url).host ?: "Source", maxLines = 1) }
+                            }
+                        }
+                    }
+                }
             }
+            item { if (vm.typing) Text("Orez is thinking…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(input, { input = it }, Modifier.weight(1f), maxLines = 4, placeholder = { Text("Ask Orez anything…") }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            Button({ val query = input; input = ""; vm.sendMessage(query, onRoute) }, enabled = input.isNotBlank() && !vm.typing, contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Send") }
         }
     }
 }
