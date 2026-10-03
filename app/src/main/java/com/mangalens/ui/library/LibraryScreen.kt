@@ -13,6 +13,7 @@ import com.mangalens.core.reader.*
 import com.mangalens.ui.MangaLensUiState
 import com.mangalens.ui.components.*
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, onOpenSavedChapter: (String) -> Unit,
     onOpenReader: () -> Unit, onOpenLocalVideo: () -> Unit,
@@ -42,9 +43,17 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
             } }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(filters.size) { index -> val label = filters[index]
-                    FilterChip(filter == label, { filter = label }, label = { Text("$label (${state.library.count { matches(it, label) }})") })
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                filters.forEach { label ->
+                    FilterChip(
+                        selected = filter == label,
+                        onClick = { filter = label },
+                        label = { Text("$label (${state.library.count { matches(it, label) }})", maxLines = 1) }
+                    )
                 }
             }
         }
