@@ -59,6 +59,7 @@ data class MangaLensUiState(
     val targetLanguage: String = "hi",
     val translationStyle: String = "natural",
     val customTranslationStyle: String = "",
+    val adBlockEnabled: Boolean = true,
     val adBlockStats: AdBlockStats = AdBlockStats(),
 )
 
@@ -95,6 +96,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             targetLanguage = prefs.getString("translation_target", "hi") ?: "hi",
             translationStyle = prefs.getString("translation_style", "natural") ?: "natural",
             customTranslationStyle = prefs.getString("translation_custom_style", "") ?: "",
+            adBlockEnabled = prefs.getBoolean("ad_block_enabled", true),
         )
     )
     val state: StateFlow<MangaLensUiState> = _state
@@ -162,6 +164,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         clearTranslations()
         prefs.edit().putString("translation_custom_style", normalized).apply()
         _state.value = _state.value.copy(customTranslationStyle = normalized)
+    }
+    fun setAdBlockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("ad_block_enabled", enabled).apply()
+        _state.value = _state.value.copy(adBlockEnabled = enabled)
     }
     fun resetAdBlockStats() = statsStore.reset()
 
