@@ -35,7 +35,8 @@ data class RenderedPageSet(
  */
 class RenderedBrowserAcquirer(
     private val context: Context,
-    private val adBlockEngine: AdBlockEngine = AdBlockEngine()
+    private val adBlockEngine: AdBlockEngine = AdBlockEngine(),
+    private val adBlockEnabled: () -> Boolean = { true }
 ) {
     private companion object {
         const val MAX_IMAGE_URLS = 3000
@@ -106,7 +107,7 @@ class RenderedBrowserAcquirer(
                 }
             } }
 
-            webView.webViewClient = object : AdBlockWebViewClient(adBlockEngine) {
+            webView.webViewClient = object : AdBlockWebViewClient(adBlockEngine, adBlockEnabled) {
 
                 override fun shouldInterceptRequest(
                     view: WebView?,
