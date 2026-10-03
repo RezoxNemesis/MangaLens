@@ -37,6 +37,7 @@ import kotlin.coroutines.resume
 fun AdBlockedWebScreen(
     url: String,
     translationEnabled: Boolean,
+    adBlockEnabled: Boolean = true,
     modifier: Modifier = Modifier,
     targetLanguage: String = "hi",
     onOpenManga: (String) -> Unit = {}
@@ -62,8 +63,12 @@ fun AdBlockedWebScreen(
     var totalTranslatable by remember { mutableIntStateOf(0) }
     var translationStatus by remember { mutableStateOf<String?>(null) }
     var hudVisible by remember { mutableStateOf(true) }
+    var siteAdBlockEnabled by remember { mutableStateOf(adBlockEnabled) }
+    val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
+    val latestSiteAdBlockEnabled by rememberUpdatedState(siteAdBlockEnabled)
 
     LaunchedEffect(translationEnabled) { translated = translationEnabled }
+    LaunchedEffect(adBlockEnabled) { siteAdBlockEnabled = adBlockEnabled }
     LaunchedEffect(autoScroll, speed, webView) {
         while (autoScroll && webView != null) {
             webView?.evaluateJavascript("window.scrollBy(0, " + (2.5f * speed) + ");", null)
@@ -167,7 +172,7 @@ fun AdBlockedWebScreen(
                         if (event.actionMasked == MotionEvent.ACTION_UP) hudVisible = true
                         false
                     }
-                    webViewClient = object : AdBlockWebViewClient(engine) {
+                    webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && latestSiteAdBlockEnabled }) {
                         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                             pageReady = false
                             navigationEpoch++
@@ -200,6 +205,13 @@ fun AdBlockedWebScreen(
                     TextButton(onClick = { webView?.goForward() }, enabled = canGoForward) { Text("Forward") }
                     TextButton(onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() }) { Text(if (loadProgress < 100) "Stop" else "Reload") }
                     TextButton(onClick = { onOpenManga(currentUrl) }, enabled = pageReady) { Text("Open in Manga") }
+                    TextButton(
+                        onClick = {
+                            siteAdBlockEnabled = !siteAdBlockEnabled
+                            webView?.reload()
+                        },
+                        enabled = adBlockEnabled
+                    ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ad block: On" else "Ad block: Off") }
                     TextButton(onClick = { clearSiteDialog = true }) { Text("Clear site data") }
                 }
                 if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
