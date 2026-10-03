@@ -15,9 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -50,99 +48,43 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
     }
 
     private suspend fun download(id: String, url: String, title: String, mime: String) {
-        val old = dao.get(id) ?: DownloadEntity(id, url, title, mime)
+        if (dao.get(id) == null) throw CancellationException("Download was removed")
         val temp = File(applicationContext.filesDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
 
         val validatorFile = File(temp.parentFile, "$id.validator")
-        val validator = validatorFile.takeIf { it.isFile }?.readText()?.take(512)
-        if (temp.length() > 0L && validator.isNullOrBlank()) temp.delete()
-        var offset = temp.length()
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "*/*")
-            .apply { if (offset > 0L) { header("Range", "bytes=$offset-"); header("If-Range", validator!!) } }
-            .build()
-
-        HTTP.newCall(request).execute().use { response ->
-            if (offset > 0L && response.code == 200) {
-                temp.delete()
-                offset = 0L
+        var lastPersistAt = 0L
+        var lastPersistBytes = -PROGRESS_BYTES
+        var lastNotificationAt = 0L
+        ResumableMediaTransfer(HTTP).download(url, temp, validatorFile) { done, total ->
+            val now = SystemClock.elapsedRealtime()
+            if (done - lastPersistBytes >= PROGRESS_BYTES || now - lastPersistAt >= PROGRESS_INTERVAL_MS) {
+                persistProgress(id, done, total)
+                lastPersistBytes = done
+                lastPersistAt = now
             }
-            if (offset > 0L && response.code == 206) {
-                check(response.header("Content-Range")?.startsWith("bytes $offset-") == true) { "Server returned an invalid download resume range." }
+            if (now - lastNotificationAt >= NOTIFICATION_INTERVAL_MS) {
+                setForeground(createForegroundInfo(title, done, total))
+                lastNotificationAt = now
             }
-            (response.header("ETag")?.takeIf { !it.startsWith("W/") } ?: response.header("Last-Modified"))
-                ?.take(512)?.let { validatorFile.writeText(it) }
-            check(response.isSuccessful) { "HTTP ${response.code}" }
-
-            val body = response.body ?: error("Empty response")
-            val announced = body.contentLength()
-            val total = if (announced >= 0L) offset + announced else -1L
-            var done = offset
-            var lastPersistAt = 0L
-            var lastPersistBytes = done
-            var lastNotificationAt = 0L
-
-            persistProgress(id, old, done, total)
-
-            body.byteStream().buffered(BUFFER_SIZE).use { input ->
-                FileOutputStream(temp, offset > 0L).buffered(BUFFER_SIZE).use { output ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        done += read
-
-                        val now = SystemClock.elapsedRealtime()
-                        val shouldPersist = done - lastPersistBytes >= PROGRESS_BYTES || now - lastPersistAt >= PROGRESS_INTERVAL_MS
-                        if (shouldPersist) {
-                            persistProgress(id, old, done, total)
-                            lastPersistBytes = done
-                            lastPersistAt = now
-                        }
-
-                        if (now - lastNotificationAt >= NOTIFICATION_INTERVAL_MS) {
-                            setForeground(createForegroundInfo(title, done, total))
-                            lastNotificationAt = now
-                        }
-                    }
-                    output.flush()
-                }
-            }
-
-            persistProgress(id, old, done, total)
         }
 
         currentCoroutineContext().ensureActive()
         check(temp.length() > 0L) { "The downloaded file is empty." }
         val uri = publish(temp, title, mime)
-        dao.upsert((dao.get(id) ?: old).copy(
-            destination = uri.toString(),
-            bytesDownloaded = temp.length(),
-            totalBytes = temp.length(),
-            state = DownloadState.COMPLETED,
-            error = null
-        ))
+        if (dao.completeIfActive(id, uri.toString(), temp.length()) == 0) {
+            applicationContext.contentResolver.delete(uri, null, null)
+            throw CancellationException("Download stopped before publication")
+        }
         temp.delete()
         validatorFile.delete()
     }
 
-    private suspend fun persistProgress(id: String, old: DownloadEntity, done: Long, total: Long) {
-        val latest = dao.get(id) ?: throw CancellationException("Download was removed")
-        if (latest.state in setOf(DownloadState.PAUSED, DownloadState.CANCELLED)) throw CancellationException("Download stopped")
-        dao.upsert(latest.copy(
-            bytesDownloaded = done,
-            totalBytes = total,
-            state = DownloadState.DOWNLOADING,
-            error = null
-        ))
+    private suspend fun persistProgress(id: String, done: Long, total: Long) {
+        if (dao.progressIfActive(id, done, total) == 0) throw CancellationException("Download stopped")
     }
 
     private suspend fun markFailed(id: String, message: String) {
-        dao.get(id)?.let { dao.upsert(it.copy(state = DownloadState.FAILED, error = message)) }
+        dao.failIfActive(id, message)
     }
 
     private fun publish(temp: File, title: String, mime: String): android.net.Uri {
@@ -238,7 +180,6 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         private const val PROGRESS_INTERVAL_MS = 750L
         private const val NOTIFICATION_INTERVAL_MS = 1500L
         private const val MAX_RETRIES = 3
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36 MangaLens/13"
 
         private val HTTP: OkHttpClient = OkHttpClient.Builder()
             .followRedirects(true)

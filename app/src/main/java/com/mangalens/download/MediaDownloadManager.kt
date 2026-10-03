@@ -44,12 +44,12 @@ class MediaDownloadManager(private val context: Context) {
 
     suspend fun pause(id: String) = withContext(Dispatchers.IO) {
         val item = dao.get(id) ?: return@withContext
+        if (dao.stopIfActive(id, DownloadState.PAUSED, null) == 0) return@withContext
         if (isAdaptive(item.sourceUrl)) {
             MangaLensDownloadService.pauseAdaptive(context, id)
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         }
-        dao.upsert(item.copy(state = DownloadState.PAUSED, error = null))
     }
 
     suspend fun resume(id: String) = withContext(Dispatchers.IO) {
@@ -65,11 +65,9 @@ class MediaDownloadManager(private val context: Context) {
     }
 
     suspend fun cancel(id: String) = withContext(Dispatchers.IO) {
+        dao.stopIfActive(id, DownloadState.CANCELLED, "Cancelled by user")
         WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         MangaLensDownloadService.remove(context, id)
-        dao.get(id)?.let {
-            dao.upsert(it.copy(state = DownloadState.CANCELLED, error = "Cancelled by user"))
-        }
     }
 
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {

@@ -11,6 +11,29 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class OfflineLibraryTest {
+    @Test fun stoppedDownloadsCannotBeOverwrittenByLateWorkerUpdates() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dao = com.mangalens.download.DownloadDatabase.get(context).downloads()
+        val id = "qa-download-state"
+        val item = com.mangalens.download.DownloadEntity(id, "https://fixture.example/media", "Fixture", "video/mp4")
+        try {
+            for (state in listOf(com.mangalens.download.DownloadState.PAUSED, com.mangalens.download.DownloadState.CANCELLED)) {
+                dao.upsert(item.copy(state = state))
+                assertEquals(0, dao.progressIfActive(id, 100, 200))
+                assertEquals(0, dao.failIfActive(id, "late network failure"))
+                assertEquals(0, dao.completeIfActive(id, "content://fixture/download", 200))
+                assertEquals(state, dao.get(id)!!.state)
+            }
+            dao.upsert(item)
+            assertEquals(1, dao.progressIfActive(id, 100, 200))
+            assertEquals(1, dao.completeIfActive(id, "content://fixture/download", 200))
+            assertEquals(0, dao.progressIfActive(id, 50, 200))
+            assertEquals(com.mangalens.download.DownloadState.COMPLETED, dao.get(id)!!.state)
+            dao.delete(id)
+            assertEquals(0, dao.completeIfActive(id, "content://fixture/download", 200))
+        } finally { dao.delete(id) }
+    }
+
     @Test fun downloadProviderGrantsOnlyDownloadFiles() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val file = File(File(context.filesDir, "downloads").apply { mkdirs() }, "provider_fixture.txt").apply { writeText("fixture") }

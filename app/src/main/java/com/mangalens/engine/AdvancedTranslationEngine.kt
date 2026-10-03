@@ -85,7 +85,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
         val script = prefs?.getString("script", "AUTO") ?: "AUTO"
         val highAccuracy = prefs?.getBoolean("high_accuracy", true) ?: true
-        val candidates = if (script != "AUTO" && !highAccuracy) listOf(createRecognizer(script)) else listOf(
+        val candidates = if (script != "AUTO") listOf(createRecognizer(script)) else if (!highAccuracy) listOf(createRecognizer("LATIN")) else listOf(
             createRecognizer("LATIN"), createRecognizer("DEVANAGARI"),
             createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
         )

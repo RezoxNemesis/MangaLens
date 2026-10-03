@@ -28,6 +28,14 @@ interface DownloadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(item: DownloadEntity)
     @Query("SELECT * FROM media_downloads ORDER BY createdAt DESC") fun observe(): Flow<List<DownloadEntity>>
     @Query("SELECT * FROM media_downloads WHERE id = :id LIMIT 1") suspend fun get(id: String): DownloadEntity?
+    @Query("UPDATE media_downloads SET state = :state, error = :message WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED', 'PAUSED')")
+    suspend fun stopIfActive(id: String, state: DownloadState, message: String?): Int
+    @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = 'DOWNLOADING', error = NULL WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED')")
+    suspend fun progressIfActive(id: String, done: Long, total: Long): Int
+    @Query("UPDATE media_downloads SET destination = :uri, bytesDownloaded = :size, totalBytes = :size, state = 'COMPLETED', error = NULL WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED')")
+    suspend fun completeIfActive(id: String, uri: String, size: Long): Int
+    @Query("UPDATE media_downloads SET state = 'FAILED', error = :message WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING')")
+    suspend fun failIfActive(id: String, message: String): Int
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 
