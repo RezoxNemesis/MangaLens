@@ -54,7 +54,18 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
             TextButton(onClick = onBack) { Text("Back") }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Downloads", "Local files", "Offline packs").forEach { label -> FilterChip(tab == label, { tab = label }, label = { Text(label) }) }
+            listOf(
+                "Downloads" to "Downloads",
+                "Local files" to "Files",
+                "Offline packs" to "Offline"
+            ).forEach { (value, label) ->
+                FilterChip(
+                    selected = tab == value,
+                    onClick = { tab = value },
+                    label = { Text(label, maxLines = 1) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
         com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()) {
             Text("Import & translate", style = MaterialTheme.typography.titleMedium)
