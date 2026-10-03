@@ -7,7 +7,9 @@ set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(LLAMA_OPENSSL OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
-set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
+# Android loads packaged libraries through the app linker; desktop directory
+# discovery does not find them. Link/register the CPU backend directly.
+set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
 set(GGML_CPU_ALL_VARIANTS OFF CACHE BOOL "" FORCE)
 set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
 
