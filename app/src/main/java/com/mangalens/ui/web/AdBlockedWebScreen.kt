@@ -44,7 +44,7 @@ fun AdBlockedWebScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val engine = remember { AdBlockEngine() }
+    val engine = remember { AdBlockEngine(com.mangalens.core.adblock.AdBlockStatsStore.shared) }
     val translator = remember { TranslationService() }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var currentUrl by remember { mutableStateOf(url) }
