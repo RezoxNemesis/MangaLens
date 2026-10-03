@@ -16,7 +16,7 @@ class NativeModelTest {
     @Test fun verifiedOptionalModelLoadsGeneratesAndUnloads() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val model = OrezModelManager(context).modelFile
-        // Ordinary local test runs do not install the optional 505 MB resource.
+        // Ordinary local test runs do not install the optional 650 MB resource.
         if (InstrumentationRegistry.getArguments().getString("require_model") == "true") {
             assertTrue("CI resource preflight did not install the optional model", model.isFile)
         } else {

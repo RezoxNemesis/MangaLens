@@ -19,10 +19,10 @@ PY
 trap collect_regression EXIT
 MODEL_FIXTURE="${RUNNER_TEMP:-/tmp}/mangalens-qa-model.gguf"
 curl --fail --location --retry 3 --connect-timeout 30 --max-time 600 \
-  'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q6_k.gguf?download=true' \
+  'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q6_k.gguf?download=true' \
   --output "$MODEL_FIXTURE"
-echo "526ade7343ce34f493ff03c6231e82d78f1eab59284541c3530fc4285911d641  $MODEL_FIXTURE" | sha256sum --check
-test "$(wc -c < "$MODEL_FIXTURE")" -eq 505736512
+echo "2f82233630c349ccf6b8daccf48f9a7865713d9f08a2eadfa456cebe9b97c7f5  $MODEL_FIXTURE" | sha256sum --check
+test "$(wc -c < "$MODEL_FIXTURE")" -eq 650379104
 adb push "$MODEL_FIXTURE" /data/local/tmp/mangalens-qa-model.gguf
 adb shell run-as com.mangalens mkdir -p files/orez_models
 adb shell run-as com.mangalens cp /data/local/tmp/mangalens-qa-model.gguf files/orez_models/qwen2.5-0.5b-q6_k.gguf

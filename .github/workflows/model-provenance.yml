@@ -18,7 +18,11 @@ jobs:
           python3 - <<'PY'
           import json, re, urllib.request
           from pathlib import Path
-          url = "https://huggingface.co/api/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF?blobs=true"
+          source = Path("app/src/main/java/com/mangalens/orez/OrezModelManager.kt").read_text()
+          model_url = re.search(r'const val MODEL_URL = "([^"]+)"', source)[1]
+          revision = model_url.split("/resolve/", 1)[1].split("/", 1)[0]
+          assert re.fullmatch(r"[a-f0-9]{40}", revision), "Model URL must pin an immutable publisher revision"
+          url = "https://huggingface.co/api/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/revision/" + revision + "?blobs=true"
           request = urllib.request.Request(url, headers={"User-Agent": "MangaLens-QA"})
           with urllib.request.urlopen(request, timeout=45) as response:
               metadata = json.load(response)
