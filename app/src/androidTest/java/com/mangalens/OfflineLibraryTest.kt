@@ -51,7 +51,8 @@ class OfflineLibraryTest {
     @Test fun importsPdfPagesIntoPersistentOfflineLibrary() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val source = File(context.cacheDir, "qa_chapter.pdf")
-        android.graphics.pdf.PdfDocument().use { document ->
+        val document = android.graphics.pdf.PdfDocument()
+        try {
             repeat(2) { index ->
                 val page = document.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(400, 600, index + 1).create())
                 val paint = android.graphics.Paint().apply { textSize = 30f }
@@ -59,6 +60,8 @@ class OfflineLibraryTest {
                 document.finishPage(page)
             }
             source.outputStream().use { document.writeTo(it) }
+        } finally {
+            document.close()
         }
         val id = ChapterLibrary.id("qa:pdf")
         val imported = DocumentImporter.prepare(context, listOf(android.net.Uri.fromFile(source)))
