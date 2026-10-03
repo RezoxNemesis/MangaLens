@@ -101,7 +101,7 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
         return ForegroundInfo(10002, n, if (android.os.Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
     }
 
-    private fun format(v: Long): String = "%.0f MB".format(v / 1048576.0)
+    private fun format(v: Long): String = "%.0f MB".format(v / 1_000_000.0)
 
     private fun sha256(file: File): String {
         val d = MessageDigest.getInstance("SHA-256")
