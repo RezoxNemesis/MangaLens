@@ -61,6 +61,10 @@ class ProductSmokeTest {
         completed = true
         } finally {
             if (!completed) { device.takeScreenshot(File(screenshots, "failure.png")); device.dumpWindowHierarchy(File(screenshots, "failure-hierarchy.xml")) }
+            // Gradle can uninstall the target after instrumentation, removing its external files.
+            // Shell copies test evidence to a scoped QA folder before that cleanup occurs.
+            device.executeShellCommand("mkdir -p /sdcard/Download/mangalens-qa")
+            device.executeShellCommand("cp -R ${screenshots.absolutePath}/. /sdcard/Download/mangalens-qa/")
             library.remove(fixtureId); image.delete()
         }
     }
