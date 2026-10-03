@@ -71,7 +71,11 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val persistenceMutex = kotlinx.coroutines.sync.Mutex()
     private val library = ChapterLibrary(application)
     private val repository = ProgressiveChapterRepository(application)
-    private val acquirer = RenderedBrowserAcquirer(application, AdBlockEngine(statsStore))
+    private val acquirer = RenderedBrowserAcquirer(
+        application,
+        AdBlockEngine(statsStore),
+        adBlockEnabled = { prefs.getBoolean("ad_block_enabled", true) }
+    )
     private val ocr = OcrInpaintingEngine()
     private val advancedOcr = AdvancedTranslationEngine(application)
     private val orezRefiner = com.mangalens.core.translation.TranslationOrezRefiner(application)
