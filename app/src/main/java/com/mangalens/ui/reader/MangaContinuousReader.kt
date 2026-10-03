@@ -191,7 +191,7 @@ fun MangaContinuousReader(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth().statusBarsPadding(),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+                color = MaterialTheme.colorScheme.surface
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(10.dp),
