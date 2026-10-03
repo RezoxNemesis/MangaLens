@@ -103,7 +103,7 @@ class MediaDownloadManager(private val context: Context) {
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             workName(id),
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             request
         )
     }

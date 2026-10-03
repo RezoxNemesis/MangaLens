@@ -39,7 +39,6 @@ abstract class DownloadDatabase : RoomDatabase() {
         fun get(context: android.content.Context): DownloadDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(context.applicationContext, DownloadDatabase::class.java, "mangalens_downloads.db")
-                    .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }
             }

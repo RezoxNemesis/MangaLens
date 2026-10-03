@@ -58,6 +58,8 @@ fun MangaContinuousReader(
     onTranslate: () -> Unit,
     onDownload: () -> Unit,
     onMenu: () -> Unit,
+    onRetry: () -> Unit = {},
+    onOpenWeb: () -> Unit = {},
     onLongPressPage: (ChapterPage) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -65,14 +67,20 @@ fun MangaContinuousReader(
     var originalVisible by remember { mutableStateOf(false) }
     var hudVisible by remember { mutableStateOf(true) }
     var scale by remember { mutableFloatStateOf(1f) }
+    var panX by remember { mutableFloatStateOf(0f) }
+    var panY by remember { mutableFloatStateOf(0f) }
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var languageMenu by remember { mutableStateOf(false) }
     val currentPages by rememberUpdatedState(pages)
     val currentPositionCallback by rememberUpdatedState(onPositionChanged)
     val listState = rememberLazyListState()
-    val transformState = rememberTransformableState { zoom, _, _ ->
+    val transformState = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 4f)
+        if (scale > 1f) {
+            panX = (panX + pan.x).coerceIn(-1000f, 1000f)
+            panY = (panY + pan.y).coerceIn(-1000f, 1000f)
+        } else { panX = 0f; panY = 0f }
         hudVisible = true
     }
 
@@ -115,7 +123,7 @@ fun MangaContinuousReader(
             state = listState,
             modifier = Modifier.fillMaxSize()
                 .transformable(transformState)
-                .graphicsLayer(scaleX = scale, scaleY = scale)
+                .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
         ) {
             items(pages, key = { it.index }) { page ->
                 Box(
@@ -150,7 +158,10 @@ fun MangaContinuousReader(
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
                 shape = MaterialTheme.shapes.medium
             ) {
-                Text(error, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
+                Column(Modifier.padding(12.dp)) {
+                    Text(error, style = MaterialTheme.typography.bodySmall)
+                    Row { TextButton(onClick = onRetry) { Text("Retry") }; TextButton(onClick = onOpenWeb) { Text("Open in Web") } }
+                }
             }
         }
 

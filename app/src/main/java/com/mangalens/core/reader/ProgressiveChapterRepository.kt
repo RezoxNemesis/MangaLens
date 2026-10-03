@@ -60,6 +60,7 @@ class ProgressiveChapterRepository(
                     }
                 }
                 check(temp.length() > 0L) { "Downloaded chapter page is empty." }
+                validateImage(temp)
                 if (!temp.renameTo(file)) {
                     temp.copyTo(file, overwrite = true)
                     temp.delete()
@@ -102,6 +103,7 @@ class ProgressiveChapterRepository(
                         }
                     }
                     require(temp.length() > 0L) { "Selected image " + (index + 1) + " is empty." }
+                    validateImage(temp)
                     if (!temp.renameTo(file)) temp.copyTo(file, true).also { temp.delete() }
                 } catch (failure: Throwable) {
                     temp.delete()
@@ -118,6 +120,13 @@ class ProgressiveChapterRepository(
     /** Changing the active chapter must never delete durable offline pages. */
     fun clearChapterCache() { _pages.value = emptyList() }
     fun restorePages(pages: List<ChapterPage>) { _pages.value = pages }
+
+    private fun validateImage(file: File) {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "The page is not a supported image. Open the source in Web mode or choose another image." }
+        check(bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) { "The image is too large to decode safely." }
+    }
 
     private fun sha256(value: String): String =
         MessageDigest.getInstance("SHA-256").digest(value.toByteArray())

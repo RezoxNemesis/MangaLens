@@ -33,6 +33,40 @@ class OfflineLibraryTest {
             File(context.filesDir, "chapter_library/$id.json").delete()
         }
     }
+    @Test fun deletingChapterPreservesSharedOfflineImages() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val image = File(File(context.filesDir, "chapters").apply { mkdirs() }, "shared_test.img").apply { writeBytes(byteArrayOf(1)) }
+        val first = ChapterLibrary.id("test:first")
+        val second = ChapterLibrary.id("test:second")
+        val library = ChapterLibrary(context)
+        val page = ChapterPage(1, "local:test", image.absolutePath)
+        try {
+            library.save(SavedChapter(first, "First", "", listOf(page)))
+            library.save(SavedChapter(second, "Second", "", listOf(page)))
+            library.remove(first)
+            assertTrue(image.isFile)
+            library.remove(second)
+            assertFalse(image.exists())
+        } finally { library.remove(first); library.remove(second); image.delete() }
+    }
+    @Test fun latinOcrRecognizesARealBitmap() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("mangalens_ocr", android.content.Context.MODE_PRIVATE)
+        val oldScript = prefs.getString("script", "AUTO")
+        val oldAccuracy = prefs.getBoolean("high_accuracy", true)
+        prefs.edit().putString("script", "LATIN").putBoolean("high_accuracy", false).commit()
+        val image = android.graphics.Bitmap.createBitmap(1000, 300, android.graphics.Bitmap.Config.ARGB_8888)
+        val paint = android.graphics.Paint().apply { color = android.graphics.Color.BLACK; textSize = 72f; isAntiAlias = true }
+        android.graphics.Canvas(image).apply { drawColor(android.graphics.Color.WHITE); drawText("Hello MangaLens", 50f, 160f, paint) }
+        val engine = com.mangalens.engine.AdvancedTranslationEngine(context)
+        try {
+            val regions = engine.recognizeScriptAware(image)
+            assertTrue("OCR did not read fixture text", regions.any { it.source.contains("Hello", ignoreCase = true) })
+        } finally {
+            engine.close(); image.recycle()
+            prefs.edit().putString("script", oldScript).putBoolean("high_accuracy", oldAccuracy).commit()
+        }
+    }
     @Test fun webViewsCannotReadAppFiles() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {

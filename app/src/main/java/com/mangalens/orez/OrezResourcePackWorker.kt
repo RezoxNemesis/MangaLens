@@ -129,7 +129,7 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
             .setProgress(if(determinate)100 else 0,percent,!determinate)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(10004,notification)
+        return ForegroundInfo(10004,notification, if (android.os.Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
     }
 
     private fun formatBytes(bytes:Long):String="%.1f MB".format(bytes/1048576.0)

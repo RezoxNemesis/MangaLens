@@ -5,7 +5,7 @@ import java.net.URI
 import java.util.Locale
 
 class UrlEngineRouter {
-    private val videoExtensions = setOf(".m3u8", ".mp4", ".ts", ".webm", ".mkv", ".mov")
+    private val videoExtensions = setOf(".m3u8", ".mpd", ".mp4", ".ts", ".webm", ".mkv", ".mov")
     private val videoDomainKeywords = setOf("youtube", "vimeo", "dailymotion", "twitch", "video", "player", "stream")
     private val mangaDomainKeywords = setOf("mangadex", "manhua", "manhwa", "manga", "readmanga", "asura", "reaper", "flame")
 
@@ -30,9 +30,6 @@ class UrlEngineRouter {
         val lower = ((uri.host ?: "") + (uri.rawPath ?: "")).lowercase(Locale.ROOT)
 
         if (videoExtensions.any { lower.endsWith(it) || lower.contains("$it?") || lower.contains("$it#") }) {
-            return ContentType.VIDEO_STREAM
-        }
-        if (videoDomainKeywords.any { lower.contains(it) } && !lower.contains("/chapter/")) {
             return ContentType.VIDEO_STREAM
         }
 

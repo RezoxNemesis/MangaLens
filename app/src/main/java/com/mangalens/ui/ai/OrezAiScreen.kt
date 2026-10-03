@@ -31,7 +31,7 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
     val modelState get() = modelManager.state
     val messages=dao.observe().stateIn(viewModelScope,SharingStarted.Eagerly,emptyList())
     var typing by mutableStateOf(false);private set
-    init{modelManager.refresh();viewModelScope.launch{if(dao.count()==0)dao.insert(OrezMessageEntity(role="OREZ",text="Namaste! Main OREZ hoon. Main local knowledge, reasoning, OCR/translation workflows aur current web information ko coordinate kar sakta hoon."))}}
+    init{modelManager.refresh();viewModelScope.launch { androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow("orez-model").collect { modelManager.refresh() } };viewModelScope.launch{if(dao.count()==0)dao.insert(OrezMessageEntity(role="OREZ",text="Namaste! Main OREZ hoon. Main local knowledge, reasoning, OCR/translation workflows aur current web information ko coordinate kar sakta hoon."))}}
     fun sendMessage(query:String,onRoute:(String,OrezRoute)->Unit={_,_->}){
         val input=query.trim();if(input.isBlank()||typing)return
         typing=true
@@ -53,7 +53,7 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
             }catch(t:Throwable){
                 if(t is kotlinx.coroutines.CancellationException) throw t
                 dao.insert(OrezMessageEntity(role="OREZ",text="I hit a recoverable error: "+(t.message?:"unknown error")+". Please try again."))
-            }finally{typing=false}
+            }finally{typing=false; runCatching { dao.trimHistory() }}
         }
     }
     fun ask(query:String,onRoute:(String,OrezRoute)->Unit)=sendMessage(query,onRoute)
@@ -69,7 +69,7 @@ fun OrezAiScreen(vm:OrezAiViewModel=viewModel(),onRoute:(String,OrezRoute)->Unit
     var input by rememberSaveable{mutableStateOf("")}
     val list=rememberLazyListState()
     LaunchedEffect(messages.size){if(messages.isNotEmpty())list.animateScrollToItem(messages.lastIndex)}
-    LaunchedEffect(Unit){ while(true){ vm.refreshLocalModel(); kotlinx.coroutines.delay(5000L) } }
+
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha=.25f),MaterialTheme.colorScheme.background)))){
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(16.dp)){
             Text("OREZ AI",style=MaterialTheme.typography.headlineLarge)

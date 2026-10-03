@@ -75,6 +75,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private var ingestionJob: kotlinx.coroutines.Job? = null
     private var translateWhenPagesReady = false
     private val chapterScraper = MangaChapterScraper(application)
+    private val staticAcquirer = com.mangalens.core.acquisition.StaticChapterAcquirer()
     private val chapterCatalog = MangaChapterCatalogScraper(application)
     private val translator = TranslationService()
     val captchaBridge = CaptchaBridge()
@@ -212,9 +213,14 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
                         repository.clearChapterCache()
                         _state.value = _state.value.copy(pages = emptyList(), overlays = emptyMap(), translationEnabled = false)
-                        val chapters = try { chapterCatalog.extract(target) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { emptyList() }
-                        _state.value = _state.value.copy(chapters = chapters.map { MangaChapter(it.title, it.url) })
-                        val result = acquirer.discoverWithCookie(target, 15_000L, null)
+                        val lightweight = staticAcquirer.discover(target)
+                        val chapters = if (!lightweight?.chapters.isNullOrEmpty()) lightweight!!.chapters.map { MangaChapter(it.title, it.url) }
+                            else try { chapterCatalog.extract(target).map { MangaChapter(it.title, it.url) } } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { emptyList() }
+                        _state.value = _state.value.copy(chapters = chapters,
+                            activeChapter = _state.value.activeChapter?.copy(title = lightweight?.title ?: _state.value.activeChapter!!.title))
+                        val result = if (!lightweight?.pageUrls.isNullOrEmpty()) {
+                            com.mangalens.acquisition.RenderedPageSet(target, lightweight!!.pageUrls, emptyList(), emptyList(), 1, 200, null)
+                        } else acquirer.discoverWithCookie(target, 15_000L, null)
                         if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls, result.finalUrl)
                         if (result.imageUrls.isEmpty()) {
                             val fallback = chapterScraper.extract(target)
@@ -407,6 +413,21 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         )
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    fun deleteSavedChapter(id: String) {
+        if (_state.value.activeChapter?.id == id) {
+            ingestionJob?.cancel()
+            clearTranslations()
+            repository.clearChapterCache()
+            _state.value = _state.value.copy(activeChapter = null, pages = emptyList(), loading = false)
+        }
+        viewModelScope.launch {
+            persistenceMutex.withLock {
+                withContext(Dispatchers.IO) { library.remove(id) }
+                _state.value = _state.value.copy(library = _state.value.library.filterNot { it.id == id })
+            }
         }
     }
 

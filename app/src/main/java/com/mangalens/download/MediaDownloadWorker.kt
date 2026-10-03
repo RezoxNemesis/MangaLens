@@ -51,14 +51,17 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
 
     private suspend fun download(id: String, url: String, title: String, mime: String) {
         val old = dao.get(id) ?: DownloadEntity(id, url, title, mime)
-        val temp = File(applicationContext.cacheDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
+        val temp = File(applicationContext.filesDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
 
+        val validatorFile = File(temp.parentFile, "$id.validator")
+        val validator = validatorFile.takeIf { it.isFile }?.readText()?.take(512)
+        if (temp.length() > 0L && validator.isNullOrBlank()) temp.delete()
         var offset = temp.length()
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "*/*")
-            .apply { if (offset > 0L) header("Range", "bytes=$offset-") }
+            .apply { if (offset > 0L) { header("Range", "bytes=$offset-"); header("If-Range", validator!!) } }
             .build()
 
         HTTP.newCall(request).execute().use { response ->
@@ -66,6 +69,11 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 temp.delete()
                 offset = 0L
             }
+            if (offset > 0L && response.code == 206) {
+                check(response.header("Content-Range")?.startsWith("bytes $offset-") == true) { "Server returned an invalid download resume range." }
+            }
+            (response.header("ETag")?.takeIf { !it.startsWith("W/") } ?: response.header("Last-Modified"))
+                ?.take(512)?.let { validatorFile.writeText(it) }
             check(response.isSuccessful) { "HTTP ${response.code}" }
 
             val body = response.body ?: error("Empty response")
@@ -108,6 +116,8 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             persistProgress(id, old, done, total)
         }
 
+        currentCoroutineContext().ensureActive()
+        check(temp.length() > 0L) { "The downloaded file is empty." }
         val uri = publish(temp, title, mime)
         dao.upsert((dao.get(id) ?: old).copy(
             destination = uri.toString(),
@@ -117,10 +127,13 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             error = null
         ))
         temp.delete()
+        validatorFile.delete()
     }
 
     private suspend fun persistProgress(id: String, old: DownloadEntity, done: Long, total: Long) {
-        dao.upsert((dao.get(id) ?: old).copy(
+        val latest = dao.get(id) ?: throw CancellationException("Download was removed")
+        if (latest.state in setOf(DownloadState.PAUSED, DownloadState.CANCELLED)) throw CancellationException("Download stopped")
+        dao.upsert(latest.copy(
             bytesDownloaded = done,
             totalBytes = total,
             state = DownloadState.DOWNLOADING,
@@ -210,7 +223,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             .setProgress(if (determinate) 100 else 0, percent, !determinate)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        return ForegroundInfo(NOTIFICATION_ID, notification, if (android.os.Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
     }
 
     companion object {

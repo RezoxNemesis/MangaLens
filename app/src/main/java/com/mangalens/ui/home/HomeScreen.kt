@@ -19,6 +19,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
 import com.mangalens.core.model.ContentType
 import com.mangalens.ui.MangaLensUiState
@@ -93,6 +97,21 @@ fun HomeScreen(
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold
                 )
+            }
+        }
+
+        state.activeChapter?.takeIf { state.pages.isNotEmpty() }?.let { chapter ->
+            Card(onClick = onOpenReader, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Box(Modifier.fillMaxWidth().height(210.dp)) {
+                    AsyncImage(model = state.pages.firstOrNull()?.localPath, contentDescription = null,
+                        contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF208080B)))))
+                    Column(Modifier.align(Alignment.BottomStart).padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("CONTINUE READING", color = Color(0xFFFF667D), style = MaterialTheme.typography.labelLarge)
+                        Text(chapter.title, color = Color.White, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
+                        Text("Page ${(chapter.position + 1).coerceAtMost(state.pages.size)} of ${state.pages.size} • Saved offline", color = Color.White)
+                    }
+                }
             }
         }
 

@@ -42,6 +42,18 @@ class ChapterLibrary(context: Context) {
         catch (failure: Throwable) { atomic.failWrite(stream); throw failure }
     }
 
+    @Synchronized
+    fun remove(id: String) {
+        require(id.matches(Regex("[a-f0-9]{32}")))
+        val target = list().firstOrNull { it.id == id } ?: return
+        AtomicFile(File(directory, "$id.json")).delete()
+        val retained = list().flatMap { it.pages }.mapNotNull { it.localPath }.toSet()
+        target.pages.mapNotNull { it.localPath }.filterNot { it in retained }.forEach { path ->
+            val file = File(path)
+            if (file.parentFile?.canonicalFile == File(directory.parentFile, "chapters").canonicalFile) file.delete()
+        }
+    }
+
     private fun read(file: File): SavedChapter? = runCatching {
         require(file.length() <= 2_000_000)
         val json = JSONObject(AtomicFile(file).openRead().bufferedReader().use { it.readText() })

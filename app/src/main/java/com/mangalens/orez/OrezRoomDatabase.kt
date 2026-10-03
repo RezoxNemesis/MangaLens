@@ -31,10 +31,12 @@ data class OrezTranslationEntity(
 
 @Dao
 interface OrezMessageDao {
-    @Query("SELECT * FROM orez_messages ORDER BY createdAt ASC LIMIT 200")
+    @Query("SELECT * FROM (SELECT * FROM orez_messages ORDER BY id DESC LIMIT 200) ORDER BY id ASC")
     fun observe(): Flow<List<OrezMessageEntity>>
     @Insert suspend fun insert(message: OrezMessageEntity)
     @Query("SELECT COUNT(*) FROM orez_messages") suspend fun count(): Int
+    @Query("DELETE FROM orez_messages WHERE id NOT IN (SELECT id FROM orez_messages ORDER BY id DESC LIMIT 200)")
+    suspend fun trimHistory()
     @Query("DELETE FROM orez_messages") suspend fun clear()
 }
 
@@ -77,7 +79,7 @@ abstract class OrezRoomDatabase : RoomDatabase() {
                 context.applicationContext,
                 OrezRoomDatabase::class.java,
                 "orez_v10.db"
-            ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            ).build().also { INSTANCE = it }
         }
     }
 

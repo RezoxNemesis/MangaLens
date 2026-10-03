@@ -11,7 +11,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mangalens.ui.MangaLensUiState
@@ -19,10 +21,18 @@ import com.mangalens.ui.MangaLensUiState
 @Composable
 fun LibraryScreen(
     state: MangaLensUiState,
+    onDeleteChapter: (String) -> Unit,
     onOpenSavedChapter: (String) -> Unit,
     onOpenReader: () -> Unit,
     onOpenLocalVideo: () -> Unit
 ) {
+    var pendingDelete by remember { mutableStateOf<com.mangalens.core.reader.SavedChapter?>(null) }
+    pendingDelete?.let { chapter ->
+        AlertDialog(onDismissRequest = { pendingDelete = null }, title = { Text("Delete saved chapter?") },
+            text = { Text("Remove ${chapter.title} and its offline pages? Pages shared with other saved chapters are retained.") },
+            confirmButton = { TextButton(onClick = { onDeleteChapter(chapter.id); pendingDelete = null }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } })
+    }
     LazyColumn(
         modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -45,6 +55,7 @@ fun LibraryScreen(
                 Column(Modifier.padding(16.dp)) {
                     Text(chapter.title, style = MaterialTheme.typography.titleMedium)
                     Text("${chapter.pages.size} pages saved • Resume page ${(chapter.position + 1).coerceAtMost(chapter.pages.size)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { pendingDelete = chapter }) { Text("Delete offline chapter") }
                 }
             }
         }
