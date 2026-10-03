@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,7 +43,7 @@ import com.mangalens.core.reader.ChapterPage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 
-@OptIn(kotlinx.coroutines.FlowPreview::class)
+@OptIn(kotlinx.coroutines.FlowPreview::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun MangaContinuousReader(
     title: String,
@@ -115,13 +119,14 @@ fun MangaContinuousReader(
     }
 
     Box(
-        modifier = modifier.fillMaxSize().pointerInput(Unit) {
+        modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).pointerInput(Unit) {
             detectTapGestures(onTap = { hudVisible = !hudVisible })
         }
     ) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize()
+                .statusBarsPadding().navigationBarsPadding().clipToBounds()
                 .transformable(transformState)
                 .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
         ) {
@@ -182,7 +187,8 @@ fun MangaContinuousReader(
                 ) {
                     Text(
                         "$title • Page ${if (pages.isEmpty()) 0 else listState.firstVisibleItemIndex + 1} / ${pages.size}",
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                     Row {
                         if (translated) Text("Translated", color = MaterialTheme.colorScheme.secondary)
@@ -198,9 +204,9 @@ fun MangaContinuousReader(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).navigationBarsPadding()
         ) {
-            Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
+            Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Button(onClick = onTranslate, enabled = !translating) {
                             Text(if (translating) "Translating…" else "Translate chapter")
                         }

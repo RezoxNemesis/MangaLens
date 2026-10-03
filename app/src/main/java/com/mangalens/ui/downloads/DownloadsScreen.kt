@@ -3,6 +3,8 @@ package com.mangalens.ui.downloads
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -44,7 +46,7 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
     var url by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf(DownloadQuality.P2160) }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Download Room", style = MaterialTheme.typography.headlineMedium)
             TextButton(onClick = onBack) { Text("Back") }
@@ -66,7 +68,7 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
         Spacer(Modifier.height(10.dp))
         Text("QUALITY CEILING", style = MaterialTheme.typography.labelLarge)
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             DownloadQuality.selectable.forEach { option ->

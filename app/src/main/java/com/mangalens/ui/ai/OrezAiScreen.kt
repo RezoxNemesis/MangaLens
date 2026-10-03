@@ -76,8 +76,8 @@ fun OrezAiScreen(vm:OrezAiViewModel=viewModel(),onRoute:(String,OrezRoute)->Unit
             Text("LOCAL BRAIN • KNOWLEDGE • REASONING • LIVE SEARCH",color=MaterialTheme.colorScheme.onSurfaceVariant)
             val modelState = vm.modelState.collectAsState().value
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
-                Text(if(modelState.installed) "LOCAL MODEL READY • 506 MB" else if(modelState.downloading) "DOWNLOADING LOCAL MODEL • " + (modelState.progress*100).toInt() + "%" else "LOCAL MODEL • 506 MB")
-                if(!modelState.installed && !modelState.downloading) Button(onClick={vm.downloadLocalModel()}){Text("DOWNLOAD")}
+                Text(if(modelState.installed) "LOCAL MODEL READY • 506 MB" else if(modelState.downloading) "DOWNLOADING LOCAL MODEL • " + (modelState.progress*100).toInt() + "%" else "LOCAL MODEL • 506 MB", modifier = Modifier.weight(1f))
+                if(!modelState.installed && !modelState.downloading) Button(onClick={vm.downloadLocalModel()}){Text("Get model", maxLines = 1)}
             }
             LazyColumn(state=list,modifier=Modifier.weight(1f).fillMaxWidth().padding(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
                 items(messages,key={it.id}){m->
