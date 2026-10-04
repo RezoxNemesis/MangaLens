@@ -8,7 +8,11 @@ class MangaSourceAdapterTest {
     @Test fun extractsOnlyReaderImagesAndOrdersChapters() {
         val result = adapter.parse("""
           <title>Fixture manga</title><img src="/logo.png">
-          <div class="reading-content"><img data-src="/page1.png"><img src="/page2.webp"><img src="/page1.png"><img src="file:///secret"></div>
+          <div class="reading-content">
+            <img data-src="/page1.png"><img src="/page2.webp"><img src="/page1.png"><img src="file:///secret">
+            <img src="https://www.google.com/recaptcha/api2/logo_48.png">
+            <img src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/captcha.png">
+          </div>
           <a href="/chapter-10">Chapter 10</a><a href="/chapter-2.5">Chapter 2.5</a><a href="/chapter-2">Chapter 2</a>
           <a href="https://other.example/chapter-1">Chapter 1</a><a href="javascript:alert(1)">Chapter 7</a>
         """.trimIndent(), "https://fixture.example/manga/title")
