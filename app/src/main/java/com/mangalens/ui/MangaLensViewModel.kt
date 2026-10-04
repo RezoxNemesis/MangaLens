@@ -257,15 +257,15 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(error = "Enter a complete HTTP or HTTPS URL.", loading = false)
             return
         }
+        _state.value = _state.value.copy(
+            loading = true,
+            error = null,
+            videoUrl = if (selectedMode == ContentType.VIDEO_STREAM) null else _state.value.videoUrl,
+            videoPageUrl = if (selectedMode == ContentType.VIDEO_STREAM) target else _state.value.videoPageUrl,
+            videoHeaders = if (selectedMode == ContentType.VIDEO_STREAM) emptyMap() else _state.value.videoHeaders
+        )
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
-            _state.value = _state.value.copy(
-                loading = true,
-                error = null,
-                videoUrl = if (selectedMode == ContentType.VIDEO_STREAM) null else _state.value.videoUrl,
-                videoPageUrl = if (selectedMode == ContentType.VIDEO_STREAM) target else _state.value.videoPageUrl,
-                videoHeaders = if (selectedMode == ContentType.VIDEO_STREAM) emptyMap() else _state.value.videoHeaders
-            )
             try {
                 when (selectedMode) {
                     ContentType.VIDEO_STREAM -> {
