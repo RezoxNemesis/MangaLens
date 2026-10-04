@@ -112,6 +112,41 @@ class MangaLetteringTest {
         } finally { image.recycle(); prefs.edit().putString("script", script).putBoolean("high_accuracy", accuracy).commit() }
     }
 
+    @Test fun splitSpeechBalloonBlocksMergeBeforeTranslation() {
+        val engine = AdvancedTranslationEngine()
+        val first = com.mangalens.engine.TranslationRegion(
+            source = "THEY SAID THE",
+            translated = "THEY SAID THE",
+            bounds = RectF(250f, 120f, 560f, 170f),
+            sourceLanguage = com.mangalens.engine.LocalSourceLanguage.ENGLISH,
+            textColor = Color.BLACK,
+            backgroundColor = Color.WHITE,
+            textSize = 42f,
+            lineBounds = listOf(RectF(250f, 120f, 560f, 170f)),
+            recognitionConfidence = .92f
+        )
+        val second = com.mangalens.engine.TranslationRegion(
+            source = "WITCH OF THE FOREST WON'T INTERFERE",
+            translated = "WITCH OF THE FOREST WON'T INTERFERE",
+            bounds = RectF(210f, 182f, 600f, 268f),
+            sourceLanguage = com.mangalens.engine.LocalSourceLanguage.ENGLISH,
+            textColor = Color.BLACK,
+            backgroundColor = Color.WHITE,
+            textSize = 40f,
+            lineBounds = listOf(
+                RectF(230f, 182f, 580f, 222f),
+                RectF(210f, 228f, 600f, 268f)
+            ),
+            recognitionConfidence = .90f
+        )
+
+        val merged = engine.mergeLikelySameBalloon(listOf(first, second))
+        assertEquals(1, merged.size)
+        assertTrue(merged.single().source.contains("THEY SAID THE"))
+        assertTrue(merged.single().source.contains("WITCH OF THE FOREST"))
+        assertEquals(3, merged.single().lineBounds.size)
+    }
+
     @Test fun speechBubbleUsesRecoveredInteriorInsteadOfTinyOcrBox() {
         val image = Bitmap.createBitmap(900, 520, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(image)
