@@ -3,6 +3,7 @@ package com.mangalens.download
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 enum class DownloadQuality(val height: Int, val label: String) {
@@ -23,8 +24,11 @@ data class ResolvedMediaLink(
     val title: String? = null
 )
 
-class MediaLinkResolver {
-    private val client = OkHttpClient.Builder().followRedirects(true).followSslRedirects(true).build()
+class MediaLinkResolver(
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(true).followSslRedirects(true)
+        .callTimeout(45, TimeUnit.SECONDS).build()
+) {
 
     fun resolve(input: String, quality: DownloadQuality = DownloadQuality.P2160): ResolvedMediaLink? {
         val clean = input.trim()
@@ -54,14 +58,21 @@ class MediaLinkResolver {
             val body = response.body ?: return null
             val contentLength = body.contentLength()
             if (contentLength > MAX_HTML_BYTES) return null
-            val html = body.source().readUtf8(MAX_HTML_BYTES)
+            val source = body.source()
+            // readUtf8(byteCount) requires exactly that many bytes and throws on ordinary short pages.
+            // Request one byte beyond the limit so unknown-length/chunked responses stay bounded too.
+            source.request(MAX_HTML_BYTES + 1L)
+            if (source.buffer.size > MAX_HTML_BYTES) return null
+            val html = source.readUtf8()
             val provider = providerFor(clean)
             val title = Regex("""(?is)<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)""")
                 .find(html)?.groupValues?.getOrNull(1)?.let(::unescape)
                 ?: Regex("""(?is)<title[^>]*>(.*?)</title>""").find(html)?.groupValues?.getOrNull(1)?.let(::stripTags)
 
             val candidates = linkedSetOf<String>()
-            Regex("""(?is)<meta[^>]+property=["']og:(?:video|image)["'][^>]+content=["']([^"']+)""")
+            Regex("""(?is)<meta[^>]+property=["']og:(?:video(?::(?:url|secure_url))?|image)["'][^>]+content=["']([^"']+)""")
+                .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
+            Regex("""(?is)<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:(?:video(?::(?:url|secure_url))?|image)["']""")
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
             Regex("""(?is)<(?:video|source|img)[^>]+(?:src|data-src|data-original|poster)=["']([^"']+)""")
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }

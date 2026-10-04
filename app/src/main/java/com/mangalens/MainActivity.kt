@@ -80,8 +80,16 @@ class MainActivity : ComponentActivity() {
                     onMangaTranslationChanged = viewModel::setMangaTranslationEnabled,
                     onVideoTranslationChanged = viewModel::setVideoTranslationEnabled,
                     onWebTranslationChanged = viewModel::setWebTranslationEnabled,
+                    onAdBlockEnabledChanged = viewModel::setAdBlockEnabled,
                     onResetAdBlockStats = viewModel::resetAdBlockStats,
-                    onImportImages = viewModel::importLocalImages
+                    onDeleteSavedChapter = viewModel::deleteSavedChapter,
+                    onOpenSavedChapter = viewModel::openSavedChapter,
+                    onReadingPositionChanged = viewModel::saveReadingPosition,
+                    onChapterDetails = viewModel::setChapterDetails,
+                    onTranslationPaused = viewModel::pauseTranslation,
+                    onTranslationCancelled = viewModel::cancelTranslation,
+                    onImportImages = viewModel::importLocalImages,
+                    onResolvedVideo = viewModel::acceptResolvedVideo
                 )
                 val verificationRequest = verification.request
                 if (

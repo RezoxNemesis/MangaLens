@@ -4,6 +4,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Intent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,10 +17,10 @@ import com.mangalens.orez.OrezResourcePackManager
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.ui.MangaLensUiState
 import com.mangalens.ui.theme.ThemeMode
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,onMangaTranslationChanged:(Boolean)->Unit,onVideoTranslationChanged:(Boolean)->Unit,onWebTranslationChanged:(Boolean)->Unit,onTranslationStyleChanged:(String)->Unit,onCustomTranslationStyleChanged:(String)->Unit,onResetAdBlockStats:()->Unit){
+fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,onMangaTranslationChanged:(Boolean)->Unit,onVideoTranslationChanged:(Boolean)->Unit,onWebTranslationChanged:(Boolean)->Unit,onTranslationStyleChanged:(String)->Unit,onCustomTranslationStyleChanged:(String)->Unit,onAdBlockEnabledChanged:(Boolean)->Unit,onResetAdBlockStats:()->Unit){
     val context=LocalContext.current
     val resourceManager=remember{OrezResourcePackManager(context)}
     val resourceState by resourceManager.state.collectAsState()
@@ -33,19 +35,79 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
     }
     var resourceUrl by remember{mutableStateOf("")}
     LaunchedEffect(resourceManager){
-        while(true){
+        androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(OrezResourcePackManager.TAG).collect {
             resourceManager.refresh()
-            delay(1000L)
         }
     }
-    LazyColumn(Modifier.fillMaxWidth().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+    var storage by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var cacheBytes by remember { mutableLongStateOf(0L) }
+    var adaptiveMediaBytes by remember { mutableLongStateOf(0L) }
+    var clearCache by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val disk = android.os.StatFs(context.filesDir.absolutePath)
+            storage = disk.availableBytes to disk.totalBytes
+            cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            adaptiveMediaBytes = java.io.File(context.filesDir, "media_download_cache")
+                .takeIf { it.exists() }
+                ?.walkTopDown()
+                ?.filter { it.isFile }
+                ?.sumOf { it.length() } ?: 0L
+        }
+    }
+    if (clearCache) AlertDialog(onDismissRequest = { clearCache = false }, title = { Text("Clear temporary cache?") }, text = { Text("Saved chapters, downloads, models and reading progress are retained. Temporary files can be recreated.") },
+        confirmButton = { TextButton({ clearCache = false; scope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                // Imported documents can be active; leave their working directory untouched.
+                context.cacheDir.listFiles().orEmpty().filterNot { it.name == "chapter_imports" }.forEach { it.deleteRecursively() }
+                cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            }
+        } }) { Text("Clear cache") } }, dismissButton = { TextButton({ clearCache = false }) { Text("Cancel") } })
+    LazyColumn(Modifier.fillMaxWidth().statusBarsPadding().imePadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
-            Text("Settings",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,modifier=Modifier.padding(top=16.dp))
+            Text("Tools & Settings",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,modifier=Modifier.padding(top=16.dp))
             Text("Appearance, translation modules, OREZ data and network protection.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            Text("Translation modules", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(Triple("Manga", state.mangaTranslationEnabled, onMangaTranslationChanged), Triple("Video", state.videoTranslationEnabled, onVideoTranslationChanged), Triple("Web", state.webTranslationEnabled, onWebTranslationChanged)).forEach { (name, enabled, change) ->
+                    com.mangalens.ui.components.Panel(Modifier.weight(1f)) { Text(name, fontWeight = FontWeight.Bold); Switch(enabled, change) }
+                }
+            }
+        }
+        item {
+            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()) {
+                Text("Device storage", style = MaterialTheme.typography.titleMedium)
+                storage?.let { (available, total) ->
+                    Text(formatBytes(available) + " free of " + formatBytes(total))
+                    LinearProgressIndicator(progress = { 1f - available.toFloat() / total.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
+                }
+                Text("Temporary cache: " + formatBytes(cacheBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Adaptive offline media: " + formatBytes(adaptiveMediaBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton({ clearCache = true }) { Text("Clear cache →") }
+            }
         }
         item{Text("Appearance",fontWeight=FontWeight.Bold)}
         item{Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){ThemeMode.entries.forEach{mode->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(mode.name.lowercase().replaceFirstChar{it.uppercase()});RadioButton(selected=state.themeMode==mode,onClick={onThemeModeChanged(mode)})}}}}}
-        item{Text("Ad-block activity",fontWeight=FontWeight.Bold);Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Text(state.adBlockStats.blockedRequests.toString()+" requests blocked",style=MaterialTheme.typography.titleLarge);Text((state.adBlockStats.knownBytesSaved/1024).toString()+" KB saved",color=MaterialTheme.colorScheme.onSurfaceVariant);Button(onClick=onResetAdBlockStats){Text("Reset stats")}}}}
+        item{
+            Text("Ad-block activity",fontWeight=FontWeight.Bold)
+            Card(Modifier.fillMaxWidth()){
+                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                        Column(Modifier.weight(1f)){
+                            Text("Block ads & trackers",fontWeight=FontWeight.SemiBold)
+                            Text("Disable this if blocking breaks a website. You can also toggle it temporarily inside Web mode.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(state.adBlockEnabled,onAdBlockEnabledChanged)
+                    }
+                    Text(state.adBlockStats.blockedRequests.toString()+" requests blocked",style=MaterialTheme.typography.titleLarge)
+                    Text((state.adBlockStats.knownBytesSaved/1024).toString()+" KB saved",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick=onResetAdBlockStats){Text("Reset stats")}
+                }
+            }
+        }
         item{
             Text("OCR Engine",fontWeight=FontWeight.Bold)
             val ocrPrefs=context.getSharedPreferences("mangalens_ocr",android.content.Context.MODE_PRIVATE)
@@ -56,7 +118,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                     Text("Google ML Kit script routing",style=MaterialTheme.typography.titleMedium)
                     Text("AUTO can evaluate Latin, Devanagari, Chinese, Japanese and Korean recognizers. High accuracy runs the available recognizers and selects the strongest result.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                         listOf("AUTO","LATIN","DEVANAGARI","CHINESE","JAPANESE","KOREAN").forEach{value->
                             FilterChip(selected=script==value,onClick={script=value;ocrPrefs.edit().putString("script",value).apply()},label={Text(value)})
                         }
@@ -72,7 +134,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
             Card(Modifier.fillMaxWidth()){
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
                     Text("Choose how OREZ should localize dialogue across the chapter.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                         listOf(
                             TranslationStyleProfile.NATURAL,
                             TranslationStyleProfile.FAITHFUL,
@@ -111,7 +173,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
             Text("OREZ Conversation Master Pack",fontWeight=FontWeight.Bold)
             Card(Modifier.fillMaxWidth()){
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                    Text("5–10 GB conversation/reasoning data • separate from translation training",style=MaterialTheme.typography.titleLarge)
+                    Text("Import your conversation and reasoning data",style=MaterialTheme.typography.titleLarge)
                     Text("Select a .jsonl, .jsonl.gz file, or a downloaded GitHub artifact ZIP from Files. The app streams the selected file directly (no second full-size copy), reads compressed data, and imports a bounded batch into the private OREZ vault.",color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Button(enabled=!resourceState.active,onClick={localPackLauncher.launch(arrayOf("*/*"))}){Text(if(resourceState.active)"IMPORTING…" else "SELECT OREZ DATA PACK FROM FILES")}
                     packSelectionError?.let{Text("Pack selection error: "+it,color=MaterialTheme.colorScheme.error)}

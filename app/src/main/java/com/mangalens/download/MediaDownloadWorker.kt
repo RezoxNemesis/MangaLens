@@ -15,9 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -50,86 +48,48 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
     }
 
     private suspend fun download(id: String, url: String, title: String, mime: String) {
-        val old = dao.get(id) ?: DownloadEntity(id, url, title, mime)
-        val temp = File(applicationContext.cacheDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
+        if (dao.get(id) == null) throw CancellationException("Download was removed")
+        val temp = File(applicationContext.filesDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
 
-        var offset = temp.length()
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "*/*")
-            .apply { if (offset > 0L) header("Range", "bytes=$offset-") }
-            .build()
-
-        HTTP.newCall(request).execute().use { response ->
-            if (offset > 0L && response.code == 200) {
-                temp.delete()
-                offset = 0L
+        val validatorFile = File(temp.parentFile, "$id.validator")
+        var lastPersistAt = 0L
+        var lastPersistBytes = -PROGRESS_BYTES
+        var lastNotificationAt = 0L
+        ResumableMediaTransfer(HTTP).download(url, temp, validatorFile) { done, total ->
+            val now = SystemClock.elapsedRealtime()
+            if (done - lastPersistBytes >= PROGRESS_BYTES || now - lastPersistAt >= PROGRESS_INTERVAL_MS) {
+                persistProgress(id, done, total)
+                lastPersistBytes = done
+                lastPersistAt = now
             }
-            check(response.isSuccessful) { "HTTP ${response.code}" }
-
-            val body = response.body ?: error("Empty response")
-            val announced = body.contentLength()
-            val total = if (announced >= 0L) offset + announced else -1L
-            var done = offset
-            var lastPersistAt = 0L
-            var lastPersistBytes = done
-            var lastNotificationAt = 0L
-
-            persistProgress(id, old, done, total)
-
-            body.byteStream().buffered(BUFFER_SIZE).use { input ->
-                FileOutputStream(temp, offset > 0L).buffered(BUFFER_SIZE).use { output ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        done += read
-
-                        val now = SystemClock.elapsedRealtime()
-                        val shouldPersist = done - lastPersistBytes >= PROGRESS_BYTES || now - lastPersistAt >= PROGRESS_INTERVAL_MS
-                        if (shouldPersist) {
-                            persistProgress(id, old, done, total)
-                            lastPersistBytes = done
-                            lastPersistAt = now
-                        }
-
-                        if (now - lastNotificationAt >= NOTIFICATION_INTERVAL_MS) {
-                            setForeground(createForegroundInfo(title, done, total))
-                            lastNotificationAt = now
-                        }
-                    }
-                    output.flush()
-                }
+            if (now - lastNotificationAt >= NOTIFICATION_INTERVAL_MS) {
+                setForeground(createForegroundInfo(title, done, total))
+                lastNotificationAt = now
             }
-
-            persistProgress(id, old, done, total)
         }
 
+        currentCoroutineContext().ensureActive()
+        check(temp.length() > 0L) { "The downloaded file is empty." }
         val uri = publish(temp, title, mime)
-        dao.upsert((dao.get(id) ?: old).copy(
-            destination = uri.toString(),
-            bytesDownloaded = temp.length(),
-            totalBytes = temp.length(),
-            state = DownloadState.COMPLETED,
-            error = null
-        ))
+        try {
+            currentCoroutineContext().ensureActive()
+            if (dao.completeIfActive(id, uri.toString(), temp.length()) == 0) {
+                throw CancellationException("Download stopped before publication")
+            }
+        } catch (failure: Throwable) {
+            applicationContext.contentResolver.delete(uri, null, null)
+            throw failure
+        }
         temp.delete()
+        validatorFile.delete()
     }
 
-    private suspend fun persistProgress(id: String, old: DownloadEntity, done: Long, total: Long) {
-        dao.upsert((dao.get(id) ?: old).copy(
-            bytesDownloaded = done,
-            totalBytes = total,
-            state = DownloadState.DOWNLOADING,
-            error = null
-        ))
+    private suspend fun persistProgress(id: String, done: Long, total: Long) {
+        if (dao.progressIfActive(id, done, total) == 0) throw CancellationException("Download stopped")
     }
 
     private suspend fun markFailed(id: String, message: String) {
-        dao.get(id)?.let { dao.upsert(it.copy(state = DownloadState.FAILED, error = message)) }
+        dao.failIfActive(id, message)
     }
 
     private fun publish(temp: File, title: String, mime: String): android.net.Uri {
@@ -143,7 +103,9 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: error("Unable to create download destination")
             try {
-                resolver.openOutputStream(uri)!!.use { output ->
+                val destination = resolver.openOutputStream(uri)
+                    ?: throw IOException("Unable to open download destination for writing.")
+                destination.use { output ->
                     temp.inputStream().use { input -> input.copyTo(output, BUFFER_SIZE) }
                 }
                 values.clear()
@@ -157,10 +119,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         }
 
         val dir = applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-            ?: applicationContext.filesDir
+            ?: File(applicationContext.filesDir, "downloads").apply { mkdirs() }
         val file = File(dir, safeName(title, mime))
         temp.copyTo(file, true)
-        return android.net.Uri.fromFile(file)
+        return androidx.core.content.FileProvider.getUriForFile(applicationContext, "${applicationContext.packageName}.downloads", file)
     }
 
     private fun safeName(title: String, mime: String): String {
@@ -208,7 +170,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             .setProgress(if (determinate) 100 else 0, percent, !determinate)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        return ForegroundInfo(NOTIFICATION_ID, notification, if (android.os.Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
     }
 
     companion object {
@@ -223,7 +185,6 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         private const val PROGRESS_INTERVAL_MS = 750L
         private const val NOTIFICATION_INTERVAL_MS = 1500L
         private const val MAX_RETRIES = 3
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36 MangaLens/13"
 
         private val HTTP: OkHttpClient = OkHttpClient.Builder()
             .followRedirects(true)

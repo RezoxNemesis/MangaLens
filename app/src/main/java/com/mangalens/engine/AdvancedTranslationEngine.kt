@@ -29,10 +29,13 @@ data class TranslationRegion(
     val sourceLanguage: LocalSourceLanguage,
     val textColor: Int,
     val backgroundColor: Int,
-    val textSize: Float
+    val textSize: Float,
+    val lineBounds: List<RectF> = listOf(bounds),
+    val recognitionConfidence: Float = 0f
 )
 
 class AdvancedTranslationEngine(private val context: Context? = null) {
+    internal var tileObserver: ((Int, List<TranslationRegion>) -> Unit)? = null
     suspend fun recognize(bitmap: Bitmap): List<TranslationRegion> {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         return try {
@@ -46,22 +49,17 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         suspendCancellableCoroutine { continuation ->
             recognizer.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnSuccessListener { result ->
+                    if (!continuation.isActive) return@addOnSuccessListener
                     val regions = mutableListOf<TranslationRegion>()
                     result.textBlocks.forEach { block ->
-                        block.lines.forEach { line ->
-                            val box = line.boundingBox ?: return@forEach
-                            val source = line.text.trim()
-                            if (source.isNotBlank()) {
-                                regions += TranslationRegion(
-                                    source = source,
-                                    translated = source,
-                                    bounds = RectF(box),
-                                    sourceLanguage = detect(source),
-                                    textColor = contrastText(sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat())),
-                                    backgroundColor = sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat()),
-                                    textSize = maxOf(12f, box.height() * 0.72f)
-                                )
-                            }
+                        val box = block.boundingBox
+                        val source = block.text.trim()
+                        if (box != null && source.isNotBlank()) {
+                            regions += TranslationRegion(source, source, RectF(box), detect(source),
+                                Color.BLACK, Color.WHITE,
+                                block.lines.mapNotNull { it.boundingBox?.height()?.toFloat() }.average().toFloat().coerceAtLeast(12f),
+                                block.lines.mapNotNull { it.boundingBox?.let(::RectF) },
+                                block.lines.map { it.confidence }.filter { it.isFinite() && it > 0f }.average().toFloat().let { if (it.isFinite()) it else 0f })
                         }
                     }
                     if (continuation.isActive) continuation.resume(regions)
@@ -81,27 +79,130 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     }
 
     suspend fun recognizeScriptAware(bitmap: Bitmap): List<TranslationRegion> {
+        // Long webtoon pages must keep glyph resolution; use overlapping vertical OCR tiles.
+        if (bitmap.height <= 2048) return recognizeTile(bitmap)
+        val output = mutableListOf<TranslationRegion>()
+        val margins = mutableListOf<Float>()
+        var y = 0
+        while (y < bitmap.height) {
+            val height = minOf(2048, bitmap.height - y)
+            val tile = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, height)
+            try {
+                val recognized = recognizeTile(tile)
+                tileObserver?.invoke(y, recognized)
+                recognized.forEach { region ->
+                    val margin = minOf(region.bounds.top, height - region.bounds.bottom).coerceAtLeast(0f)
+                    val shifted = region.copy(bounds = RectF(region.bounds).apply { offset(0f, y.toFloat()) },
+                        lineBounds = region.lineBounds.map { RectF(it).apply { offset(0f, y.toFloat()) } })
+                    val duplicate = output.indexOfFirst { previous ->
+                        val intersection = RectF(previous.bounds)
+                        intersection.intersect(shifted.bounds) && intersection.width() * intersection.height() >
+                            minOf(previous.bounds.width() * previous.bounds.height(), shifted.bounds.width() * shifted.bounds.height()) * .5f
+                    }
+                    if (duplicate < 0) {
+                        output += shifted
+                        margins += margin
+                    } else {
+                        val previous = output[duplicate]
+                        val clipped = margin < maxOf(2f, region.textSize * .12f)
+                        val previousClipped = margins[duplicate] < maxOf(2f, previous.textSize * .12f)
+                        val strongerConfidence = shifted.recognitionConfidence > previous.recognitionConfidence + .10f
+                        val fullerCoverage = shifted.bounds.width() * shifted.bounds.height() >
+                            previous.bounds.width() * previous.bounds.height() * 1.3f &&
+                            shifted.recognitionConfidence >= previous.recognitionConfidence - .15f
+                        // Keep a complete first reading unless evidence improves it. Extra OCR letters aren't quality.
+                        if ((previousClipped && !clipped) ||
+                            (previousClipped == clipped && (strongerConfidence || fullerCoverage))) {
+                            output[duplicate] = shifted
+                            margins[duplicate] = margin
+                        }
+                    }
+                }
+            } finally { tile.recycle() }
+            if (y + height >= bitmap.height) break
+            y += 1792
+        }
+        return output.sortedBy { it.bounds.top }
+    }
+
+    private suspend fun recognizeTile(bitmap: Bitmap): List<TranslationRegion> {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
-        val script = prefs?.getString("script", "AUTO") ?: "AUTO"
+        val configuredScript = prefs?.getString("script", "AUTO") ?: "AUTO"
         val highAccuracy = prefs?.getBoolean("high_accuracy", true) ?: true
-        val candidates = if (script != "AUTO" && !highAccuracy) listOf(createRecognizer(script)) else listOf(
-            createRecognizer("LATIN"), createRecognizer("DEVANAGARI"),
-            createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
-        )
-        return try {
-            val results = candidates.map { recognizer ->
+        val scripts = when {
+            configuredScript != "AUTO" -> listOf(configuredScript)
+            !highAccuracy -> listOf("LATIN")
+            else -> listOf("LATIN", "DEVANAGARI", "CHINESE", "JAPANESE", "KOREAN")
+        }
+
+        suspend fun recognizeCandidates(source: Bitmap): Pair<List<TranslationRegion>, Double> {
+            val failures = mutableListOf<Throwable>()
+            val results = scripts.map { candidateScript ->
+                val recognizer = createRecognizer(candidateScript)
                 try {
-                    recognizeWith(recognizer, bitmap)
+                    recognizeWith(recognizer, source)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Throwable) {
+                } catch (failure: Exception) {
+                    failures += failure
                     emptyList()
+                } finally {
+                    recognizer.close()
                 }
             }
-            results.maxByOrNull { it.sumOf { region -> region.source.length } } ?: emptyList()
-        } finally {
-            candidates.forEach { it.close() }
+            if (failures.size == scripts.size) throw failures.first()
+
+            val summaries = results.mapIndexed { index, regions ->
+                OcrCandidateSelector.Candidate(
+                    script = scripts[index],
+                    texts = regions.map { it.source },
+                    confidences = regions.map { it.recognitionConfidence }
+                )
+            }
+            val choice = OcrCandidateSelector.choose(summaries) ?: return emptyList<TranslationRegion>() to 0.0
+            val selectedScript = scripts[choice.index]
+            val filtered = results[choice.index].filter { region ->
+                OcrCandidateSelector.isReadableRegion(
+                    selectedScript,
+                    region.source,
+                    region.recognitionConfidence
+                )
+            }
+            return filtered to choice.score
         }
+
+        val primary = recognizeCandidates(bitmap)
+        if (!highAccuracy || primary.second >= 0.62) return primary.first
+
+        // A bounded grayscale/contrast retry helps faint or stylised speech without changing geometry.
+        val enhanced = enhanceForOcr(bitmap)
+        return try {
+            val fallback = recognizeCandidates(enhanced)
+            if (primary.first.isEmpty() || fallback.second > primary.second + 0.03) fallback.first else primary.first
+        } finally {
+            enhanced.recycle()
+        }
+    }
+
+    private fun enhanceForOcr(bitmap: Bitmap): Bitmap {
+        val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val grayscale = android.graphics.ColorMatrix().apply { setSaturation(0f) }
+        val contrast = 1.32f
+        val offset = (128f * (1f - contrast))
+        val contrastMatrix = android.graphics.ColorMatrix(
+            floatArrayOf(
+                contrast, 0f, 0f, 0f, offset,
+                0f, contrast, 0f, 0f, offset,
+                0f, 0f, contrast, 0f, offset,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+        grayscale.postConcat(contrastMatrix)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = android.graphics.ColorMatrixColorFilter(grayscale)
+        }
+        Canvas(output).drawBitmap(bitmap, 0f, 0f, paint)
+        return output
     }
 
     private fun createRecognizer(script: String): TextRecognizer = when (script.uppercase(Locale.ROOT)) {
@@ -116,19 +217,9 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
         regions.forEach { region ->
-            val background = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = region.backgroundColor }
-            canvas.drawRoundRect(region.bounds, region.bounds.height() * .18f, region.bounds.height() * .18f, background)
-            val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = region.textColor
-                textSize = region.textSize
-                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
-            }
-            val lines = wrap(region.translated, text, region.bounds.width())
-            val lineHeight = text.fontMetrics.descent - text.fontMetrics.ascent
-            val startY = region.bounds.centerY() - (lines.size - 1) * lineHeight / 2f - (text.fontMetrics.ascent + text.fontMetrics.descent) / 2f
-            lines.forEachIndexed { index, value ->
-                canvas.drawText(value, region.bounds.centerX() - text.measureText(value) / 2f, startY + index * lineHeight, text)
-            }
+            val patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source)
+            try { com.mangalens.core.translation.MangaLettering.draw(canvas, patch, region.translated) }
+            finally { patch.background.recycle() }
         }
         return output
     }
@@ -145,31 +236,6 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             text.any(Char::isLetter) -> LocalSourceLanguage.ENGLISH
             else -> LocalSourceLanguage.UNKNOWN
         }
-    }
-
-    private fun contrastText(background: Int): Int {
-        val luminance = (0.2126f * Color.red(background) + 0.7152f * Color.green(background) + 0.0722f * Color.blue(background)) / 255f
-        return if (luminance > 0.55f) Color.BLACK else Color.WHITE
-    }
-
-    private fun sample(bitmap: Bitmap, x: Float, y: Float): Int {
-        val px = bitmap.getPixel(x.toInt().coerceIn(0, bitmap.width - 1), y.toInt().coerceIn(0, bitmap.height - 1))
-        val luminance = (0.2126f * Color.red(px) + 0.7152f * Color.green(px) + 0.0722f * Color.blue(px)) / 255f
-        return if (luminance > .72f) Color.WHITE else Color.rgb((Color.red(px) + 255) / 2, (Color.green(px) + 255) / 2, (Color.blue(px) + 255) / 2)
-    }
-
-    private fun wrap(value: String, paint: Paint, width: Float): List<String> {
-        val lines = mutableListOf<String>()
-        var line = ""
-        value.split(Regex("\\s+")).forEach { word ->
-            val candidate = if (line.isEmpty()) word else "$line $word"
-            if (paint.measureText(candidate) > width && line.isNotEmpty()) {
-                lines += line
-                line = word
-            } else line = candidate
-        }
-        if (line.isNotEmpty()) lines += line
-        return lines
     }
 
     fun close() = Unit

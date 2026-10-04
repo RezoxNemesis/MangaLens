@@ -150,7 +150,7 @@ fun LocalVideoPlayerScreen(
             })
     ) {
         AndroidView(
-            factory = { PlayerView(it).apply { playerView = this; vm.bind(this); useController = true; controllerAutoShow = false } },
+            factory = { (android.view.LayoutInflater.from(it).inflate(com.mangalens.R.layout.ocr_player_view, null) as PlayerView).apply { playerView = this; vm.bind(this); useController = true; controllerAutoShow = false } },
             update = { view ->
                 playerView = view
                 view.setResizeMode(resizeMode)

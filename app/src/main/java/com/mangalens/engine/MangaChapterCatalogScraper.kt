@@ -30,10 +30,10 @@ class MangaChapterCatalogScraper(
                     handler.removeCallbacksAndMessages(null)
                     web.stopLoading()
                     web.destroy()
-                    continuation.resume(values.distinctBy { it.url }.take(100))
+                    if (continuation.isActive) continuation.resume(values.distinctBy { it.url }.take(2000))
                 }
 
-                web.settings.javaScriptEnabled = true
+                com.mangalens.core.web.SafeWebView.configure(web)
                 web.settings.domStorageEnabled = true
                 web.webViewClient = object : AdBlockWebViewClient(adBlock) {
                     override fun onPageFinished(view: WebView?, pageUrl: String?) {
@@ -41,10 +41,10 @@ class MangaChapterCatalogScraper(
                             """
                             (function(){
                               const out=[], seen=new Set();
-                              const re=/(chapter|chap|episode|ep)[-_ ]?d+/i;
+                              const re=/(chapter|chap|episode|ep)[-_ ]?\d+/i;
                               document.querySelectorAll('a[href]').forEach(a=>{
                                 const href=a.href||'';
-                                const text=(a.innerText||a.textContent||'').trim().replace(/s+/g,' ');
+                                const text=(a.innerText||a.textContent||'').trim().replace(/\s+/g,' ');
                                 if(!href.startsWith('http') || href.startsWith('javascript:')) return;
                                 if(re.test(href) || re.test(text)){
                                   if(!seen.has(href)){seen.add(href);out.push({title:text||href,url:href});}
@@ -68,7 +68,9 @@ class MangaChapterCatalogScraper(
                     }
                 }
                 handler.postDelayed({ finish(emptyList()) }, timeoutMs)
-                continuation.invokeOnCancellation { web.destroy() }
+                continuation.invokeOnCancellation { handler.post {
+                    if (!finished) { finished = true; handler.removeCallbacksAndMessages(null); web.stopLoading(); web.destroy() }
+                } }
                 web.loadUrl(url)
             }
         }

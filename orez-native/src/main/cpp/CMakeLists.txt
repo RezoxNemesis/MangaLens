@@ -7,9 +7,17 @@ set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(LLAMA_OPENSSL OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
-set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
-set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
+# Android loads packaged libraries through the app linker; desktop directory
+# discovery does not find them. Link/register the CPU backend directly.
+set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
+set(GGML_CPU_ALL_VARIANTS OFF CACHE BOOL "" FORCE)
 set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
+
+# Debug APKs are the installable delivery build for this project. Keep native
+# libraries optimized and strip native debug info to avoid hundreds of MB of
+# unneeded unoptimized C++ output in each ABI split.
+set(CMAKE_C_FLAGS_DEBUG "-O2 -g0" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g0" CACHE STRING "" FORCE)
 
 include(FetchContent)
 FetchContent_Declare(

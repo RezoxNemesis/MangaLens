@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: mangalens-cumulative-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
@@ -209,6 +209,13 @@ jobs:
           name: orez-final-corpus-manifest
           path: dist/orez-corpus-final-manifest.json
           retention-days: 7
+      - name: Free runner disk before Android toolchain and emulator installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Prepare Android SDK
         run: |
           set -euo pipefail
@@ -246,21 +253,26 @@ jobs:
       - name: Run lint
         run: gradle --no-daemon lintDebug --stacktrace
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug --stacktrace
+        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Verify APK
         run: |
           set -euo pipefail
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          test -s "$APK"
-          test "$(wc -c < "$APK")" -gt 1000000
-          sha256sum "$APK" | tee "$APK.sha256"
+          APK_DIR=app/build/outputs/apk/debug
+          APK_COUNT="$(find "$APK_DIR" -maxdepth 1 -name 'app-*-debug.apk' -type f | wc -l)"
+          test "$APK_COUNT" -eq 2
+          for ABI_APK in "$APK_DIR"/app-*-debug.apk; do
+            test -s "$ABI_APK"
+            test "$(wc -c < "$ABI_APK")" -gt 1000000
+            sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
+          done
+          python .github/scripts/verify-debug-apks.py
       - name: Upload downloadable APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: mangalens-debug-apk
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
           retention-days: 7
 
   build-and-validate-apk:
@@ -275,6 +287,13 @@ jobs:
           echo "Event: ${GITHUB_EVENT_NAME}"
           echo "Commit: ${GITHUB_SHA}"
       - uses: actions/checkout@v4
+      - name: Free runner disk before Android toolchain and emulator installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Prepare Android SDK
         run: |
           set -euo pipefail
@@ -312,27 +331,97 @@ jobs:
       - name: Run lint
         run: gradle --no-daemon lintDebug --stacktrace
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug --stacktrace
+        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Verify APK
         run: |
           set -euo pipefail
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          test -s "$APK"
-          test "$(wc -c < "$APK")" -gt 1000000
-          sha256sum "$APK" | tee "$APK.sha256"
+          APK_DIR=app/build/outputs/apk/debug
+          APK_COUNT="$(find "$APK_DIR" -maxdepth 1 -name 'app-*-debug.apk' -type f | wc -l)"
+          test "$APK_COUNT" -eq 2
+          for ABI_APK in "$APK_DIR"/app-*-debug.apk; do
+            test -s "$ABI_APK"
+            test "$(wc -c < "$ABI_APK")" -gt 1000000
+            sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
+          done
+          python .github/scripts/verify-debug-apks.py
+      - name: Detect Android emulator acceleration
+        id: emulator_accel
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+              echo "available=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "available=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::KVM is not usable; falling back to software emulation."
+            fi
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No /dev/kvm on this runner; falling back to software emulation."
+          fi
+      - name: Launch MangaLens in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          disk-size: 4096M
+          ram-size: 3072M
+          heap-size: 512M
+          emulator-boot-timeout: 600
+          disable-linux-hw-accel: ${{ steps.emulator_accel.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            bash .github/scripts/mangalens-startup-smoke.sh
+            bash .github/scripts/mangalens-device-regression.sh
+      - name: Upload MangaLens startup diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangalens-startup-diagnostics
+          path: |
+            app/build/diagnostics/**
+            app/build/reports/androidTests/**
+            app/build/reports/tests/**
+            app/build/test-results/**
+            app/build/reports/lint-results*
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload downloadable APK artifact
+        if: always()
+        id: upload_main_apk
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: mangalens-debug-apk
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
           retention-days: 7
+      - name: Publish main APK release if artifact storage is unavailable
+        if: steps.upload_main_apk.outcome == 'failure'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mangalens-build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: MangaLens APK build ${{ github.run_number }}
+          body: |
+            Automated MangaLens debug APKs built and launch-smoke-tested from commit ${{ github.sha }}.
+            GitHub Actions artifact storage was unavailable, so these files are published as a prerelease fallback.
+          prerelease: true
+          files: |
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
 
   pull-request-validation:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -340,8 +429,115 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
+      - name: Free runner disk before Android toolchain and emulator installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Accept Android SDK licenses and install native toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.13113456" "cmake;3.31.6"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
           cache-disabled: true
-      - run: gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Build, test, lint, and assemble debug APK
+        run: |
+          bash .github/scripts/create-video-ocr-fixture.sh
+          gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
+      - name: Verify APK and generate checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK_DIR=app/build/outputs/apk/debug
+          APK_COUNT="$(find "$APK_DIR" -maxdepth 1 -name 'app-*-debug.apk' -type f | wc -l)"
+          test "$APK_COUNT" -eq 2
+          for ABI_APK in "$APK_DIR"/app-*-debug.apk; do
+            test -s "$ABI_APK"
+            test "$(wc -c < "$ABI_APK")" -gt 1000000
+            sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
+          done
+          python .github/scripts/verify-debug-apks.py
+      - name: Detect PR emulator acceleration
+        id: pr_emulator_accel
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+              echo "available=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "available=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::KVM is not usable; falling back to software emulation."
+            fi
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No /dev/kvm on this runner; falling back to software emulation."
+          fi
+      - name: Launch PR APK in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          disk-size: 4096M
+          ram-size: 3072M
+          heap-size: 512M
+          emulator-boot-timeout: 600
+          disable-linux-hw-accel: ${{ steps.pr_emulator_accel.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            bash .github/scripts/mangalens-startup-smoke.sh
+            bash .github/scripts/mangalens-device-regression.sh
+      - name: Upload PR startup diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangalens-pr-startup-diagnostics
+          path: |
+            app/build/diagnostics/**
+            app/build/reports/androidTests/**
+            app/build/reports/tests/**
+            app/build/test-results/**
+            app/build/reports/lint-results*
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload pull-request debug APK
+        if: always()
+        id: upload_pr_apk
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangalens-pr-debug-apk
+          path: |
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256
+          retention-days: 7
+      - name: Publish APK release if artifact storage is unavailable
+        if: steps.upload_pr_apk.outcome == 'failure'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mangalens-pr-${{ github.event.pull_request.number }}-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: MangaLens PR #${{ github.event.pull_request.number }} APK build ${{ github.run_number }}
+          body: |
+            Fallback APK for testing because GitHub Actions artifact upload failed.
+            Built from workflow commit ${{ github.sha }}.
+          prerelease: true
+          files: |
+            app/build/outputs/apk/debug/app-*-debug.apk
+            app/build/outputs/apk/debug/app-*-debug.apk.sha256

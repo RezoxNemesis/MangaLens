@@ -70,6 +70,9 @@ fun LiveVideoOcrTranslationOverlay(
                             .take(8)
                         val source = sourceLines.joinToString(" ").take(500)
                         if (source.isBlank()) {
+                            original = ""
+                            translated = ""
+                            lastText = ""
                             status = "Looking for on-screen text…"
                         } else if (source != lastText) {
                             lastText = source
