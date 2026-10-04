@@ -3,6 +3,7 @@ package com.mangalens.orez
 import com.mangalens.oreznative.OrezNativeEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 
 class OrezLocalModelService(private val manager: OrezModelManager) {
@@ -15,7 +16,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         if (!engine.load(file.absolutePath)) return@withContext null
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
-            val role = if (message.role.equals("assistant", true)) "assistant" else "user"
+            val role = if (message.role.equals("assistant", true) || message.role.equals("OREZ", true)) "assistant" else "user"
             "<|im_start|>$role\n${message.text}\n<|im_end|>"
         }.takeLast(9000)
 
@@ -56,7 +57,9 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             append("<|im_start|>assistant\n")
         }
 
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         val raw = engine.generate(promptText, 512).trim()
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         sanitize(raw).takeIf { it.isNotBlank() }
     }
 

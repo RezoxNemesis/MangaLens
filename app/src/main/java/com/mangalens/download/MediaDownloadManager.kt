@@ -44,32 +44,35 @@ class MediaDownloadManager(private val context: Context) {
 
     suspend fun pause(id: String) = withContext(Dispatchers.IO) {
         val item = dao.get(id) ?: return@withContext
-        if (isAdaptive(item.sourceUrl)) {
+        if (dao.stopIfActive(id, DownloadState.PAUSED, null) == 0) return@withContext
+        if (item.isAdaptive) {
             MangaLensDownloadService.pauseAdaptive(context, id)
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         }
-        dao.upsert(item.copy(state = DownloadState.PAUSED, error = null))
     }
 
     suspend fun resume(id: String) = withContext(Dispatchers.IO) {
         val item = dao.get(id) ?: return@withContext
         if (item.state != DownloadState.PAUSED && item.state != DownloadState.FAILED) return@withContext
-        if (isAdaptive(item.sourceUrl)) {
-            MangaLensDownloadService.resumeAdaptive(context, id)
-            dao.upsert(item.copy(state = DownloadState.DOWNLOADING, error = null))
+        if (item.isAdaptive) {
+            if (dao.resumeIfStopped(id, DownloadState.DOWNLOADING) == 0) return@withContext
+            if (item.state == DownloadState.FAILED) {
+                // Setting a stop reason alone does not enqueue a failed Media3 download again.
+                MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(item.sourceUrl), item.mimeType)
+            } else {
+                MangaLensDownloadService.resumeAdaptive(context, id)
+            }
         } else {
-            dao.upsert(item.copy(state = DownloadState.QUEUED, error = null))
+            if (dao.resumeIfStopped(id, DownloadState.QUEUED) == 0) return@withContext
             start(id, item.sourceUrl, item.title, item.mimeType)
         }
     }
 
     suspend fun cancel(id: String) = withContext(Dispatchers.IO) {
+        dao.stopIfActive(id, DownloadState.CANCELLED, "Cancelled by user")
         WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         MangaLensDownloadService.remove(context, id)
-        dao.get(id)?.let {
-            dao.upsert(it.copy(state = DownloadState.CANCELLED, error = "Cancelled by user"))
-        }
     }
 
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
@@ -78,7 +81,7 @@ class MediaDownloadManager(private val context: Context) {
     }
 
     private fun start(id: String, url: String, title: String, mime: String) {
-        if (isAdaptive(url)) {
+        if (isAdaptiveMediaSource(url, mime)) {
             MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(url), mime)
             return
         }
@@ -103,15 +106,11 @@ class MediaDownloadManager(private val context: Context) {
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             workName(id),
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             request
         )
     }
 
     private fun workName(id: String) = "mangalens-download-$id"
 
-    private fun isAdaptive(url: String): Boolean {
-        val x = url.substringBefore("?").lowercase()
-        return x.endsWith(".m3u8") || x.endsWith(".mpd") || x.contains("/manifest/")
-    }
 }

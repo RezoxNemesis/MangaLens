@@ -3,6 +3,13 @@ package com.mangalens.ui.web
 import android.annotation.SuppressLint
 import android.view.MotionEvent
 import android.webkit.WebView
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,14 +37,23 @@ import kotlin.coroutines.resume
 fun AdBlockedWebScreen(
     url: String,
     translationEnabled: Boolean,
+    adBlockEnabled: Boolean = true,
     modifier: Modifier = Modifier,
-    targetLanguage: String = "hi"
+    targetLanguage: String = "hi",
+    onOpenManga: (String) -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val engine = remember { AdBlockEngine() }
+    val engine = remember { AdBlockEngine(com.mangalens.core.adblock.AdBlockStatsStore.shared) }
     val translator = remember { TranslationService() }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var currentUrl by remember { mutableStateOf(url) }
+    var pageTitle by remember { mutableStateOf("") }
+    var loadProgress by remember { mutableIntStateOf(0) }
+    var canGoBack by remember { mutableStateOf(false) }
+    var canGoForward by remember { mutableStateOf(false) }
+    var navigationEpoch by remember { mutableIntStateOf(0) }
+    var clearSiteDialog by remember { mutableStateOf(false) }
     var pageReady by remember { mutableStateOf(false) }
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
@@ -47,8 +63,12 @@ fun AdBlockedWebScreen(
     var totalTranslatable by remember { mutableIntStateOf(0) }
     var translationStatus by remember { mutableStateOf<String?>(null) }
     var hudVisible by remember { mutableStateOf(true) }
+    var siteAdBlockEnabled by remember { mutableStateOf(adBlockEnabled) }
+    val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
+    val latestSiteAdBlockEnabled by rememberUpdatedState(siteAdBlockEnabled)
 
     LaunchedEffect(translationEnabled) { translated = translationEnabled }
+    LaunchedEffect(adBlockEnabled) { siteAdBlockEnabled = adBlockEnabled }
     LaunchedEffect(autoScroll, speed, webView) {
         while (autoScroll && webView != null) {
             webView?.evaluateJavascript("window.scrollBy(0, " + (2.5f * speed) + ");", null)
@@ -61,16 +81,34 @@ fun AdBlockedWebScreen(
             hudVisible = false
         }
     }
-    DisposableEffect(translator) { onDispose { translator.close() } }
+    DisposableEffect(translator) { onDispose {
+        webView?.apply { stopLoading(); webChromeClient = null; webViewClient = android.webkit.WebViewClient(); destroy() }
+        webView = null
+        translator.close()
+    } }
+    BackHandler(canGoBack) { webView?.goBack() }
+    if (clearSiteDialog) AlertDialog(
+        onDismissRequest = { clearSiteDialog = false }, title = { Text("Clear all website data?") },
+        text = { Text("This signs you out of websites and removes their stored data.") },
+        confirmButton = { TextButton(onClick = {
+            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+            android.webkit.CookieManager.getInstance().flush()
+            android.webkit.WebStorage.getInstance().deleteAllData()
+            com.mangalens.core.verification.VerificationSessionStore(context).clearAll()
+            webView?.clearCache(true)
+            clearSiteDialog = false
+            webView?.reload()
+        }) { Text("Clear") } }, dismissButton = { TextButton(onClick = { clearSiteDialog = false }) { Text("Cancel") } })
 
     LaunchedEffect(url, webView) {
         val view = webView ?: return@LaunchedEffect
         if (url.isBlank()) return@LaunchedEffect
         pageReady = false
-        view.loadUrl(url)
+        if (com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) view.loadUrl(url)
+        else translationStatus = "Enter a complete HTTP or HTTPS URL."
     }
 
-    LaunchedEffect(pageReady, translated, webView, targetLanguage, url) {
+    LaunchedEffect(pageReady, translated, webView, targetLanguage, navigationEpoch) {
         val view = webView ?: return@LaunchedEffect
         if (!pageReady) return@LaunchedEffect
         if (!translated) {
@@ -121,19 +159,34 @@ fun AdBlockedWebScreen(
 
     Box(modifier.fillMaxSize()) {
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(top = 110.dp),
             factory = { ctx ->
                 WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
+                    com.mangalens.core.web.SafeWebView.configure(this)
                     settings.domStorageEnabled = true
-                    settings.mediaPlaybackRequiresUserGesture = false
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onProgressChanged(view: WebView?, progress: Int) { loadProgress = progress }
+                        override fun onReceivedTitle(view: WebView?, title: String?) { pageTitle = title.orEmpty() }
+                    }
                     setOnTouchListener { _, event ->
                         if (event.actionMasked == MotionEvent.ACTION_UP) hudVisible = true
                         false
                     }
-                    webViewClient = object : AdBlockWebViewClient(engine) {
+                    webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && latestSiteAdBlockEnabled }) {
+                        override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
+                            pageReady = false
+                            navigationEpoch++
+                            currentUrl = pageUrl ?: currentUrl
+                            translationStatus = null
+                        }
+                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                            if (request?.isForMainFrame == true) translationStatus = "Page could not load. Check your connection and retry."
+                        }
                         override fun onPageFinished(view: WebView?, pageUrl: String?) {
                             super.onPageFinished(view, pageUrl)
+                            currentUrl = pageUrl ?: currentUrl
+                            canGoBack = view?.canGoBack() == true
+                            canGoForward = view?.canGoForward() == true
                             pageReady = true
                         }
                     }
@@ -143,21 +196,42 @@ fun AdBlockedWebScreen(
             update = { view -> if (webView !== view) webView = view }
         )
 
+        Surface(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding()) {
+            Column(Modifier.padding(horizontal = 8.dp)) {
+                Text(pageTitle.ifBlank { "Web" }, maxLines = 1, style = MaterialTheme.typography.titleSmall)
+                Text(currentUrl, maxLines = 1, style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { webView?.goBack() }, enabled = canGoBack) { Text("Back") }
+                    TextButton(onClick = { webView?.goForward() }, enabled = canGoForward) { Text("Forward") }
+                    TextButton(onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() }) { Text(if (loadProgress < 100) "Stop" else "Reload") }
+                    TextButton(onClick = { onOpenManga(currentUrl) }, enabled = pageReady) { Text("Open in Manga") }
+                    TextButton(
+                        onClick = {
+                            siteAdBlockEnabled = !siteAdBlockEnabled
+                            webView?.reload()
+                        },
+                        enabled = adBlockEnabled
+                    ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ad block: On" else "Ad block: Off") }
+                    TextButton(onClick = { clearSiteDialog = true }) { Text("Clear site data") }
+                }
+                if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
+            }
+        }
         if (hudVisible || translating) {
             Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
                 tonalElevation = 6.dp,
                 shape = MaterialTheme.shapes.large
             ) {
                 Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = {
                             translated = !translated
                             hudVisible = true
-                        }, enabled = !translating) { Text(if (translating) "Translating…" else if (translated) "Translated ✓" else "Translate") }
+                        }, enabled = pageReady) { Text(if (translating) "Translating…" else if (translated) "Translated ✓" else "Translate") }
                         Button(onClick = {
                             scope.launch {
-                                runCatching { MediaDownloadManager(context).enqueue(url, "MangaLens web page") }
+                                runCatching { MediaDownloadManager(context).enqueue(currentUrl, "MangaLens web page") }
                                     .onFailure { translationStatus = "Download failed: " + (it.message ?: "unknown error") }
                             }
                         }) { Text("Download") }

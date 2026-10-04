@@ -55,9 +55,7 @@ fun VerificationDialog(
         cookieState.value = cookies
         userAgentState.value = userAgent
 
-        if (cookies.contains("cf_clearance=", ignoreCase = true)) {
-            onVerified(cookies, userAgent)
-        }
+
     }
 
     Dialog(
@@ -82,7 +80,7 @@ fun VerificationDialog(
                     style = MaterialTheme.typography.titleLarge
                 )
                 Text(
-                    text = "Cloudflare security check triggered. Solve below once to resume automated extraction.",
+                    text = "This source may require sign-in or verification. Complete it here, then retry acquisition.",
                     style = MaterialTheme.typography.bodyMedium
                 )
 
@@ -94,7 +92,7 @@ fun VerificationDialog(
                         .height(480.dp),
                     factory = { context ->
                         WebView(context).apply {
-                            settings.javaScriptEnabled = true
+                            com.mangalens.core.web.SafeWebView.configure(this)
                             settings.domStorageEnabled = true
                             settings.javaScriptCanOpenWindowsAutomatically = false
                             settings.setSupportMultipleWindows(false)
@@ -102,7 +100,7 @@ fun VerificationDialog(
                             settings.cacheMode = WebSettings.LOAD_DEFAULT
 
                             CookieManager.getInstance().setAcceptCookie(true)
-                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(
@@ -121,7 +119,7 @@ fun VerificationDialog(
                                 override fun shouldOverrideUrlLoading(
                                     view: WebView?,
                                     request: WebResourceRequest?
-                                ): Boolean = false
+                                ): Boolean = request == null || !com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(request.url.toString())
                             }
 
                             webViewState.value = this

@@ -46,6 +46,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         suspendCancellableCoroutine { continuation ->
             recognizer.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnSuccessListener { result ->
+                    if (!continuation.isActive) return@addOnSuccessListener
                     val regions = mutableListOf<TranslationRegion>()
                     result.textBlocks.forEach { block ->
                         block.lines.forEach { line ->
@@ -84,7 +85,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
         val script = prefs?.getString("script", "AUTO") ?: "AUTO"
         val highAccuracy = prefs?.getBoolean("high_accuracy", true) ?: true
-        val candidates = if (script != "AUTO" && !highAccuracy) listOf(createRecognizer(script)) else listOf(
+        val candidates = if (script != "AUTO") listOf(createRecognizer(script)) else if (!highAccuracy) listOf(createRecognizer("LATIN")) else listOf(
             createRecognizer("LATIN"), createRecognizer("DEVANAGARI"),
             createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
         )
@@ -153,7 +154,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     }
 
     private fun sample(bitmap: Bitmap, x: Float, y: Float): Int {
-        val px = bitmap.getPixel(x.toInt().coerceIn(0, bitmap.width - 1), y.toInt().coerceIn(0, bitmap.height - 1))
+        val px = runCatching { bitmap.getPixel(x.toInt().coerceIn(0, bitmap.width - 1), y.toInt().coerceIn(0, bitmap.height - 1)) }.getOrDefault(Color.WHITE)
         val luminance = (0.2126f * Color.red(px) + 0.7152f * Color.green(px) + 0.0722f * Color.blue(px)) / 255f
         return if (luminance > .72f) Color.WHITE else Color.rgb((Color.red(px) + 255) / 2, (Color.green(px) + 255) / 2, (Color.blue(px) + 255) / 2)
     }

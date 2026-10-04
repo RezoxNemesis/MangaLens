@@ -15,12 +15,15 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -61,7 +64,6 @@ class MangaLensDownloadService : DownloadService(
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 10003
         private const val CHANNEL_ID = "mangalens_media_downloads"
-        private const val MAX_CACHE_BYTES = 1024L * 1024L * 1024L
 
         fun addAdaptive(context: Context, id: String, uri: Uri, mime: String?) {
             val request = DownloadRequest.Builder(id, uri)
@@ -97,15 +99,31 @@ class MangaLensDownloadService : DownloadService(
 
     object Holder {
         @Volatile private var manager: DownloadManager? = null
+        @Volatile private var downloadCache: SimpleCache? = null
+        @Volatile private var databaseProvider: StandaloneDatabaseProvider? = null
         private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val callbackMutex = Mutex()
+
+        @Synchronized
+        private fun storage(context: Context): Pair<StandaloneDatabaseProvider, SimpleCache> {
+            val app = context.applicationContext
+            val provider = databaseProvider ?: StandaloneDatabaseProvider(app).also { databaseProvider = it }
+            val cache = downloadCache ?: run {
+                val directory = File(app.filesDir, "media_download_cache").apply { mkdirs() }
+                // Explicit user downloads are durable offline data, not an evictable streaming cache.
+                SimpleCache(directory, NoOpCacheEvictor(), provider).also { downloadCache = it }
+            }
+            return provider to cache
+        }
+
+        @Synchronized
+        fun cache(context: Context): SimpleCache = storage(context).second
 
         @Synchronized
         fun manager(context: Context): DownloadManager {
             manager?.let { return it }
             val app = context.applicationContext
-            val directory = File(app.filesDir, "media_download_cache").apply { mkdirs() }
-            val provider = StandaloneDatabaseProvider(app)
-            val cache = SimpleCache(directory, LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES), provider)
+            val (provider, cache) = storage(app)
             val dataSource = DefaultHttpDataSource.Factory()
                 .setUserAgent("MangaLens/13")
                 .setAllowCrossProtocolRedirects(true)
@@ -127,8 +145,8 @@ class MangaLensDownloadService : DownloadService(
                     download: Download,
                     finalException: Exception?
                 ) {
-                    callbackScope.launch {
-                        val current = dao.get(download.request.id) ?: return@launch
+                    // Enter the fair mutex in listener order before dispatching suspended Room work.
+                    callbackScope.launch(start = CoroutineStart.UNDISPATCHED) { callbackMutex.withLock {
                         val state = when (download.state) {
                             Download.STATE_COMPLETED -> DownloadState.COMPLETED
                             Download.STATE_FAILED -> DownloadState.FAILED
@@ -136,15 +154,14 @@ class MangaLensDownloadService : DownloadService(
                             Download.STATE_DOWNLOADING -> DownloadState.DOWNLOADING
                             else -> DownloadState.QUEUED
                         }
-                        dao.upsert(
-                            current.copy(
-                                bytesDownloaded = download.bytesDownloaded,
-                                totalBytes = download.contentLength,
-                                state = state,
-                                error = finalException?.message
-                            )
+                        dao.adaptiveStateIfActive(
+                            download.request.id,
+                            download.bytesDownloaded,
+                            download.contentLength,
+                            state,
+                            finalException?.message
                         )
-                    }
+                    } }
                 }
             })
             manager = created
