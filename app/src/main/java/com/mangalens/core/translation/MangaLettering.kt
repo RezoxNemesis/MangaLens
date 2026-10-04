@@ -107,7 +107,7 @@ object MangaLettering {
             paint.textSize = size
             return StaticLayout.Builder.obtain(text, 0, text.length, paint, max(1, width))
                 .setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(true)
-                .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY).build()
+                .build()
         }
         var lo = 1f; var hi = max(1f, style.size * textScale)
         repeat(14) {
