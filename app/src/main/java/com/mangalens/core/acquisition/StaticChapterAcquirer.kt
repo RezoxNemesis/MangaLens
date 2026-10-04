@@ -21,8 +21,7 @@ class StaticChapterAcquirer {
         }.build()
 
     suspend fun discover(url: String): SourceContent? = withContext(Dispatchers.IO) {
-        val mangaDexEndpoint = MangaDexChapterSource.endpoint(url)
-        val call = client.newCall(Request.Builder().url(mangaDexEndpoint ?: url).header("User-Agent", "MangaLens/1.4 Android").build())
+        val call = client.newCall(Request.Builder().url(url).header("User-Agent", "MangaLens/1.4 Android").build())
         suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
@@ -33,7 +32,7 @@ class StaticChapterAcquirer {
                             if (!it.isSuccessful) return@use null
                             val body = it.body ?: return@use null
                             if (body.contentLength() > 1_500_000) return@use null
-                            if (mangaDexEndpoint == null && body.contentType()?.subtype?.contains("html") != true) return@use null
+                            if (body.contentType()?.subtype?.contains("html") != true) return@use null
                             val output = java.io.ByteArrayOutputStream()
                             body.byteStream().use { input ->
                                 val buffer = ByteArray(16_384)
@@ -45,8 +44,7 @@ class StaticChapterAcquirer {
                                     output.write(buffer, 0, size)
                                 }
                             }
-                            if (mangaDexEndpoint != null) MangaDexChapterSource.parse(output.toString("UTF-8"))
-                            else adapter.parse(output.toString("UTF-8"), it.request.url.toString())
+                            adapter.parse(output.toString("UTF-8"), it.request.url.toString())
                         }
                     }.getOrNull()
                     if (continuation.isActive) continuation.resume(result)
