@@ -131,8 +131,16 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setUrl(value: String) {
-        prefs.edit().putString("last_url", value.trim()).apply()
-        _state.value = _state.value.copy(url = value.trim(), mode = if (value.isBlank()) ContentType.GENERIC_WEB else router.classifyUrl(value))
+        val normalized = value.trim()
+        prefs.edit().putString("last_url", normalized).apply()
+        val changed = normalized != _state.value.url
+        _state.value = _state.value.copy(
+            url = normalized,
+            mode = if (normalized.isBlank()) ContentType.GENERIC_WEB else router.classifyUrl(normalized),
+            videoUrl = if (changed) null else _state.value.videoUrl,
+            videoPageUrl = if (changed) null else _state.value.videoPageUrl,
+            videoHeaders = if (changed) emptyMap() else _state.value.videoHeaders
+        )
     }
     fun setMode(mode: ContentType) { _state.value = _state.value.copy(mode = mode) }
     fun setThemeMode(mode: ThemeMode) {
@@ -251,7 +259,13 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
-            _state.value = _state.value.copy(loading = true, error = null)
+            _state.value = _state.value.copy(
+                loading = true,
+                error = null,
+                videoUrl = if (selectedMode == ContentType.VIDEO_STREAM) null else _state.value.videoUrl,
+                videoPageUrl = if (selectedMode == ContentType.VIDEO_STREAM) target else _state.value.videoPageUrl,
+                videoHeaders = if (selectedMode == ContentType.VIDEO_STREAM) emptyMap() else _state.value.videoHeaders
+            )
             try {
                 when (selectedMode) {
                     ContentType.VIDEO_STREAM -> {
@@ -265,7 +279,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                             )
                         } else {
                             val staticResolved = withContext(Dispatchers.IO) {
-                                mediaLinkResolver.resolve(target)
+                                runCatching { mediaLinkResolver.resolve(target) }.getOrNull()
                             }?.takeIf { resolved ->
                                 resolved.mimeType?.startsWith("video/") == true ||
                                     resolved.mimeType == "application/x-mpegURL" ||
