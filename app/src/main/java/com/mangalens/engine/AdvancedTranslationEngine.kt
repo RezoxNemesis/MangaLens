@@ -75,7 +75,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
      * failure seen on real webtoon pages. Merge only tightly stacked, centre-aligned blocks
      * with comparable lettering before translation and typesetting.
      */
-    private fun mergeLikelySameBalloon(regions: List<TranslationRegion>): List<TranslationRegion> {
+    internal fun mergeLikelySameBalloon(regions: List<TranslationRegion>): List<TranslationRegion> {
         if (regions.size < 2) return regions
         val sorted = regions.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
         val merged = mutableListOf<TranslationRegion>()
