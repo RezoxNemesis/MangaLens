@@ -3,6 +3,7 @@ package com.mangalens.ui
 import android.app.Application
 import android.net.Uri
 import android.graphics.BitmapFactory
+import android.webkit.CookieManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mangalens.acquisition.RenderedBrowserAcquirer
@@ -24,12 +25,14 @@ import com.mangalens.engine.MangaChapterScraper
 import com.mangalens.engine.MangaChapterCatalogScraper
 import com.mangalens.core.model.MangaChapter
 import com.mangalens.download.MediaDownloadManager
+import com.mangalens.download.MediaLinkResolver
 import com.mangalens.core.translation.TranslationService
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.core.verification.CaptchaBridge
 import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.ui.reader.TranslationOverlay
 import com.mangalens.ui.theme.ThemeMode
+import com.mangalens.ui.video.VideoSourcePolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -45,6 +48,8 @@ data class MangaLensUiState(
     val pages: List<ChapterPage> = emptyList(),
     val chapters: List<MangaChapter> = emptyList(),
     val videoUrl: String? = null,
+    val videoPageUrl: String? = null,
+    val videoHeaders: Map<String, String> = emptyMap(),
     val loading: Boolean = false,
     val translating: Boolean = false,
     val translationPaused: Boolean = false,
@@ -89,6 +94,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val chapterScraper = MangaChapterScraper(application)
     private val staticAcquirer = com.mangalens.core.acquisition.StaticChapterAcquirer()
     private val chapterCatalog = MangaChapterCatalogScraper(application)
+    private val mediaLinkResolver = MediaLinkResolver()
     private val translator = TranslationService()
     val captchaBridge = CaptchaBridge()
 
@@ -177,6 +183,25 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun resetAdBlockStats() = statsStore.reset()
 
+    fun acceptResolvedVideo(url: String, headers: Map<String, String>, pageUrl: String) {
+        if (!UrlEngineRouter.isSafeWebUrl(url)) {
+            _state.value = _state.value.copy(error = "The detected media URL is not a safe HTTP or HTTPS address.")
+            return
+        }
+        val allowed = setOf("accept", "cookie", "origin", "referer", "user-agent")
+        val safeHeaders = headers
+            .filter { (name, value) -> name.lowercase() in allowed && value.length <= 16_384 }
+            .toMap()
+        _state.value = _state.value.copy(
+            mode = ContentType.VIDEO_STREAM,
+            videoUrl = url,
+            videoPageUrl = pageUrl.takeIf(UrlEngineRouter::isSafeWebUrl),
+            videoHeaders = safeHeaders,
+            loading = false,
+            error = null
+        )
+    }
+
     fun importLocalImages(uris: List<Uri>) {
         clearTranslations()
         val previousIngestion = ingestionJob
@@ -229,7 +254,52 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(loading = true, error = null)
             try {
                 when (selectedMode) {
-                    ContentType.VIDEO_STREAM -> _state.value = _state.value.copy(mode = ContentType.VIDEO_STREAM, videoUrl = target, loading = false)
+                    ContentType.VIDEO_STREAM -> {
+                        if (!VideoSourcePolicy.isSourcePage(target)) {
+                            _state.value = _state.value.copy(
+                                mode = ContentType.VIDEO_STREAM,
+                                videoUrl = target,
+                                videoPageUrl = null,
+                                videoHeaders = emptyMap(),
+                                loading = false
+                            )
+                        } else {
+                            val staticResolved = withContext(Dispatchers.IO) {
+                                mediaLinkResolver.resolve(target)
+                            }?.takeIf { resolved ->
+                                resolved.mimeType?.startsWith("video/") == true ||
+                                    resolved.mimeType == "application/x-mpegURL" ||
+                                    resolved.mimeType == "application/dash+xml"
+                            }
+
+                            val resolvedUrl = staticResolved?.url ?: run {
+                                val existingCookie = CookieManager.getInstance().getCookie(target)
+                                val rendered = acquirer.discoverWithCookie(target, 12_000L, existingCookie)
+                                VideoSourcePolicy.preferredMediaUrl(rendered.videoStreamUrls)
+                            }
+
+                            if (resolvedUrl != null) {
+                                val cookie = CookieManager.getInstance().getCookie(resolvedUrl).orEmpty()
+                                _state.value = _state.value.copy(
+                                    mode = ContentType.VIDEO_STREAM,
+                                    videoUrl = resolvedUrl,
+                                    videoPageUrl = target,
+                                    videoHeaders = if (cookie.isBlank()) emptyMap() else mapOf("Cookie" to cookie),
+                                    loading = false,
+                                    error = null
+                                )
+                            } else {
+                                _state.value = _state.value.copy(
+                                    mode = ContentType.VIDEO_STREAM,
+                                    videoUrl = null,
+                                    videoPageUrl = target,
+                                    videoHeaders = emptyMap(),
+                                    loading = false,
+                                    error = "No direct playable stream was detected yet. Open the source page, start the video, then use Open in Video when MangaLens detects the media request."
+                                )
+                            }
+                        }
+                    }
                     ContentType.IMAGE_CHAPTER -> {
                         _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
                         repository.clearChapterCache()
