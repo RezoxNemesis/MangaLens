@@ -197,8 +197,11 @@ class RenderedBrowserAcquirer(
 
                             val parsedUrls = parseJsonArray(decoded)
                             for (candidate in parsedUrls) {
-                                if (discoveredDomUrls.size >= MAX_IMAGE_URLS) break
-                                if (isImageCandidate(candidate)) discoveredDomUrls.add(candidate)
+                                if (isVideoCandidate(candidate)) {
+                                    if (networkVideos.size < MAX_VIDEO_URLS) networkVideos.add(candidate)
+                                } else if (isImageCandidate(candidate) && discoveredDomUrls.size < MAX_IMAGE_URLS) {
+                                    discoveredDomUrls.add(candidate)
+                                }
                             }
 
                             val finalImages = if (discoveredDomUrls.isNotEmpty()) {
@@ -240,7 +243,10 @@ class RenderedBrowserAcquirer(
 
     private fun isVideoCandidate(url: String): Boolean {
         val lower = url.lowercase()
-        return listOf(".m3u8", ".mp4", ".ts", "/hls/", "/manifest/").any { lower.contains(it) }
+        return listOf(
+            ".m3u8", ".mpd", ".mp4", ".m4v", ".webm", ".mkv", ".mov", ".ts",
+            "/hls/", "/dash/", "/manifest/"
+        ).any { lower.contains(it) }
     }
 
     private fun parseJsonArray(json: String): List<String> {
