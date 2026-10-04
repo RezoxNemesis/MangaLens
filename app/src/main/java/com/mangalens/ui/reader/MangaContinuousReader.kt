@@ -126,6 +126,10 @@ fun MangaContinuousReader(
         val position = activePage.coerceIn(0, pages.lastIndex)
         if (readingMode == "vertical") listState.scrollToItem(position, activeOffset)
         else pagerState.scrollToPage(position)
+        activePage = position
+        // reverseLayout is rebuilt when LTR/RTL changes. Do not let its transient
+        // pager index overwrite the logical page before the restored page settles.
+        delay(350L)
         positionRestored = true
     }
     LaunchedEffect(chapterId, readingMode, positionRestored) {
