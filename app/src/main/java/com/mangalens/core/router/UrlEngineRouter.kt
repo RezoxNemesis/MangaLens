@@ -40,6 +40,16 @@ class UrlEngineRouter {
         if (lower.contains("/chapter-") || lower.contains("/read/") || lower.contains("/page/") || lower.contains("/episode/")) {
             return ContentType.IMAGE_CHAPTER
         }
+
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+        val videoPath = path.lowercase(Locale.ROOT).split('/').filter(String::isNotBlank)
+        if (
+            videoDomainKeywords.any { host.contains(it) } ||
+            videoPath.any { it in setOf("watch", "video", "videos", "player", "embed", "stream") }
+        ) {
+            return ContentType.VIDEO_STREAM
+        }
+
         return ContentType.GENERIC_WEB
     }
 }
