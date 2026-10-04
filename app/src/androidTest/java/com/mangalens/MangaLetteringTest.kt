@@ -112,6 +112,60 @@ class MangaLetteringTest {
         } finally { image.recycle(); prefs.edit().putString("script", script).putBoolean("high_accuracy", accuracy).commit() }
     }
 
+    @Test fun speechBubbleUsesRecoveredInteriorInsteadOfTinyOcrBox() {
+        val image = Bitmap.createBitmap(900, 520, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(image)
+        val panel = Color.rgb(45, 48, 58)
+        canvas.drawColor(panel)
+        val bubble = RectF(110f, 70f, 790f, 440f)
+        canvas.drawRoundRect(bubble, 150f, 150f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        })
+        canvas.drawRoundRect(bubble, 150f, 150f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 6f
+        })
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 48f
+            typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+        }
+        val sourceLines = listOf("THE WITCH OF THE FOREST", "WON'T INTERFERE AS LONG", "AS WE DON'T HARM IT")
+        val baselines = listOf(220f, 278f, 336f)
+        val lineBounds = sourceLines.zip(baselines).map { (text, baseline) ->
+            val glyph = Rect()
+            paint.getTextBounds(text, 0, text.length, glyph)
+            val left = bubble.centerX() - glyph.width() / 2f
+            canvas.drawText(text, left, baseline, paint)
+            RectF(glyph).apply { offset(left, baseline) }
+        }
+        val sourceBounds = RectF(
+            lineBounds.minOf { it.left }, lineBounds.minOf { it.top },
+            lineBounds.maxOf { it.right }, lineBounds.maxOf { it.bottom }
+        )
+
+        val patch = MangaLettering.prepare(image, sourceBounds, lineBounds, sourceLines.joinToString("\n"))
+        try {
+            assertTrue("Writable area stayed trapped in the OCR glyph box", patch.bounds.width() > sourceBounds.width() * 1.12f)
+            assertTrue("Writable area did not recover vertical balloon space", patch.bounds.height() > sourceBounds.height() * 1.20f)
+            assertTrue("Recovered patch crossed into panel artwork", patch.bounds.left > 95 && patch.bounds.right < 805)
+
+            val result = image.copy(Bitmap.Config.ARGB_8888, true)
+            try {
+                MangaLettering.draw(Canvas(result), patch,
+                    "उन्होंने कहा कि जंगल की चुड़ैल तब तक हस्तक्षेप नहीं करेगी जब तक हम जंगल को नुकसान नहीं पहुँचाते।")
+                assertEquals("Panel art outside the balloon changed", panel, result.getPixel(40, 40))
+                assertFalse("Translated balloon did not change", image.sameAs(result))
+            } finally { result.recycle() }
+        } finally {
+            patch.background.recycle()
+            image.recycle()
+        }
+    }
+
     @Test fun videoPlayerUsesCapturableTextureSurface() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
