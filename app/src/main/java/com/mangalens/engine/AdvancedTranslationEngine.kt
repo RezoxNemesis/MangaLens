@@ -34,6 +34,7 @@ data class TranslationRegion(
 )
 
 class AdvancedTranslationEngine(private val context: Context? = null) {
+    internal var tileObserver: ((Int, List<TranslationRegion>) -> Unit)? = null
     suspend fun recognize(bitmap: Bitmap): List<TranslationRegion> {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         return try {
@@ -79,12 +80,16 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         // Long webtoon pages must keep glyph resolution; use overlapping vertical OCR tiles.
         if (bitmap.height <= 2048) return recognizeTile(bitmap)
         val output = mutableListOf<TranslationRegion>()
+        val margins = mutableListOf<Float>()
         var y = 0
         while (y < bitmap.height) {
             val height = minOf(2048, bitmap.height - y)
             val tile = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, height)
             try {
-                recognizeTile(tile).forEach { region ->
+                val recognized = recognizeTile(tile)
+                tileObserver?.invoke(y, recognized)
+                recognized.forEach { region ->
+                    val margin = minOf(region.bounds.top, height - region.bounds.bottom).coerceAtLeast(0f)
                     val shifted = region.copy(bounds = RectF(region.bounds).apply { offset(0f, y.toFloat()) },
                         lineBounds = region.lineBounds.map { RectF(it).apply { offset(0f, y.toFloat()) } })
                     val duplicate = output.indexOfFirst { previous ->
@@ -92,8 +97,15 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                         intersection.intersect(shifted.bounds) && intersection.width() * intersection.height() >
                             minOf(previous.bounds.width() * previous.bounds.height(), shifted.bounds.width() * shifted.bounds.height()) * .5f
                     }
-                    if (duplicate < 0) output += shifted
-                    else if (shifted.source.length > output[duplicate].source.length) output[duplicate] = shifted
+                    if (duplicate < 0) {
+                        output += shifted
+                        margins += margin
+                    } else if (margin > margins[duplicate] ||
+                        (margin == margins[duplicate] && shifted.source.length > output[duplicate].source.length)) {
+                        // Central detections retain full glyph context. Longer edge results can be OCR hallucinations.
+                        output[duplicate] = shifted
+                        margins[duplicate] = margin
+                    }
                 }
             } finally { tile.recycle() }
             if (y + height >= bitmap.height) break

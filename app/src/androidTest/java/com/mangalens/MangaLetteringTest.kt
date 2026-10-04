@@ -78,9 +78,13 @@ class MangaLetteringTest {
             drawText("Time for graduation", 50f, 4510f, paint)
         }
         try {
-            val regions = AdvancedTranslationEngine(context).recognizeScriptAware(image)
+            val candidates = mutableListOf<String>()
+            val engine = AdvancedTranslationEngine(context).apply {
+                tileObserver = { offset, regions -> candidates += "$offset: $regions" }
+            }
+            val regions = engine.recognizeScriptAware(image)
             assertEquals("Tall OCR regions: $regions", 2, regions.size)
-            assertTrue("Tile-boundary OCR regions: $regions", regions.any { it.source.contains("semester", true) && it.bounds.top > 1900 })
+            assertTrue("Tile-boundary OCR regions: $regions; candidates: $candidates", regions.any { it.source.contains("semester", true) && it.bounds.top > 1900 })
             assertTrue("Bottom OCR regions: $regions", regions.any { it.source.contains("graduation", true) && it.bounds.top > 4400 })
         } finally { image.recycle(); prefs.edit().putString("script", script).putBoolean("high_accuracy", accuracy).commit() }
     }
@@ -99,6 +103,6 @@ class MangaLetteringTest {
         file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         val device = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.executeShellCommand("mkdir -p /sdcard/Download/mangalens-qa")
-        device.executeShellCommand("cp '${file.absolutePath}' /sdcard/Download/mangalens-qa/")
+        device.executeShellCommand("cp ${file.absolutePath} /sdcard/Download/mangalens-qa/")
     }
 }
