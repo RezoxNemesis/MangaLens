@@ -64,10 +64,87 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                                 block.lines.map { it.confidence }.filter { it.isFinite() && it > 0f }.average().toFloat().let { if (it.isFinite()) it else 0f })
                         }
                     }
-                    if (continuation.isActive) continuation.resume(regions)
+                    if (continuation.isActive) continuation.resume(mergeLikelySameBalloon(regions))
                 }
                 .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
         }
+
+    /**
+     * ML Kit can split one speech balloon into two text blocks. Translating those blocks
+     * independently is what creates the "one normal line + one microscopic paragraph"
+     * failure seen on real webtoon pages. Merge only tightly stacked, centre-aligned blocks
+     * with comparable lettering before translation and typesetting.
+     */
+    private fun mergeLikelySameBalloon(regions: List<TranslationRegion>): List<TranslationRegion> {
+        if (regions.size < 2) return regions
+        val sorted = regions.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
+        val merged = mutableListOf<TranslationRegion>()
+
+        fun compatible(a: TranslationRegion, b: TranslationRegion): Boolean {
+            if (a.sourceLanguage != b.sourceLanguage &&
+                a.sourceLanguage != LocalSourceLanguage.UNKNOWN &&
+                b.sourceLanguage != LocalSourceLanguage.UNKNOWN) return false
+
+            val maxText = maxOf(a.textSize, b.textSize).coerceAtLeast(8f)
+            val minText = minOf(a.textSize, b.textSize).coerceAtLeast(1f)
+            if (minText / maxText < .62f) return false
+
+            val gap = b.bounds.top - a.bounds.bottom
+            if (gap < -maxText * .30f || gap > maxText * .95f) return false
+
+            val minWidth = minOf(a.bounds.width(), b.bounds.width()).coerceAtLeast(1f)
+            val centreDistance = kotlin.math.abs(a.bounds.centerX() - b.bounds.centerX())
+            val overlap = minOf(a.bounds.right, b.bounds.right) - maxOf(a.bounds.left, b.bounds.left)
+            val aligned = centreDistance <= minWidth * .34f + maxText * .35f
+            val overlapping = overlap >= minWidth * .40f
+            if (!aligned || !overlapping) return false
+
+            val lineCount = a.lineBounds.size + b.lineBounds.size
+            if (lineCount > 7) return false
+
+            val unionTop = minOf(a.bounds.top, b.bounds.top)
+            val unionBottom = maxOf(a.bounds.bottom, b.bounds.bottom)
+            val tallest = maxOf(a.bounds.height(), b.bounds.height()).coerceAtLeast(1f)
+            return unionBottom - unionTop <= tallest * 2.75f + maxText
+        }
+
+        fun combine(a: TranslationRegion, b: TranslationRegion): TranslationRegion {
+            val source = listOf(a.source.trim(), b.source.trim()).filter(String::isNotBlank).joinToString("\n")
+            val charsA = a.source.length.coerceAtLeast(1)
+            val charsB = b.source.length.coerceAtLeast(1)
+            val confidence = when {
+                a.recognitionConfidence <= 0f -> b.recognitionConfidence
+                b.recognitionConfidence <= 0f -> a.recognitionConfidence
+                else -> (a.recognitionConfidence * charsA + b.recognitionConfidence * charsB) / (charsA + charsB)
+            }
+            return TranslationRegion(
+                source = source,
+                translated = source,
+                bounds = RectF(
+                    minOf(a.bounds.left, b.bounds.left),
+                    minOf(a.bounds.top, b.bounds.top),
+                    maxOf(a.bounds.right, b.bounds.right),
+                    maxOf(a.bounds.bottom, b.bounds.bottom)
+                ),
+                sourceLanguage = detect(source),
+                textColor = a.textColor,
+                backgroundColor = a.backgroundColor,
+                textSize = (a.textSize * charsA + b.textSize * charsB) / (charsA + charsB),
+                lineBounds = (a.lineBounds + b.lineBounds).sortedWith(compareBy<RectF> { it.top }.thenBy { it.left }),
+                recognitionConfidence = confidence
+            )
+        }
+
+        for (region in sorted) {
+            val previous = merged.lastOrNull()
+            if (previous != null && compatible(previous, region)) {
+                merged[merged.lastIndex] = combine(previous, region)
+            } else {
+                merged += region
+            }
+        }
+        return merged
+    }
 
     suspend fun recognizeFast(bitmap: Bitmap): List<TranslationRegion> {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
