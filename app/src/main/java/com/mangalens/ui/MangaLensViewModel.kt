@@ -367,20 +367,28 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         _state.value = _state.value.copy(mangaTranslationEnabled = true, translating = true, translationPaused = false, translationDone = 0, translationTotal = pages.size, error = null)
         translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
             try {
+                val failedPages = mutableListOf<Int>()
                 for ((index, page) in pages.withIndex()) {
                     translationPause.first { !it }
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    if (page.localPath.isNullOrBlank()) continue
                     try { translatePageInternal(page, targetLanguage) }
                     catch (cancelled: CancellationException) { throw cancelled }
-                    catch (failure: Exception) { _state.value = _state.value.copy(error = "Page ${page.index} translation failed. Retry this page.") }
+                    catch (failure: Exception) {
+                        failedPages += page.index
+                        _state.value = _state.value.copy(error = "Page ${page.index} translation failed. Retry this page.")
+                    }
                     _state.value = _state.value.copy(translationDone = index + 1)
                 }
                 val hasTranslations = _state.value.overlays.values.any { it.isNotEmpty() }
                 _state.value = _state.value.copy(
                     translating = false,
+                    translationPaused = false,
                     translationEnabled = hasTranslations,
-                    error = if (hasTranslations) null else "No readable text was detected in this chapter. Try another page or a clearer source."
+                    error = when {
+                        failedPages.isNotEmpty() -> "${failedPages.size} of ${pages.size} pages could not be translated. Retry pages ${failedPages.take(10).joinToString(", ")}${if (failedPages.size > 10) "…" else ""}. Successful translations are still available."
+                        !hasTranslations -> "No readable text was detected in this chapter. Try another page or a clearer source."
+                        else -> null
+                    }
                 )
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
@@ -391,13 +399,12 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private suspend fun translatePageInternal(page: ChapterPage, targetLanguage: String) {
-        val path = page.localPath ?: return
-        val bitmap = decodeForOcr(path) ?: return
+        val path = page.localPath ?: error("Page ${page.index} is not available locally")
+        val bitmap = decodeForOcr(path) ?: error("Unable to decode page ${page.index}")
         try {
         val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
         if (advancedRegions.isEmpty()) {
-            _state.value = _state.value.copy(error = "No readable text was detected on page " + page.index + ".")
-            return
+            error("No readable text was detected on page ${page.index}")
         }
         val style = currentTranslationStyle()
         val chapterContext = _state.value.overlays.values.flatten().takeLast(12)
@@ -550,14 +557,18 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         style: TranslationStyleProfile
     ): String? {
         if (source.isBlank()) return null
-        return runCatching {
+        return try {
             OrezRoomDatabase.get(app).datasets().exactTranslationScoped(
                 source.trim(),
                 language.trim(),
                 style.memoryKey,
                 translationMemoryScope()
-            )
-        }.getOrNull()?.takeIf { it.isNotBlank() }
+            )?.takeIf { it.isNotBlank() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private suspend fun rememberTranslation(
@@ -567,7 +578,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         style: TranslationStyleProfile
     ) {
         if (source.isBlank() || target.isBlank()) return
-        runCatching {
+        try {
             val scope = translationMemoryScope()
             val identity = listOf(source.trim(), language.trim(), style.memoryKey, scope).joinToString("|")
             val key = java.security.MessageDigest.getInstance("SHA-256")
@@ -583,6 +594,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     scope = scope
                 )
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Translation remains usable when the optional memory cannot be written.
         }
     }
 
