@@ -9,7 +9,22 @@ collect_regression() {
   # These screens contain only generated QA data; source accounts are never used here.
   python3 - <<'PY'
 import base64
+import xml.etree.ElementTree as ET
 from pathlib import Path
+for root_dir in ("app/build/test-results/testDebugUnitTest", "app/build/outputs/androidTest-results"):
+    counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+    for xml in Path(root_dir).rglob("TEST-*.xml"):
+        try:
+            suite = ET.parse(xml).getroot()
+            for key in counts:
+                counts[key] += int(suite.attrib.get(key, 0))
+            for case in suite.iter("testcase"):
+                for failure in list(case):
+                    if failure.tag in ("failure", "error"):
+                        print("MANGALENS_TEST_FAILURE", case.attrib.get("classname"), case.attrib.get("name"), (failure.text or failure.attrib.get("message", ""))[:5000])
+        except ET.ParseError:
+            pass
+    print("MANGALENS_TEST_COUNTS", root_dir, counts)
 for path in sorted(Path("app/build/diagnostics/screenshots").rglob("*.png")):
     if path.stat().st_size <= 1_000_000:
         print("MANGALENS_QA_PNG " + path.name + " " + base64.b64encode(path.read_bytes()).decode("ascii"))

@@ -23,7 +23,7 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class VideoFrameCaptureTest {
-    @Test fun decodedVideoFrameCanBeCapturedAndRecognizedByLiveOcr() = runBlocking {
+    @Test fun decodedVideoFrameCanBeCapturedAndRecognizedByLiveOcr() = runBlocking<Unit> {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext.applicationContext as Application
         val file = File(app.cacheDir, "qa-original-ocr-video.mp4")

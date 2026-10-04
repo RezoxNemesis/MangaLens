@@ -79,9 +79,9 @@ class MangaLetteringTest {
         }
         try {
             val regions = AdvancedTranslationEngine(context).recognizeScriptAware(image)
-            assertEquals(2, regions.size)
-            assertTrue(regions.any { it.source.contains("semester", true) && it.bounds.top > 1900 })
-            assertTrue(regions.any { it.source.contains("graduation", true) && it.bounds.top > 4400 })
+            assertEquals("Tall OCR regions: $regions", 2, regions.size)
+            assertTrue("Tile-boundary OCR regions: $regions", regions.any { it.source.contains("semester", true) && it.bounds.top > 1900 })
+            assertTrue("Bottom OCR regions: $regions", regions.any { it.source.contains("graduation", true) && it.bounds.top > 4400 })
         } finally { image.recycle(); prefs.edit().putString("script", script).putBoolean("high_accuracy", accuracy).commit() }
     }
 
