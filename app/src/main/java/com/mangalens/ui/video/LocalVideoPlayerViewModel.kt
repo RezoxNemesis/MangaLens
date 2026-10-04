@@ -47,10 +47,12 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         .build()
 
     private var uri: Uri? = null
+    private var httpRequestKey: String? = null
 
     fun open(value: Uri) {
         if (uri == value && player.mediaItemCount > 0) return
         uri = value
+        httpRequestKey = null
         player.setMediaItem(MediaItem.fromUri(value))
         player.prepare()
         player.playWhenReady = true
@@ -61,9 +63,7 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         referer: String? = null,
         headers: Map<String, String> = emptyMap()
     ) {
-        if (uri?.toString() == value && player.mediaItemCount > 0) return
         val parsedUri = Uri.parse(value)
-        uri = parsedUri
         val properties = mutableMapOf(
             "User-Agent" to "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
             "Accept" to "*/*"
@@ -75,6 +75,16 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         referer?.takeIf { it.startsWith("http") }?.let { properties["Referer"] = it }
+        val requestKey = buildString {
+            append(value).append('\n')
+            append(referer.orEmpty()).append('\n')
+            properties.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (name, headerValue) ->
+                append(name.lowercase()).append('=').append(headerValue).append('\n')
+            }
+        }
+        if (httpRequestKey == requestKey && player.mediaItemCount > 0) return
+        uri = parsedUri
+        httpRequestKey = requestKey
         httpFactory.setDefaultRequestProperties(properties)
         player.setMediaItem(MediaItem.fromUri(parsedUri))
         player.prepare()
