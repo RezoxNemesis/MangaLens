@@ -55,7 +55,7 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(
-                "Downloads" to "Downloads",
+                "Downloads" to "Media",
                 "Local files" to "Files",
                 "Offline packs" to "Offline"
             ).forEach { (value, label) ->

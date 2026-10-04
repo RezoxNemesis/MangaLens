@@ -25,9 +25,11 @@ class NativeModelTest {
         assertEquals(OrezModelManager.MODEL_BYTES, model.length())
         assertTrue("Native library unavailable on the running ABI", OrezNativeEngine.available)
         val engine = OrezNativeEngine()
+        val peer = OrezNativeEngine()
         val start = android.os.SystemClock.elapsedRealtime()
         try {
             assertTrue("Native model did not load", engine.load(model.absolutePath))
+            OrezNativeEngine().close()
             val prompt = "<|im_start|>system\nYou are a helpful assistant.\n<|im_end|>\n<|im_start|>user\nSay hello in English. A smile: 😀\n<|im_end|>\n<|im_start|>assistant\n"
             val answer = engine.generate(prompt, 32)
             assertTrue("Model generated an empty answer", answer.isNotBlank())
@@ -40,7 +42,12 @@ class NativeModelTest {
             val qa = File(context.getExternalFilesDir(null), "qa").apply { mkdirs() }
             File(qa, "native-model.txt").writeText(report)
             android.util.Log.i("MangaLensNativeQA", report)
+            assertTrue("Second feature could not acquire the shared model", peer.load(model.absolutePath))
+            engine.close()
+            assertEquals("Closed feature must not generate using another feature's lease", "", engine.generate(prompt, 8))
+            assertTrue("Closing one feature unloaded the model still owned by another", peer.generate(prompt, 8).isNotBlank())
         } finally {
+            peer.close()
             engine.close()
             assertEquals("Unloaded model must not generate", "", engine.generate("hello", 8))
         }

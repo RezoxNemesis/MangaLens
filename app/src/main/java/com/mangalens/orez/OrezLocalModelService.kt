@@ -4,6 +4,9 @@ import com.mangalens.oreznative.OrezNativeEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 
 class OrezLocalModelService(private val manager: OrezModelManager) {
@@ -70,5 +73,10 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
 
-    fun close() = engine.close()
+    // A generation holds JNI/engine locks. Screen disposal must not wait for them on Main.
+    fun close() { cleanupScope.launch { engine.close() } }
+
+    companion object {
+        private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
 }

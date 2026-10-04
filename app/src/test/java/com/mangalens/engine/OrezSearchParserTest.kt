@@ -22,4 +22,14 @@ class OrezSearchParserTest {
         assertEquals(1, OrezSearchParser.parse(row.repeat(4)).size)
         assertTrue(OrezSearchParser.parse("x".repeat(1_500_001)).isEmpty())
     }
+    @Test fun wikipediaResultsCannotSupplyAnExternalSourceUrlAndAreDeduplicated() {
+        val row = """{"key":"https://untrusted.example/a b","title":"Background","excerpt":"<b>Text</b> &amp; context"}"""
+        val results = OrezSearchParser.parseWikipedia("{\"pages\":[$row,$row,{}]}")
+        assertEquals(1, results.size)
+        assertTrue(results.single().url.startsWith("https://en.wikipedia.org/wiki/https%3A%2F%2F"))
+        assertFalse(results.single().url.contains(" "))
+        assertEquals("Text & context", results.single().snippet)
+        assertTrue(OrezSearchParser.parseWikipedia("x".repeat(1_500_001)).isEmpty())
+        assertTrue(OrezSearchParser.parseWikipedia("not json").isEmpty())
+    }
 }

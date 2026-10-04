@@ -4,9 +4,25 @@ import com.mangalens.core.router.UrlEngineRouter
 import org.jsoup.Jsoup
 import java.net.URI
 import java.net.URLDecoder
+import java.net.URLEncoder
+import org.json.JSONObject
 
 /** Keeps result snippets paired with their source despite attribute order or multiline HTML. */
 object OrezSearchParser {
+    fun parseWikipedia(json: String, limit: Int = 6): List<OrezSearchResult> = runCatching {
+        if (json.length > 1_500_000) return emptyList()
+        val pages = JSONObject(json).optJSONArray("pages") ?: return emptyList()
+        (0 until minOf(pages.length(), 20)).mapNotNull { index ->
+            val page = pages.optJSONObject(index) ?: return@mapNotNull null
+            val key = page.optString("key").trim().take(500)
+            val title = page.optString("title").trim().take(500)
+            if (key.isBlank() || title.isBlank()) return@mapNotNull null
+            val snippet = Jsoup.parse(page.optString("excerpt").ifBlank { page.optString("description") }).text().take(1000)
+            OrezSearchResult(title, snippet,
+                "https://en.wikipedia.org/wiki/" + URLEncoder.encode(key, "UTF-8").replace("+", "%20"))
+        }.distinctBy { it.url }.take(limit.coerceIn(1, 10))
+    }.getOrDefault(emptyList())
+
     fun parse(html: String, limit: Int = 6): List<OrezSearchResult> {
         if (html.length > 1_500_000) return emptyList()
         return Jsoup.parse(html, "https://html.duckduckgo.com/").select(".result").mapNotNull { result ->
