@@ -256,7 +256,11 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                 if (chunks.trySend(Chunk(samples.copyOf(used), start, epoch)).isFailure)
                     mutable.value = mutable.value.copy(status = "Speech engine is behind playback. Use a smaller model or longer chunks.")
             }
-            val retained = if (overlap) minOf(8000, used) else 0
+            // Keep roughly one second of real speech context between windows.
+            // 500 ms was too easy to cut words at boundaries; a full second is still
+            // bounded enough that low-latency mode does not spend most of its time
+            // retranscribing the same audio.
+            val retained = if (overlap) minOf(16000, used / 3) else 0
             start += (used - retained) * 1000L / 16000
             if (retained > 0) samples.copyInto(samples, 0, used - retained, used)
             used = retained
