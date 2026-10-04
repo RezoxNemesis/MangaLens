@@ -16,6 +16,20 @@ interface MangaSourceAdapter {
 class GenericMangaSourceAdapter : MangaSourceAdapter {
     override val id = "generic-html-v1"
     private val chapterPattern = Regex("(?i)(chapter|chap|episode|ep)[/ _-]*(\\d+(?:\\.\\d+)?)")
+    private fun isLikelyChapterImage(url: String): Boolean {
+        val lower = url.lowercase()
+        return listOf(
+            "google.com/recaptcha",
+            "gstatic.com/recaptcha",
+            "hcaptcha.com/",
+            "challenges.cloudflare.com/",
+            "/cdn-cgi/challenge-platform/",
+            "cf-chl-",
+            "/captcha/",
+            "captcha.php"
+        ).none(lower::contains)
+    }
+
     override fun parse(html: String, sourceUrl: String): SourceContent {
         require(html.length <= 1_500_000) { "Source page is too large for lightweight extraction." }
         require(UrlEngineRouter.isSafeWebUrl(sourceUrl))
@@ -24,7 +38,9 @@ class GenericMangaSourceAdapter : MangaSourceAdapter {
         val pages = readers.select("img").mapNotNull { image ->
             listOf("data-src", "data-original", "data-lazy-src", "src").asSequence()
                 .map { image.absUrl(it).trim().substringBefore('#') }
-                .firstOrNull(UrlEngineRouter::isSafeWebUrl)
+                .firstOrNull { candidate ->
+                    UrlEngineRouter.isSafeWebUrl(candidate) && isLikelyChapterImage(candidate)
+                }
         }.distinct().take(3000)
         val host = URI(sourceUrl).host
         val chapters = document.select("a[href]").asSequence().mapNotNull { link ->
