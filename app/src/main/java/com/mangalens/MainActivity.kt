@@ -88,7 +88,8 @@ class MainActivity : ComponentActivity() {
                     onChapterDetails = viewModel::setChapterDetails,
                     onTranslationPaused = viewModel::pauseTranslation,
                     onTranslationCancelled = viewModel::cancelTranslation,
-                    onImportImages = viewModel::importLocalImages
+                    onImportImages = viewModel::importLocalImages,
+                    onResolvedVideo = viewModel::acceptResolvedVideo
                 )
                 val verificationRequest = verification.request
                 if (
