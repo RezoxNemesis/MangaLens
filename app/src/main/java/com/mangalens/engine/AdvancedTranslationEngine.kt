@@ -247,8 +247,8 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                     } finally { enhanced.recycle() }
                 }
             }
-            best.filter(::isPlausibleRegion)
-                .sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
+            val accepted = if (script == "AUTO") best.filter(::isPlausibleRegion) else best
+            accepted.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
         } finally {
             candidates.forEach { it.close() }
         }
