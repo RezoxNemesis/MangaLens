@@ -40,7 +40,8 @@ fun AdBlockedWebScreen(
     adBlockEnabled: Boolean = true,
     modifier: Modifier = Modifier,
     targetLanguage: String = "hi",
-    onOpenManga: (String) -> Unit = {}
+    onOpenManga: (String) -> Unit = {},
+    onClose: (() -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -201,6 +202,7 @@ fun AdBlockedWebScreen(
                 Text(pageTitle.ifBlank { "Web" }, maxLines = 1, style = MaterialTheme.typography.titleSmall)
                 Text(currentUrl, maxLines = 1, style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    onClose?.let { TextButton(onClick = it) { Text("Close player") } }
                     TextButton(onClick = { webView?.goBack() }, enabled = canGoBack) { Text("Back") }
                     TextButton(onClick = { webView?.goForward() }, enabled = canGoForward) { Text("Forward") }
                     TextButton(onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() }) { Text(if (loadProgress < 100) "Stop" else "Reload") }

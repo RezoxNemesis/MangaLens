@@ -342,7 +342,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         maxWidthPx = region.bounds.width(),
                         imageWidthPx = bitmap.width,
                         imageHeightPx = bitmap.height,
-                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE).getBoolean("preserve_style", true))
+                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE).getBoolean("preserve_style", true))
                     )
                 }
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -432,7 +432,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 maxWidthPx = region.bounds.width(),
                         imageWidthPx = bitmap.width,
                         imageHeightPx = bitmap.height,
-                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE).getBoolean("preserve_style", true))
+                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE).getBoolean("preserve_style", true))
             )
         }
         kotlinx.coroutines.currentCoroutineContext().ensureActive()

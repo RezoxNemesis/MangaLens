@@ -34,7 +34,8 @@ fun NativeVideoPlayer(
     url: String,
     translationEnabled: Boolean,
     modifier: Modifier = Modifier,
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onOpenWeb: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -47,6 +48,11 @@ fun NativeVideoPlayer(
     var liveTranslationEnabled by remember { mutableStateOf(translationEnabled) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
+    if (VideoSourcePolicy.isSourcePage(url)) {
+        com.mangalens.ui.web.AdBlockedWebScreen(url, translationEnabled = false,
+            modifier = modifier, onClose = onBack)
+        return
+    }
     val playerVm: LocalVideoPlayerViewModel = viewModel()
     val player = playerVm.player
     val scope = rememberCoroutineScope()
@@ -170,7 +176,7 @@ fun NativeVideoPlayer(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (hudVisible) 132.dp else 8.dp)
         )
 
-        if (playbackError != null) Surface(Modifier.align(Alignment.Center).padding(24.dp)) { Column(Modifier.padding(16.dp)) { Text(playbackError!!); TextButton(onClick = { playbackError = null; player.prepare(); player.play() }) { Text("Retry") } } }
+        if (playbackError != null) Surface(Modifier.align(Alignment.Center).padding(24.dp)) { Column(Modifier.padding(16.dp)) { Text(playbackError!!); TextButton(onClick = { playbackError = null; player.prepare(); player.play() }) { Text("Retry") }; TextButton(onClick = onOpenWeb) { Text("Open source page") } } }
         downloadStatus?.let { Text(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp), color = MaterialTheme.colorScheme.onSurface) }
         if (controlsLocked) TextButton(onClick = { controlsLocked = false; hudVisible = true }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock controls") }
         if (hudVisible && !controlsLocked) {

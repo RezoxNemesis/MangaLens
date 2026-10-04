@@ -132,7 +132,7 @@ fun MangaLensNavGraph(
                 MangaContinuousReader(title = state.activeChapter?.title ?: "Chapter", chapterId = state.activeChapter?.id ?: "", initialPosition = state.activeChapter?.position ?: 0, initialOffset = state.activeChapter?.scrollOffset ?: 0, onPositionChanged = { id, position, offset -> onReadingPositionChanged(id, position, offset) }, loading = state.loading, pages = state.pages, translated = state.translationEnabled, translating = state.translating, error = state.error, overlays = state.overlays, targetLanguage = state.targetLanguage, onTargetLanguageChanged = onTargetLanguageChanged, translationStyle = state.translationStyle, onTranslationStyleChanged = onTranslationStyleChanged, onBack = { navController.popBackStack() }, onTranslate = onTranslateChapter, onDownload = onDownloadChapter, onMenu = { navController.navigate("settings") }, onRetry = { if (state.translationError) onTranslateChapter() else onIngest() }, onOpenWeb = { navController.navigate("web") }, onLongPressPage = onTranslatePage, modifier = Modifier.fillMaxSize())
             }
             composable("video") {
-                state.videoUrl?.let { NativeVideoPlayer(it, translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize(), onBack = { navController.popBackStack() }) }
+                state.videoUrl?.let { NativeVideoPlayer(it, translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize(), onBack = { navController.popBackStack() }, onOpenWeb = { navController.navigate("web") }) }
             }
             composable("local_video") {
                 LocalVideoGalleryScreen(
