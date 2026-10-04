@@ -6,36 +6,26 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import com.mangalens.download.MangaLensDownloadService
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
-import java.net.URI
 
 @OptIn(UnstableApi::class)
 class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
-    private val httpFactory = DefaultHttpDataSource.Factory()
-        .setAllowCrossProtocolRedirects(true)
-        .setConnectTimeoutMs(15_000)
-        .setReadTimeoutMs(30_000)
-        .setDefaultRequestProperties(
-            mapOf(
-                "User-Agent" to "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
-                "Accept" to "*/*"
-            )
-        )
+    private fun sourceFactory(http: androidx.media3.datasource.DataSource.Factory): DefaultMediaSourceFactory {
+        val cached = CacheDataSource.Factory()
+            .setCache(MangaLensDownloadService.Holder.cache(getApplication()))
+            .setUpstreamDataSourceFactory(http)
+            .setCacheWriteDataSinkFactory(null)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        return DefaultMediaSourceFactory(DefaultDataSource.Factory(getApplication(), cached))
+    }
 
-    private val cachedHttpFactory = CacheDataSource.Factory()
-        .setCache(MangaLensDownloadService.Holder.cache(app))
-        .setUpstreamDataSourceFactory(httpFactory)
-        .setCacheWriteDataSinkFactory(null)
-        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-    private val mediaSourceFactory = DefaultMediaSourceFactory(
-        DefaultDataSource.Factory(app, cachedHttpFactory)
+    private val mediaSourceFactory = sourceFactory(
+        MediaPlaybackDataSource.factory(MediaRequestContext(""))
     )
 
     val player: ExoPlayer = ExoPlayer.Builder(
@@ -64,39 +54,19 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         referer: String? = null,
         headers: Map<String, String> = emptyMap()
     ) {
-        val parsedUri = Uri.parse(value)
-        val properties = mutableMapOf(
-            "User-Agent" to "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
-            "Accept" to "*/*"
-        )
-        val allowed = setOf("accept", "cookie", "origin", "referer", "user-agent")
-        headers.forEach { (name, headerValue) ->
-            if (name.lowercase() in allowed && headerValue.length <= 16_384) {
-                properties[name] = headerValue
-            }
-        }
-        referer?.takeIf { it.startsWith("http") }?.let {
-            properties["Referer"] = it
-            runCatching { URI(it) }.getOrNull()?.let { uri ->
-                val scheme = uri.scheme
-                val host = uri.host
-                if (!scheme.isNullOrBlank() && !host.isNullOrBlank() && properties.keys.none { name -> name.equals("Origin", true) }) {
-                    properties["Origin"] = "$scheme://$host"
-                }
-            }
-        }
         val requestKey = buildString {
             append(value).append('\n')
             append(referer.orEmpty()).append('\n')
-            properties.entries.sortedBy { it.key.lowercase() }.forEach { (name, headerValue) ->
+            headers.entries.sortedBy { it.key.lowercase() }.forEach { (name, headerValue) ->
                 append(name.lowercase()).append('=').append(headerValue).append('\n')
             }
         }
         if (httpRequestKey == requestKey && player.mediaItemCount > 0) return
-        uri = parsedUri
+        uri = Uri.parse(value)
         httpRequestKey = requestKey
-        httpFactory.setDefaultRequestProperties(properties)
-        player.setMediaItem(MediaItem.fromUri(parsedUri))
+        // Each media source owns a snapshot, so old segment requests cannot inherit a new session.
+        val factory = sourceFactory(MediaPlaybackDataSource.factory(MediaRequestContext(value, referer, headers)))
+        player.setMediaSource(factory.createMediaSource(MediaItem.fromUri(value)))
         player.prepare()
         player.playWhenReady = true
     }
