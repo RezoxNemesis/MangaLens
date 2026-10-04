@@ -66,7 +66,7 @@ object TranslationQualityPolicy {
 
     private fun targetScriptLooksPlausible(text: String, targetLanguage: String): Boolean {
         val letters = text.filter(Char::isLetter)
-        if (letters.size < 3) return true
+        if (letters.length < 3) return true
         val language = targetLanguage.lowercase().substringBefore('-')
         val matching = when (language) {
             "hi", "mr", "ne" -> letters.count { it in '\u0900'..'\u097f' }
@@ -77,7 +77,7 @@ object TranslationQualityPolicy {
                 letters.count { it.code in 0x0041..0x024F }
             else -> return true
         }
-        return matching.toFloat() / letters.size >= .42f
+        return matching.toFloat() / letters.length >= .42f
     }
 
     private fun restoreTerminalPunctuation(source: String, translation: String): String {
