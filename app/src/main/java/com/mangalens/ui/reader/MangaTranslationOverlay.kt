@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
@@ -34,14 +35,20 @@ fun MangaTranslationOverlay(
     textScale: Float = 1f,
     modifier: Modifier = Modifier
 ) {
+    val layouts = remember(overlays, textScale) {
+        overlays.map { overlay -> overlay.patch?.let { patch ->
+            com.mangalens.core.translation.MangaLettering.layout(overlay.translatedText, patch.style,
+                patch.bounds.width(), patch.bounds.height(), textScale)
+        } }
+    }
     androidx.compose.foundation.Canvas(modifier) {
-        overlays.forEach { overlay ->
-            val patch = overlay.patch ?: return@forEach
+        overlays.forEachIndexed { index, overlay ->
+            val patch = overlay.patch ?: return@forEachIndexed
             val scale = size.width / overlay.imageWidthPx.coerceAtLeast(1)
             drawContext.canvas.nativeCanvas.apply {
                 save()
                 scale(scale, scale)
-                com.mangalens.core.translation.MangaLettering.draw(this, patch, overlay.translatedText, textScale)
+                com.mangalens.core.translation.MangaLettering.draw(this, patch, overlay.translatedText, textScale, layouts[index])
                 restore()
             }
         }

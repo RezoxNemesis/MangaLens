@@ -55,6 +55,8 @@ fun NativeVideoPlayer(
     }
     val playerVm: LocalVideoPlayerViewModel = viewModel()
     val player = playerVm.player
+    var playing by remember { mutableStateOf(player.isPlaying) }
+    var playbackHeight by remember { mutableIntStateOf(player.videoSize.height) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(url) { playbackError = null; playerVm.openHttp(url) }
     LaunchedEffect(translationEnabled) { liveTranslationEnabled = translationEnabled }
@@ -82,6 +84,8 @@ fun NativeVideoPlayer(
 
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) { playbackHeight = videoSize.height }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 playbackError = when (error.errorCode) {
                     androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "The server rejected this stream. Reopen the source page to refresh its link or sign-in session."
@@ -184,14 +188,14 @@ fun NativeVideoPlayer(
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = onBack) { Text("Back") }
                     Text("Stream", style = MaterialTheme.typography.titleMedium)
-                    Text(player.videoSize.height.takeIf { it > 0 }?.let { "${it}p" } ?: "Auto", style = MaterialTheme.typography.titleMedium)
+                    Text(playbackHeight.takeIf { it > 0 }?.let { "${it}p" } ?: "Auto", style = MaterialTheme.typography.titleMedium)
                 }
                 Spacer(Modifier.weight(1f))
                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { player.seekBack() }) { Text("◄◄ -10s") }
                         FilledTonalButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
-                            Text(if (player.isPlaying) "⏸️" else "▶️")
+                            Text(if (playing) "⏸️" else "▶️")
                         }
                         TextButton(onClick = { player.seekForward() }) { Text("10s ►►") }
                     }

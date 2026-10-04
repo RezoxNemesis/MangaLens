@@ -118,9 +118,9 @@ object MangaLettering {
         return build(lo)
     }
 
-    fun draw(canvas: Canvas, patch: Patch, text: String, textScale: Float = 1f) {
+    fun draw(canvas: Canvas, patch: Patch, text: String, textScale: Float = 1f, cachedLayout: StaticLayout? = null) {
         canvas.drawBitmap(patch.background, patch.bounds.left.toFloat(), patch.bounds.top.toFloat(), null)
-        val layout = layout(text, patch.style, patch.bounds.width(), patch.bounds.height(), textScale)
+        val layout = cachedLayout ?: layout(text, patch.style, patch.bounds.width(), patch.bounds.height(), textScale)
         canvas.save()
         canvas.clipRect(patch.bounds)
         canvas.translate(patch.bounds.left.toFloat(), patch.bounds.top + (patch.bounds.height() - layout.height) / 2f)
