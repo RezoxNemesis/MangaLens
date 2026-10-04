@@ -472,39 +472,19 @@ jobs:
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
           python .github/scripts/verify-debug-apks.py
-      - name: Detect PR emulator acceleration
-        id: pr_emulator_accel
+      - name: PR safety gate without emulator
         shell: bash
         run: |
           set -euo pipefail
-          if [ -e /dev/kvm ]; then
-            sudo chmod 666 /dev/kvm
-            if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
-              echo "available=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "available=false" >> "$GITHUB_OUTPUT"
-              echo "::warning::KVM is not usable; falling back to software emulation."
-            fi
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No /dev/kvm on this runner; falling back to software emulation."
-          fi
-      - name: Launch PR APK in Android emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          disk-size: 4096M
-          ram-size: 3072M
-          heap-size: 512M
-          emulator-boot-timeout: 600
-          disable-linux-hw-accel: ${{ steps.pr_emulator_accel.outputs.available != 'true' }}
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: |
-            bash .github/scripts/mangalens-startup-smoke.sh
-            bash .github/scripts/mangalens-device-regression.sh
+          # User explicitly requested that PR validation not launch an emulator.
+          # The preceding hard gates already ran JVM tests, lint, full APK assembly,
+          # AndroidTest compilation, archive/native-library checks and signature verification.
+          # Keep those checks blocking; skip only runtime emulator execution.
+          test -s app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          test -s app/build/outputs/apk/debug/app-x86_64-debug.apk
+          test -s app/build/outputs/apk/debug/app-arm64-v8a-debug.apk.sha256
+          test -s app/build/outputs/apk/debug/app-x86_64-debug.apk.sha256
+          echo "PR safety gate passed; emulator runtime validation intentionally skipped."
       - name: Upload PR startup diagnostics
         if: always()
         continue-on-error: true
