@@ -20,10 +20,15 @@ import com.mangalens.orez.*
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 
 private val prompts=listOf("Explain auto-scroll","How does Hinglish translation work?","Why is my video not playing?","Create a study plan","What is latest online?")
 
-class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
+class OrezAiViewModel @JvmOverloads constructor(app:android.app.Application,
+    private val answerRequest: (suspend (String, OrezContext) -> OrezBrainResponse)? = null
+):AndroidViewModel(app){
     private val db=OrezRoomDatabase.get(app)
     private val dao=db.messages()
     private val brain=OrezBrain(db,app){q->OrezLiveSearchConnector().search(q,6)}
@@ -31,11 +36,12 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
     val modelState get() = modelManager.state
     val messages=dao.observe().stateIn(viewModelScope,SharingStarted.Eagerly,emptyList())
     var typing by mutableStateOf(false);private set
+    private var replyJob: Job? = null
     init{modelManager.refresh();viewModelScope.launch { androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow("orez-model").collect { modelManager.refresh() } };viewModelScope.launch{if(dao.count()==0)dao.insert(OrezMessageEntity(role="OREZ",text="Namaste! Main OREZ hoon. Main local knowledge, reasoning, OCR/translation workflows aur current web information ko coordinate kar sakta hoon."))}}
     fun sendMessage(query:String,onRoute:(String,OrezRoute)->Unit={_,_->}){
         val input=query.trim();if(input.isBlank()||typing)return
         typing=true
-        viewModelScope.launch{
+        replyJob = viewModelScope.launch{
             try{
                 dao.insert(OrezMessageEntity(role="YOU",text=input))
                 val command=OrezCommandRouter().route(input)
@@ -47,19 +53,21 @@ class OrezAiViewModel(app:android.app.Application):AndroidViewModel(app){
                 val targetLanguage = getApplication<android.app.Application>()
                     .getSharedPreferences("mangalens_preferences", android.content.Context.MODE_PRIVATE)
                     .getString("translation_target", "hi") ?: "hi"
-                val answer=brain.answer(input,OrezContext(recentMessages=recent,targetLanguage=targetLanguage))
+                val answer = (answerRequest ?: brain::answer)(input, OrezContext(recentMessages=recent,targetLanguage=targetLanguage))
+                currentCoroutineContext().ensureActive()
                 val sources = answer.sources.distinct().filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl).take(6)
                 dao.insert(OrezMessageEntity(role="OREZ",text=answer.text + if (sources.isEmpty()) "" else "\n\nSources:\n" + sources.joinToString("\n")))
             }catch(t:Throwable){
                 if(t is kotlinx.coroutines.CancellationException) throw t
                 dao.insert(OrezMessageEntity(role="OREZ",text="I hit a recoverable error: "+(t.message?:"unknown error")+". Please try again."))
-            }finally{typing=false; runCatching { dao.trimHistory() }}
+            }finally{typing=false; replyJob=null; runCatching { dao.trimHistory() }}
         }
     }
     fun ask(query:String,onRoute:(String,OrezRoute)->Unit)=sendMessage(query,onRoute)
+    fun stopReply(){ replyJob?.cancel() }
     fun downloadLocalModel(){ modelManager.enqueue() }
     fun refreshLocalModel(){ modelManager.refresh() }
-    override fun onCleared(){ brain.close(); super.onCleared() }
+    override fun onCleared(){ stopReply(); brain.close(); super.onCleared() }
 }
 
 @Composable
@@ -113,7 +121,11 @@ fun OrezAiScreen(vm: OrezAiViewModel = viewModel(), library: List<com.mangalens.
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(input, { input = it }, Modifier.weight(1f), maxLines = 4, placeholder = { Text("Ask Orez anything…") }, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-            Button({ val query = input; input = ""; vm.sendMessage(query, onRoute) }, enabled = input.isNotBlank() && !vm.typing, contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Send") }
+            if (vm.typing) {
+                Button(vm::stopReply, contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Stop") }
+            } else {
+                Button({ val query = input; input = ""; vm.sendMessage(query, onRoute) }, enabled = input.isNotBlank(), contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Send") }
+            }
         }
     }
 }
