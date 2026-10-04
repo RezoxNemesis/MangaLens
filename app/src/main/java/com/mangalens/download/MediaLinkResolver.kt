@@ -70,7 +70,9 @@ class MediaLinkResolver(
                 ?: Regex("""(?is)<title[^>]*>(.*?)</title>""").find(html)?.groupValues?.getOrNull(1)?.let(::stripTags)
 
             val candidates = linkedSetOf<String>()
-            Regex("""(?is)<meta[^>]+property=["']og:(?:video|image)["'][^>]+content=["']([^"']+)""")
+            Regex("""(?is)<meta[^>]+property=["']og:(?:video(?::(?:url|secure_url))?|image)["'][^>]+content=["']([^"']+)""")
+                .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
+            Regex("""(?is)<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:(?:video(?::(?:url|secure_url))?|image)["']""")
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
             Regex("""(?is)<(?:video|source|img)[^>]+(?:src|data-src|data-original|poster)=["']([^"']+)""")
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }

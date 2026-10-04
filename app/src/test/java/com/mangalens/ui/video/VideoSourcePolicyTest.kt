@@ -14,4 +14,17 @@ class VideoSourcePolicyTest {
         assertFalse(VideoSourcePolicy.isSourcePage("https://example.com/manifest.m3u8?x=1"))
         assertFalse(VideoSourcePolicy.isSourcePage("https://cdn.example.com/token/123?signature=abc"))
     }
+
+    @Test fun webpageMediaDiscoveryPrefersManifestOverSegments() {
+        val preferred = VideoSourcePolicy.preferredMediaUrl(
+            listOf(
+                "https://cdn.example.com/segment-0001.ts?token=abc",
+                "https://cdn.example.com/master.m3u8?token=abc",
+                "https://cdn.example.com/movie-720p.mp4?token=abc"
+            )
+        )
+        assertEquals("https://cdn.example.com/master.m3u8?token=abc", preferred)
+        assertTrue(VideoSourcePolicy.isLikelyMediaRequest(preferred!!))
+        assertNull(VideoSourcePolicy.preferredMediaUrl(listOf("https://example.com/watch/title")))
+    }
 }
