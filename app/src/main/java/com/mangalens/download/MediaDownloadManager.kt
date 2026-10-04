@@ -14,7 +14,20 @@ import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.util.UUID
 
-class MediaDownloadManager(private val context: Context) {
+internal interface AdaptiveDownloadCommands {
+    fun add(id: String, url: String, mime: String)
+    fun pause(id: String)
+    fun resume(id: String)
+    fun remove(id: String)
+}
+
+class MediaDownloadManager internal constructor(private val context: Context, private val adaptive: AdaptiveDownloadCommands) {
+    constructor(context: Context) : this(context, object : AdaptiveDownloadCommands {
+        override fun add(id: String, url: String, mime: String) = MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(url), mime)
+        override fun pause(id: String) = MangaLensDownloadService.pauseAdaptive(context, id)
+        override fun resume(id: String) = MangaLensDownloadService.resumeAdaptive(context, id)
+        override fun remove(id: String) = MangaLensDownloadService.remove(context, id)
+    })
     private val resolver = MediaLinkResolver()
     private val dao = DownloadDatabase.get(context).downloads()
     val downloads: Flow<List<DownloadEntity>> = dao.observe()
@@ -46,7 +59,7 @@ class MediaDownloadManager(private val context: Context) {
         val item = dao.get(id) ?: return@withContext
         if (dao.stopIfActive(id, DownloadState.PAUSED, null) == 0) return@withContext
         if (item.isAdaptive) {
-            MangaLensDownloadService.pauseAdaptive(context, id)
+            adaptive.pause(id)
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         }
@@ -59,9 +72,9 @@ class MediaDownloadManager(private val context: Context) {
             if (dao.resumeIfStopped(id, DownloadState.DOWNLOADING) == 0) return@withContext
             if (item.state == DownloadState.FAILED) {
                 // Setting a stop reason alone does not enqueue a failed Media3 download again.
-                MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(item.sourceUrl), item.mimeType)
+                adaptive.add(id, item.sourceUrl, item.mimeType)
             } else {
-                MangaLensDownloadService.resumeAdaptive(context, id)
+                adaptive.resume(id)
             }
         } else {
             if (dao.resumeIfStopped(id, DownloadState.QUEUED) == 0) return@withContext
@@ -72,7 +85,7 @@ class MediaDownloadManager(private val context: Context) {
     suspend fun cancel(id: String) = withContext(Dispatchers.IO) {
         dao.stopIfActive(id, DownloadState.CANCELLED, "Cancelled by user")
         WorkManager.getInstance(context).cancelUniqueWork(workName(id))
-        MangaLensDownloadService.remove(context, id)
+        adaptive.remove(id)
     }
 
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
@@ -82,7 +95,7 @@ class MediaDownloadManager(private val context: Context) {
 
     private fun start(id: String, url: String, title: String, mime: String) {
         if (isAdaptiveMediaSource(url, mime)) {
-            MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(url), mime)
+            adaptive.add(id, url, mime)
             return
         }
         val request = OneTimeWorkRequestBuilder<MediaDownloadWorker>()

@@ -9,6 +9,8 @@ import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.DataSource
+import java.util.concurrent.Executor
 import androidx.media3.exoplayer.offline.*
 import androidx.media3.exoplayer.scheduler.Scheduler
 import androidx.media3.exoplayer.offline.Download
@@ -123,18 +125,25 @@ class MangaLensDownloadService : DownloadService(
         fun manager(context: Context): DownloadManager {
             manager?.let { return it }
             val app = context.applicationContext
-            val (provider, cache) = storage(app)
             val dataSource = DefaultHttpDataSource.Factory()
                 .setUserAgent("MangaLens/13")
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(20_000)
                 .setReadTimeoutMs(60_000)
+            return createManager(app, dataSource, Executors.newSingleThreadExecutor()).also { manager = it }
+        }
+
+        // Shared construction lets instrumentation exercise real Media3 callbacks with a
+        // fixture-only HTTPS client. Production always uses the system-trusted factory above.
+        internal fun createManager(context: Context, dataSource: DataSource.Factory, executor: Executor): DownloadManager {
+            val app = context.applicationContext
+            val (provider, cache) = storage(app)
             val created = DownloadManager(
                 app,
                 provider,
                 cache,
                 dataSource,
-                Executors.newSingleThreadExecutor()
+                executor
             )
             created.maxParallelDownloads = 1
 
@@ -164,7 +173,6 @@ class MangaLensDownloadService : DownloadService(
                     } }
                 }
             })
-            manager = created
             return created
         }
     }
