@@ -31,6 +31,15 @@ class MediaLinkResolverTest {
         assertEquals("My local fixture", result.title)
     }
 
+    @Test fun openGraphVideoWorksWhenContentPrecedesProperty() = fixture { server, resolver ->
+        server.enqueue(MockResponse().setBody(
+            "<meta content='/secure/master.m3u8?token=abc' property='og:video:secure_url'>"
+        ))
+        val result = resolver.resolve(server.url("/watch").toString())!!
+        assertEquals(server.url("/secure/master.m3u8?token=abc").toString(), result.url)
+        assertEquals("application/x-mpegURL", result.mimeType)
+    }
+
     @Test fun shortChunkedPageSupportsImagesAndAdaptiveStreams() = fixture { server, resolver ->
         server.enqueue(MockResponse().setChunkedBody("<img src='/cover.png'><source src='/stream.m3u8'>", 7))
         val result = resolver.resolve(server.url("/chapter").toString())!!
