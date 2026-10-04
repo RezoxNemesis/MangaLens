@@ -37,13 +37,34 @@ class MangaChapterScraper(
                 web.webViewClient = object : AdBlockWebViewClient(adBlock) {
                     override fun onPageFinished(view: WebView?, pageUrl: String?) {
                         view?.evaluateJavascript(
-                            com.mangalens.core.acquisition.ChapterDiscoveryScript.script()
+                            """
+                            (function(){
+                              const out=[], seen=new Set();
+                              const add=(value)=>{
+                                if(!value || value.startsWith('data:')) return;
+                                try {
+                                  const u=new URL(value, location.href).href.split('#')[0];
+                                  if(!seen.has(u)){seen.add(u);out.push(u);}
+                                } catch(e){}
+                              };
+                              document.querySelectorAll('img').forEach(img=>{
+                                ['currentSrc','src','data-src','data-original','data-lazy-src','data-url'].forEach(k=>{
+                                  const value=k==='currentSrc'?img.currentSrc:img.getAttribute(k);
+                                  add(value);
+                                });
+                                [img.getAttribute('srcset'),img.getAttribute('data-srcset')].forEach(set=>{
+                                  (set||'').split(',').forEach(part=>add(part.trim().split(/\s+/)[0]));
+                                });
+                              });
+                              return JSON.stringify(out);
+                            })();
+                            """.trimIndent()
                         ) { raw ->
-                            val decoded = runCatching { java.net.URLDecoder.decode(org.json.JSONTokener(raw).nextValue() as String, "UTF-8") }.getOrDefault("")
+                            val decoded = runCatching { org.json.JSONTokener(raw).nextValue() as String }.getOrDefault("")
                             val urls = Regex("https?://[^\\s\"]+")
                                 .findAll(decoded)
                                 .map { it.value }
-                                .filter { looksLikeImage(it) && com.mangalens.core.acquisition.ChapterImagePolicy.accepts(it) }
+                                .filter(::looksLikeImage)
                                 .toList()
                             finish(urls)
                         }
