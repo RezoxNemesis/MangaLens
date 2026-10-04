@@ -10,7 +10,7 @@ See [the engineering handoff](docs/ENGINEERING_HANDOFF.md) for verified builds, 
 - Open a manga/chapter URL; supported acquisition paths discover catalogs/images. Unsupported or verification-heavy pages can open in Web mode for ordinary user-controlled login/verification.
 - Translate pages or chapters with bundled script-aware OCR and on-device language models. Missing translation models require an initial download. Successful chapter pages remain available if another page fails, and Reader can retry translation.
 - Download accessible direct or adaptive media. Completed HLS/DASH data uses durable app files storage and the in-app player reads that cache. Protected/DRM media is not supported.
-- Use OREZ with optional local generation and public web retrieval. When general search returns no usable results, a Wikipedia encyclopedia fallback provides attributed background excerpts and original page links; it does not verify current news, prices or schedules.
+- Use OREZ with optional local generation and public web retrieval. While a reply is running, Stop cancels it and returns the chat to Send. When general search returns no usable results, a Wikipedia encyclopedia fallback provides attributed background excerpts and original page links; it does not verify current news, prices or schedules.
 
 No mandatory paid API, search service, OCR service or translation subscription is used. Source compatibility, network availability and provider restrictions still apply.
 
@@ -54,7 +54,7 @@ Test evidence covers bounded/resumable transfers, source/routing fixtures, real 
 
 Chapter images/manifests, bookmarks/progress, downloads and model resources are app-managed persistent data. Settings' temporary-cache cleanup retains these. Adaptive media uses `files/media_download_cache` with explicit removal rather than an evicting streaming cache.
 
-OREZ features share one native model with feature ownership tracking. Closing an unused or separate feature does not release another feature's model; model cleanup runs off the UI thread. Native token generation remains bounded and a cancelled coroutine does not publish an answer, but native generation is not yet cooperatively interrupted mid-decode.
+OREZ features share one native model with feature ownership tracking. Closing an unused or separate feature does not release another feature's model; model cleanup runs off the UI thread. Cancellation is scoped to each generation request and aborts CPU decode through the pinned native library callback. Cancelled partial output is discarded; other model owners can continue generating. Initial model loading and some context allocation/cleanup remain synchronous background operations.
 
 The model URL is immutable and its published size/SHA-256 are checked by the model-provenance workflow. Downloading/importing resource packs does not train or change model weights.
 
