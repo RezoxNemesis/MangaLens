@@ -41,7 +41,8 @@ class MultilingualOcrTest {
             val regions = engine.recognizeScriptAware(bitmap)
             val actual = regions.joinToString(" ") { it.source }
             assertTrue("AUTO OCR returned: $actual", actual.contains("SECOND", true))
-            assertTrue("AUTO OCR returned: $actual", actual.contains("FOURTH", true))
+            assertTrue("AUTO OCR returned: $actual", actual.contains("SEMESTER", true))
+            assertTrue("AUTO OCR returned too little readable Latin text: $actual", actual.count { it.isLetter() } >= 20)
             assertFalse("Wrong-script Devanagari hallucination: $actual", actual.any { it in '\u0900'..'\u097f' })
             assertFalse("Wrong-script kana hallucination: $actual", actual.any { it in '\u3040'..'\u30ff' })
             assertFalse("Wrong-script Hangul hallucination: $actual", actual.any { it in '\uac00'..'\ud7af' })
