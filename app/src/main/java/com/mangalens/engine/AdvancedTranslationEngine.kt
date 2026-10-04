@@ -170,7 +170,8 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                     } finally { enhanced.recycle() }
                 }
             }
-            best.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
+            best.filter(::isPlausibleRegion)
+                .sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
         } finally {
             candidates.forEach { it.close() }
         }
@@ -180,7 +181,37 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         val letters = region.source.count(Char::isLetterOrDigit)
         val confidence = region.recognitionConfidence.takeIf { it > 0f } ?: .65f
         val garbage = region.source.count { !it.isLetterOrDigit() && !it.isWhitespace() && it !in ".,!?…:;\"'‘’“”()[]-—、。！？「」" }
-        letters.coerceAtMost(240) * confidence.toDouble() - garbage * 2.0
+        val implausible = if (isPlausibleRegion(region)) 0.0 else 12.0
+        letters.coerceAtMost(240) * confidence.toDouble() - garbage * 2.0 - implausible
+    }
+
+    /**
+     * ML Kit occasionally interprets decorative borders/runes as a short Latin word.
+     * Keep real dialogue permissive, but reject low-confidence garbage and narrow vertical
+     * Latin pseudo-words that produce floating replacement labels over character artwork.
+     */
+    private fun isPlausibleRegion(region: TranslationRegion): Boolean {
+        val value = region.source.trim()
+        if (value.isBlank()) return false
+        val letters = value.count(Char::isLetterOrDigit)
+        if (letters == 0) return false
+        val confidence = region.recognitionConfidence
+        if (confidence > 0f && confidence < .30f) return false
+        if (region.textSize < 6f) return false
+
+        val acceptedPunctuation = ".,!?…:;\"'‘’“”()[]-—、。！？「」~"
+        val readable = value.count { it.isLetterOrDigit() || it.isWhitespace() || it in acceptedPunctuation }
+        if (readable < value.length * .70f) return false
+
+        val singleToken = value.none(Char::isWhitespace)
+        val verticalLatinPseudoWord =
+            region.sourceLanguage == LocalSourceLanguage.ENGLISH &&
+                singleToken &&
+                value.length >= 4 &&
+                region.bounds.height() > region.bounds.width() * 1.20f
+        if (verticalLatinPseudoWord) return false
+
+        return !(value.length <= 2 && confidence in .0001f..0.54f)
     }
 
     private fun dominantScript(regions: List<TranslationRegion>): String = when (
