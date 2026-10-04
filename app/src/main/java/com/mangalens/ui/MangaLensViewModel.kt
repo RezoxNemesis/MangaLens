@@ -336,10 +336,18 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                             val fallback = chapterScraper.extract(target)
                             if (fallback.isNotEmpty()) repository.persistDiscoveredPages(fallback, target)
                         }
-                        if (result.imageUrls.isEmpty() && result.videoStreamUrls.isEmpty() && repository.pages.value.isEmpty()) {
-                            captchaBridge.requestVerification(target, target.substringAfter("//").substringBefore("/").substringBefore(":").ifBlank { "unknown" }, "Security verification or inaccessible chapter detected.")
-                        }
-                        _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false, error = result.navigationError)
+                        val chapterError = if (repository.pages.value.isEmpty()) {
+                            result.navigationError
+                                ?: "No chapter pages were detected automatically. Open the source in Web only if the site itself requires sign-in or verification, then retry."
+                        } else null
+                        // Empty extraction is not proof of a challenge. Do not force an app-side
+                        // verification dialog for ordinary chapters. Real site login/CAPTCHA remains
+                        // available in Web mode when the source itself requires it.
+                        _state.value = _state.value.copy(
+                            mode = ContentType.IMAGE_CHAPTER,
+                            loading = false,
+                            error = chapterError
+                        )
                     }
                     ContentType.GENERIC_WEB -> _state.value = _state.value.copy(mode = ContentType.GENERIC_WEB, loading = false)
                 }
@@ -350,7 +358,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         _state.value = _state.value.copy(pages = availablePages, loading = false)
                         translateChapter()
                     } else if (_state.value.mode == ContentType.IMAGE_CHAPTER) {
-                        _state.value = _state.value.copy(error = "No chapter images could be loaded. Check the URL or complete the site's verification, then retry.")
+                        _state.value = _state.value.copy(error = "No chapter images could be loaded. Check the URL, or open the source in Web if that site itself requires sign-in or verification.")
                     }
                 }
             } catch (t: kotlinx.coroutines.CancellationException) {
@@ -474,12 +482,18 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 ),
                 translatedText = recallTranslation(region.source, targetLanguage, style) ?: run {
                     val draft = translator.translate(region.source, targetLanguage)
-                    orezRefiner.refine(
+                    val refined = orezRefiner.refine(
                         region.source,
                         draft,
                         targetLanguage,
                         style,
                         chapterContext = chapterContext,
+                    )
+                    com.mangalens.core.translation.TranslationQualityPolicy.choose(
+                        source = region.source,
+                        draft = draft,
+                        refined = refined,
+                        targetLanguage = targetLanguage
                     ).also { rememberTranslation(region.source, it, targetLanguage, style) }
                 },
                 textColorArgb = region.textColor,
