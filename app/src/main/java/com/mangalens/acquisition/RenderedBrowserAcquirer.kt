@@ -78,7 +78,11 @@ class RenderedBrowserAcquirer(
             }
 
             handler.postDelayed({
-                val fallbackImages = discoveredDomUrls.toList()
+                val fallbackImages = if (discoveredDomUrls.isNotEmpty()) {
+                    discoveredDomUrls.toList()
+                } else {
+                    networkImages.filter { isImageCandidate(it) }
+                }
 
                 finishAcquisition(
                     RenderedPageSet(
@@ -149,10 +153,36 @@ class RenderedBrowserAcquirer(
                 }
 
                 override fun onPageFinished(view: WebView?, loadedUrl: String?) {
-                    val extractionJs = com.mangalens.core.acquisition.ChapterDiscoveryScript.script()
-                    var observations = 0
-                    fun observe() {
-                        if (finished.get()) return
+                    val extractionJs = """
+                        (function() {
+                            window.scrollTo(0, document.body.scrollHeight);
+
+                            let urls = [];
+                            let seen = new Set();
+
+                            function addUrl(src) {
+                                if (!src || src.startsWith('data:')) return;
+                                try {
+                                    let resolved = new URL(src, location.href).href.split('#')[0];
+                                    if (!seen.has(resolved)) {
+                                        seen.add(resolved);
+                                        urls.push(resolved);
+                                    }
+                                } catch(e) {}
+                            }
+
+                            document.querySelectorAll('img, source, video, [data-src], [data-original], [data-lazy-src]').forEach(el => {
+                                addUrl(el.src);
+                                addUrl(el.currentSrc);
+                                addUrl(el.getAttribute('data-src'));
+                                addUrl(el.getAttribute('data-original'));
+                                addUrl(el.getAttribute('data-lazy-src'));
+                            });
+
+                            return encodeURIComponent(JSON.stringify(urls));
+                        })();
+                    """.trimIndent()
+
                     handler.postDelayed({
                         webView.evaluateJavascript(extractionJs) { rawResult ->
                             if (finished.get()) return@evaluateJavascript
@@ -169,23 +199,32 @@ class RenderedBrowserAcquirer(
                             for (candidate in parsedUrls) {
                                 if (isVideoCandidate(candidate)) {
                                     if (networkVideos.size < MAX_VIDEO_URLS) networkVideos.add(candidate)
-                                } else if (isImageCandidate(candidate) && com.mangalens.core.acquisition.ChapterImagePolicy.accepts(candidate) && discoveredDomUrls.size < MAX_IMAGE_URLS) {
+                                } else if (isImageCandidate(candidate) && discoveredDomUrls.size < MAX_IMAGE_URLS) {
                                     discoveredDomUrls.add(candidate)
                                 }
                             }
 
-                            val finalImages = discoveredDomUrls.toList()
-                            observations++
-                            if (observations < 6 && networkVideos.isEmpty()) {
-                                observe()
-                            } else if (finalImages.isNotEmpty() || networkVideos.isNotEmpty()) {
-                                finishAcquisition(RenderedPageSet(loadedUrl ?: url, finalImages,
-                                    networkVideos.toList(), networkImages.toList(), observations, 200, null))
+                            val finalImages = if (discoveredDomUrls.isNotEmpty()) {
+                                discoveredDomUrls.toList()
+                            } else {
+                                networkImages.filter { isImageCandidate(it) }
+                            }
+
+                            if (finalImages.isNotEmpty() || networkVideos.isNotEmpty()) {
+                                finishAcquisition(
+                                    RenderedPageSet(
+                                        finalUrl = loadedUrl ?: url,
+                                        imageUrls = finalImages,
+                                        videoStreamUrls = networkVideos.toList(),
+                                        resourceImageUrls = networkImages.toList(),
+                                        observations = 1,
+                                        mainFrameHttpStatus = 200,
+                                        navigationError = null
+                                    )
+                                )
                             }
                         }
-                    }, 1500L)
-                    }
-                    observe()
+                    }, 2500L)
                 }
             }
 
