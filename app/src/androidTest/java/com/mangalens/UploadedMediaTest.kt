@@ -1,9 +1,14 @@
 package com.mangalens
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.net.Uri
+import android.view.LayoutInflater
+import android.view.TextureView
 import androidx.lifecycle.ViewModelStore
 import androidx.media3.common.Player
+import androidx.media3.ui.PlayerView
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mangalens.download.ResumableMediaTransfer
@@ -45,6 +50,8 @@ class UploadedMediaTest {
         val downloaded = File(app.cacheDir, "sample-download.mp4")
         val validator = File(app.cacheDir, "sample-download.validator")
         val store = ViewModelStore()
+        var scenario: ActivityScenario<MainActivity>? = null
+        var playerView: PlayerView? = null
         lateinit var vm: LocalVideoPlayerViewModel
         try {
             ResumableMediaTransfer(client).download(server.url("/sample.mp4").toString(), downloaded, validator)
@@ -58,8 +65,12 @@ class UploadedMediaTest {
             }
             assertEquals(digest(source), digest(downloaded))
             server.shutdown() // Playback must use only the downloaded file.
-            instrumentation.runOnMainSync {
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            scenario!!.onActivity { activity ->
+                playerView = LayoutInflater.from(activity).inflate(R.layout.ocr_player_view, null) as PlayerView
+                activity.setContentView(playerView)
                 vm = LocalVideoPlayerViewModel(app); store.put("uploaded_sample", vm)
+                vm.bind(playerView!!)
                 vm.open(Uri.fromFile(downloaded))
             }
             withTimeout(60000) {
@@ -76,9 +87,33 @@ class UploadedMediaTest {
             instrumentation.runOnMainSync { duration = vm.player.duration; vm.player.seekTo(12000); vm.player.play() }
             delay(1500)
             instrumentation.runOnMainSync { assertTrue("Playback did not advance", vm.player.currentPosition > 12000); assertNull(vm.player.playerError) }
-            File(app.filesDir, "sample-download-playback.txt").writeText("SHA256=${digest(source)}\nbytes=${downloaded.length()}\ndurationMs=$duration\nofflinePlayback=true\n")
+            var frame: Bitmap? = null
+            withTimeout(30_000) {
+                while (frame == null) {
+                    instrumentation.runOnMainSync {
+                        assertNull(vm.player.playerError)
+                        val texture = playerView!!.videoSurfaceView as TextureView
+                        if (texture.isAvailable && vm.player.videoSize.width == 1280) {
+                            val image = texture.getBitmap(640, 288)
+                            if (image != null) {
+                                val pixels = (0 until 288 step 8).flatMap { y -> (0 until 640 step 8).map { x -> image.getPixel(x, y) } }
+                                val values = pixels.map { android.graphics.Color.red(it) + android.graphics.Color.green(it) + android.graphics.Color.blue(it) }
+                                if (values.max() - values.min() > 60) frame = image else image.recycle()
+                            }
+                        }
+                    }
+                    if (frame == null) delay(100)
+                }
+            }
+            try {
+                File(app.getExternalFilesDir(null), "sample-native-frame.png").outputStream().use {
+                    frame!!.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            } finally { frame?.recycle() }
+            File(app.filesDir, "sample-download-playback.txt").writeText("SHA256=${digest(source)}\nbytes=${downloaded.length()}\ndurationMs=$duration\nofflinePlayback=true\nrenderedVideoFrame=true\n")
         } finally {
-            instrumentation.runOnMainSync { store.clear() }
+            instrumentation.runOnMainSync { playerView?.player = null; store.clear() }
+            scenario?.close()
             runCatching { server.shutdown() }
             client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown()
             downloaded.delete(); validator.delete()

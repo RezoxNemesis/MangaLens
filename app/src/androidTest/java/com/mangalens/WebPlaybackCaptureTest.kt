@@ -2,17 +2,19 @@ package com.mangalens
 
 import android.content.Intent
 import android.net.Uri
-import android.media.MediaPlayer
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.*
 import com.mangalens.ui.web.WebAudioCaptureService
+import com.mangalens.ui.video.VideoSpeechEngine
+import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.io.File
 
 /** Real Android consent + own-UID playback capture; optional supplied sample stays local. */
 @RunWith(AndroidJUnit4::class)
@@ -25,9 +27,19 @@ class WebPlaybackCaptureTest {
         val device = UiDevice.getInstance(instrumentation)
         device.executeShellCommand("pm grant com.mangalens android.permission.RECORD_AUDIO")
         val pcm = CountDownLatch(1)
+        val model = InstrumentationRegistry.getArguments().getString("whisper_model_path")
+        val speechScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val speech = model?.let { VideoSpeechEngine(app, speechScope) }
+        if (speech != null) {
+            runBlocking { speech.importModel(Uri.fromFile(File(model!!))) }
+            assertTrue(speech.state.value.status, speech.state.value.ready)
+            speech.setEnabled(true)
+        }
+        WebAudioCaptureService.windowSeconds = { 6 }
         WebAudioCaptureService.sink = { samples, start ->
             assertTrue(start >= 0)
             if (samples.size == 96000 && samples.any { kotlin.math.abs(it) > .01f }) pcm.countDown()
+            speech?.submitPcm16k(samples, start)
         }
         try {
             app.startActivity(Intent().setClassName(app, "com.mangalens.qa.PlaybackCaptureConsentActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -50,9 +62,18 @@ class WebPlaybackCaptureTest {
             assertTrue("Web fixture did not load", com.mangalens.qa.WebPlaybackFixtureActivity.ready)
             device.click(device.displayWidth / 2, device.displayHeight / 2) // Explicit normal browser playback gesture.
             assertTrue("No actual playback PCM was captured: ${WebAudioCaptureService.status.value}", pcm.await(35, TimeUnit.SECONDS))
+            if (speech != null) {
+                val deadline = System.currentTimeMillis() + 180000
+                while (speech.state.value.cues.isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(250)
+                assertTrue("Captured Web audio produced no subtitle cues: ${speech.state.value.status}", speech.state.value.cues.isNotEmpty())
+                File(app.filesDir, "sample-Web-English.srt").writeText(speech.srt())
+            }
         } finally {
             app.stopService(Intent(app, WebAudioCaptureService::class.java))
             WebAudioCaptureService.sink = null
+            WebAudioCaptureService.windowSeconds = null
+            runBlocking { speech?.close() }
+            speechScope.cancel()
         }
     }
 }
