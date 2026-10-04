@@ -21,6 +21,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -99,6 +102,7 @@ class MangaLensDownloadService : DownloadService(
         @Volatile private var downloadCache: SimpleCache? = null
         @Volatile private var databaseProvider: StandaloneDatabaseProvider? = null
         private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val callbackMutex = Mutex()
 
         @Synchronized
         private fun storage(context: Context): Pair<StandaloneDatabaseProvider, SimpleCache> {
@@ -141,8 +145,8 @@ class MangaLensDownloadService : DownloadService(
                     download: Download,
                     finalException: Exception?
                 ) {
-                    callbackScope.launch {
-                        val current = dao.get(download.request.id) ?: return@launch
+                    // Enter the fair mutex in listener order before dispatching suspended Room work.
+                    callbackScope.launch(start = CoroutineStart.UNDISPATCHED) { callbackMutex.withLock {
                         val state = when (download.state) {
                             Download.STATE_COMPLETED -> DownloadState.COMPLETED
                             Download.STATE_FAILED -> DownloadState.FAILED
@@ -150,15 +154,14 @@ class MangaLensDownloadService : DownloadService(
                             Download.STATE_DOWNLOADING -> DownloadState.DOWNLOADING
                             else -> DownloadState.QUEUED
                         }
-                        dao.upsert(
-                            current.copy(
-                                bytesDownloaded = download.bytesDownloaded,
-                                totalBytes = download.contentLength,
-                                state = state,
-                                error = finalException?.message
-                            )
+                        dao.adaptiveStateIfActive(
+                            download.request.id,
+                            download.bytesDownloaded,
+                            download.contentLength,
+                            state,
+                            finalException?.message
                         )
-                    }
+                    } }
                 }
             })
             manager = created

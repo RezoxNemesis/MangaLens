@@ -53,6 +53,7 @@ data class MangaLensUiState(
     val translationEnabled: Boolean = false,
     val overlays: Map<Int, List<TranslationOverlay>> = emptyMap(),
     val error: String? = null,
+    val translationError: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.DARK,
     val mangaTranslationEnabled: Boolean = false,
     val videoTranslationEnabled: Boolean = false,
@@ -296,17 +297,17 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun translatePage(page: ChapterPage, targetLanguage: String = _state.value.targetLanguage) {
-        translationJob?.cancel()
+        cancelTranslation()
         if (!_state.value.mangaTranslationEnabled) {
-            _state.value = _state.value.copy(error = "Manga translation is disabled in Settings → Translation Modules.")
+            _state.value = _state.value.copy(translationError = true, error = "Manga translation is disabled in Settings → Translation Modules.")
             return
         }
         val path = page.localPath ?: run {
-            _state.value = _state.value.copy(error = "This page is not available as a local image yet. Reopen the chapter or import the image from Files.")
+            _state.value = _state.value.copy(translationError = true, error = "This page is not available as a local image yet. Reopen the chapter or import the image from Files.")
             return
         }
         translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
-            _state.value = _state.value.copy(translating = true, error = null)
+            _state.value = _state.value.copy(translating = true, error = null, translationError = false)
             var bitmap: android.graphics.Bitmap? = null
             try {
                 bitmap = decodeForOcr(path) ?: error("Unable to decode page image")
@@ -348,7 +349,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
-                _state.value = _state.value.copy(translating = false, error = t.message ?: "Local OCR translation failed")
+                _state.value = _state.value.copy(translating = false, translationError = true, error = t.message ?: "Local OCR translation failed")
             } finally {
                 bitmap?.recycle()
             }
@@ -356,7 +357,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun translateChapter(targetLanguage: String = _state.value.targetLanguage) {
-        translationJob?.cancel()
+        cancelTranslation()
         val pages = _state.value.pages
         if (pages.isEmpty()) {
             _state.value = _state.value.copy(error = "No manga pages are available to translate.")
@@ -364,7 +365,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
         prefs.edit().putBoolean("translation_manga", true).apply()
         translationPause.value = false
-        _state.value = _state.value.copy(mangaTranslationEnabled = true, translating = true, translationPaused = false, translationDone = 0, translationTotal = pages.size, error = null)
+        _state.value = _state.value.copy(mangaTranslationEnabled = true, translating = true, translationPaused = false, translationDone = 0, translationTotal = pages.size, error = null, translationError = false)
         translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
             try {
                 val failedPages = mutableListOf<Int>()
@@ -375,7 +376,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (failure: Exception) {
                         failedPages += page.index
-                        _state.value = _state.value.copy(error = "Page ${page.index} translation failed. Retry this page.")
+                        _state.value = _state.value.copy(translationError = true, error = "Page ${page.index} translation failed. Retry this page.")
                     }
                     _state.value = _state.value.copy(translationDone = index + 1)
                 }
@@ -384,6 +385,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     translating = false,
                     translationPaused = false,
                     translationEnabled = hasTranslations,
+                    translationError = failedPages.isNotEmpty() || !hasTranslations,
                     error = when {
                         failedPages.isNotEmpty() -> "${failedPages.size} of ${pages.size} pages could not be translated. Retry pages ${failedPages.take(10).joinToString(", ")}${if (failedPages.size > 10) "…" else ""}. Successful translations are still available."
                         !hasTranslations -> "No readable text was detected in this chapter. Try another page or a clearer source."
@@ -393,7 +395,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
-                _state.value = _state.value.copy(translating = false, error = t.message ?: "Chapter translation failed")
+                _state.value = _state.value.copy(translating = false, translationError = true, error = t.message ?: "Chapter translation failed")
             }
         } }
     }
@@ -538,7 +540,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun clearTranslations() {
         translationJob?.cancel()
-        _state.value = _state.value.copy(translating = false, translationPaused = false, translationDone = 0, translationTotal = 0, translationEnabled = false, overlays = emptyMap())
+        _state.value = _state.value.copy(translating = false, translationPaused = false, translationDone = 0, translationTotal = 0, translationEnabled = false, translationError = false, overlays = emptyMap())
     }
 
     private fun currentTranslationStyle(): TranslationStyleProfile =

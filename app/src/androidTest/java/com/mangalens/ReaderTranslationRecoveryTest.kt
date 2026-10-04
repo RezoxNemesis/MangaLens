@@ -67,11 +67,20 @@ class ReaderTranslationRecoveryTest {
             }
             assertEquals(3, completed.translationTotal)
             assertTrue(completed.translationEnabled)
+            assertTrue(completed.translationError)
             assertEquals(setOf(1, 3), completed.overlays.keys)
             assertTrue(completed.error.orEmpty().contains("1 of 3"))
             assertTrue(completed.error.orEmpty().contains("Retry pages 2"))
             val firstPage = completed.overlays[1]
             val thirdPage = completed.overlays[3]
+
+            instrumentation.runOnMainSync {
+                viewModel.pauseTranslation(true)
+                viewModel.translatePage(ChapterPage(4, "local:unavailable", null), "en")
+            }
+            assertFalse(viewModel.state.value.translating)
+            assertFalse(viewModel.state.value.translationPaused)
+            assertNotNull(viewModel.state.value.error)
 
             writeTextPage(files[1])
             instrumentation.runOnMainSync { viewModel.translatePage(pages[1], "en") }
@@ -79,6 +88,7 @@ class ReaderTranslationRecoveryTest {
                 viewModel.state.first { !it.translating && it.overlays.containsKey(2) }
             }
             assertNull(repaired.error)
+            assertFalse(repaired.translationError)
             assertEquals(setOf(1, 2, 3), repaired.overlays.keys)
             assertEquals(firstPage, repaired.overlays[1])
             assertEquals(thirdPage, repaired.overlays[3])

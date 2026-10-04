@@ -56,10 +56,15 @@ class MediaDownloadManager(private val context: Context) {
         val item = dao.get(id) ?: return@withContext
         if (item.state != DownloadState.PAUSED && item.state != DownloadState.FAILED) return@withContext
         if (item.isAdaptive) {
-            MangaLensDownloadService.resumeAdaptive(context, id)
-            dao.upsert(item.copy(state = DownloadState.DOWNLOADING, error = null))
+            if (dao.resumeIfStopped(id, DownloadState.DOWNLOADING) == 0) return@withContext
+            if (item.state == DownloadState.FAILED) {
+                // Setting a stop reason alone does not enqueue a failed Media3 download again.
+                MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(item.sourceUrl), item.mimeType)
+            } else {
+                MangaLensDownloadService.resumeAdaptive(context, id)
+            }
         } else {
-            dao.upsert(item.copy(state = DownloadState.QUEUED, error = null))
+            if (dao.resumeIfStopped(id, DownloadState.QUEUED) == 0) return@withContext
             start(id, item.sourceUrl, item.title, item.mimeType)
         }
     }

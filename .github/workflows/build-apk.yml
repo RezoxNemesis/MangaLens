@@ -386,6 +386,9 @@ jobs:
           path: |
             app/build/diagnostics/**
             app/build/reports/androidTests/**
+            app/build/reports/tests/**
+            app/build/test-results/**
+            app/build/reports/lint-results*
           if-no-files-found: warn
           retention-days: 7
       - name: Upload downloadable APK artifact
@@ -505,6 +508,9 @@ jobs:
           path: |
             app/build/diagnostics/**
             app/build/reports/androidTests/**
+            app/build/reports/tests/**
+            app/build/test-results/**
+            app/build/reports/lint-results*
           if-no-files-found: warn
           retention-days: 7
       - name: Upload pull-request debug APK

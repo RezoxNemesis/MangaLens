@@ -22,6 +22,8 @@ class OfflineLibraryTest {
                 assertEquals(0, dao.progressIfActive(id, 100, 200))
                 assertEquals(0, dao.failIfActive(id, "late network failure"))
                 assertEquals(0, dao.completeIfActive(id, "content://fixture/download", 200))
+                assertEquals(0, dao.adaptiveStateIfActive(id, 100, 200, com.mangalens.download.DownloadState.DOWNLOADING, null))
+                assertEquals(0, dao.adaptiveStateIfActive(id, 200, 200, com.mangalens.download.DownloadState.COMPLETED, null))
                 assertEquals(state, dao.get(id)!!.state)
             }
             dao.upsert(item)
@@ -29,8 +31,16 @@ class OfflineLibraryTest {
             assertEquals(1, dao.completeIfActive(id, "content://fixture/download", 200))
             assertEquals(0, dao.progressIfActive(id, 50, 200))
             assertEquals(com.mangalens.download.DownloadState.COMPLETED, dao.get(id)!!.state)
+            assertEquals(0, dao.adaptiveStateIfActive(id, 50, 200, com.mangalens.download.DownloadState.DOWNLOADING, null))
+            assertEquals(0, dao.resumeIfStopped(id, com.mangalens.download.DownloadState.DOWNLOADING))
+            dao.upsert(item.copy(state = com.mangalens.download.DownloadState.FAILED))
+            assertEquals(1, dao.resumeIfStopped(id, com.mangalens.download.DownloadState.DOWNLOADING))
+            assertEquals(1, dao.adaptiveStateIfActive(id, 200, 200, com.mangalens.download.DownloadState.COMPLETED, null))
             dao.delete(id)
             assertEquals(0, dao.completeIfActive(id, "content://fixture/download", 200))
+            assertEquals(0, dao.adaptiveStateIfActive(id, 200, 200, com.mangalens.download.DownloadState.COMPLETED, null))
+            assertEquals(0, dao.resumeIfStopped(id, com.mangalens.download.DownloadState.DOWNLOADING))
+            assertNull(dao.get(id))
         } finally { dao.delete(id) }
     }
 

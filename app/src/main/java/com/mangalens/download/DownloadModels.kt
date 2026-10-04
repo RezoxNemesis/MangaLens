@@ -48,6 +48,10 @@ interface DownloadDao {
     suspend fun completeIfActive(id: String, uri: String, size: Long): Int
     @Query("UPDATE media_downloads SET state = 'FAILED', error = :message WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING')")
     suspend fun failIfActive(id: String, message: String): Int
+    @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = :state, error = :message WHERE id = :id AND state != 'CANCELLED' AND (state NOT IN ('PAUSED', 'COMPLETED', 'FAILED') OR state = :state)")
+    suspend fun adaptiveStateIfActive(id: String, done: Long, total: Long, state: DownloadState, message: String?): Int
+    @Query("UPDATE media_downloads SET state = :state, error = NULL WHERE id = :id AND state IN ('PAUSED', 'FAILED')")
+    suspend fun resumeIfStopped(id: String, state: DownloadState): Int
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 
