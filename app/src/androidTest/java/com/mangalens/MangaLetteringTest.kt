@@ -89,6 +89,64 @@ class MangaLetteringTest {
         } finally { image.recycle(); prefs.edit().putString("script", script).putBoolean("high_accuracy", accuracy).commit() }
     }
 
+    @Test fun tightMultilineSpeechCardRemovesSourceWithoutGreyLineStripes() {
+        val image = Bitmap.createBitmap(960, 430, Bitmap.Config.ARGB_8888)
+        val paper = Color.rgb(214, 207, 195)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(31, 29, 28)
+            textSize = 62f
+            typeface = Typeface.create("serif", Typeface.ITALIC)
+        }
+        val firstText = "ABSALATOY"
+        val secondText = "Something interesting"
+        val firstBox = Rect()
+        val secondBox = Rect()
+        paint.getTextBounds(firstText, 0, firstText.length, firstBox)
+        paint.getTextBounds(secondText, 0, secondText.length, secondBox)
+        val first = RectF(firstBox).apply { offset(120f, 175f); inset(2f, 1f) }
+        val second = RectF(secondBox).apply { offset(145f, 275f); inset(2f, 1f) }
+        val block = RectF(first).apply { union(second) }
+        Canvas(image).apply {
+            drawColor(paper)
+            drawText(firstText, 120f, 175f, paint)
+            drawText(secondText, 145f, 275f, paint)
+        }
+
+        val patch = MangaLettering.prepare(
+            image,
+            block,
+            listOf(first, second),
+            "$firstText\n$secondText"
+        )
+        try {
+            var nonPaper = 0
+            for (y in 0 until patch.background.height) {
+                for (x in 0 until patch.background.width) {
+                    val c = patch.background.getPixel(x, y)
+                    val distance = kotlin.math.abs(Color.red(c) - Color.red(paper)) +
+                        kotlin.math.abs(Color.green(c) - Color.green(paper)) +
+                        kotlin.math.abs(Color.blue(c) - Color.blue(paper))
+                    if (distance > 18) nonPaper++
+                }
+            }
+            assertEquals("Source glyphs or grey eraser stripes remain in the speech-card patch", 0, nonPaper)
+
+            val rendered = image.copy(Bitmap.Config.ARGB_8888, true)
+            try {
+                MangaLettering.draw(Canvas(rendered), patch, "एक दिलचस्प योजना के साथ वापस आओ।")
+                assertFalse(image.sameAs(rendered))
+                assertEquals(paper, rendered.getPixel(20, 20))
+                save("lettering-tight-source.png", image)
+                save("lettering-tight-reconstructed.png", rendered)
+            } finally {
+                rendered.recycle()
+            }
+        } finally {
+            patch.background.recycle()
+            image.recycle()
+        }
+    }
+
     @Test fun videoPlayerUsesCapturableTextureSurface() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
