@@ -295,8 +295,15 @@ fun MangaContinuousReader(
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL").forEach { (mode, label) ->
                                 androidx.compose.material3.FilterChip(selected = readingMode == mode, onClick = {
-                                    activePage = if (readingMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
-                                    activeOffset = if (readingMode == "vertical") listState.firstVisibleItemScrollOffset else 0
+                                    // activePage is the stable logical page across pager direction changes.
+                                    // reverseLayout can transiently report a different settledPage while RTL/LTR
+                                    // is being recomposed, which used to jump back a page when returning vertical.
+                                    if (readingMode == "vertical") {
+                                        activePage = listState.firstVisibleItemIndex
+                                        activeOffset = listState.firstVisibleItemScrollOffset
+                                    } else {
+                                        activeOffset = 0
+                                    }
                                     positionRestored = false
                                     autoScroll = false
                                     scale = 1f; panX = 0f; panY = 0f
