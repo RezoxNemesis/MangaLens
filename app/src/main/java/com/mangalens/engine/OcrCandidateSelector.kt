@@ -73,8 +73,8 @@ object OcrCandidateSelector {
     }
 
     fun scriptFit(script: String, text: String): Double {
-        val letters = text.filter(Char::isLetter)
-        if (letters.isEmpty()) return if (text.any(Char::isDigit)) 0.45 else 0.0
+        val letters = text.asSequence().filter { it.isLetter() }.toList()
+        if (letters.isEmpty()) return if (text.any { it.isDigit() }) 0.45 else 0.0
         val normalized = script.uppercase(Locale.ROOT)
         val expected = letters.count { ch ->
             when (normalized) {
