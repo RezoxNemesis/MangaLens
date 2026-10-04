@@ -10,10 +10,12 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class NativeModelTest {
-    @Test fun verifiedOptionalModelLoadsGeneratesAndUnloads() {
+    @Test fun verifiedOptionalModelGeneratesCancelsAndPreservesOwners() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val model = OrezModelManager(context).modelFile
         // Ordinary local test runs do not install the optional 650 MB resource.
@@ -46,6 +48,34 @@ class NativeModelTest {
             engine.close()
             assertEquals("Closed feature must not generate using another feature's lease", "", engine.generate(prompt, 8))
             assertTrue("Closing one feature unloaded the model still owned by another", peer.generate(prompt, 8).isNotBlank())
+
+            peer.newGeneration().use { cancelled ->
+                cancelled.cancel()
+                assertEquals("Pre-cancelled request generated output", "", peer.generate(prompt, 512, cancelled))
+            }
+            val worker = Executors.newSingleThreadExecutor()
+            val request = peer.newGeneration()
+            try {
+                val longPrompt = "<|im_start|>user\n" + "Explain this story carefully. ".repeat(250) +
+                    "\nWrite a long detailed story.\n<|im_end|>\n<|im_start|>assistant\n"
+                val result = worker.submit<String> { peer.generate(longPrompt, 512, request) }
+                val deadline = android.os.SystemClock.elapsedRealtime() + 15_000
+                while (!request.isRunning && !result.isDone && android.os.SystemClock.elapsedRealtime() < deadline) Thread.sleep(20)
+                assertTrue("CPU decode did not enter its abort callback", request.isRunning)
+                engine.newGeneration().use { unrelated -> unrelated.cancel() }
+                assertFalse("Cancelling another feature stopped this request", result.isDone)
+                val cancelStart = android.os.SystemClock.elapsedRealtime()
+                request.cancel()
+                assertEquals("Cancelled generation returned partial output", "", result.get(10, TimeUnit.SECONDS))
+                val cancelMs = android.os.SystemClock.elapsedRealtime() - cancelStart
+                File(qa, "native-model.txt").appendText("cancel_elapsed_ms=$cancelMs\n")
+                assertTrue("Model was unusable after cancellation", peer.generate(prompt, 8).isNotBlank())
+            } finally {
+                request.cancel()
+                worker.shutdown()
+                assertTrue("Cancelled native worker did not stop", worker.awaitTermination(10, TimeUnit.SECONDS))
+                request.close()
+            }
         } finally {
             peer.close()
             engine.close()

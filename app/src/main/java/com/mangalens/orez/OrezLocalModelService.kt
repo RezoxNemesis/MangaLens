@@ -7,6 +7,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import java.io.File
 
 class OrezLocalModelService(private val manager: OrezModelManager) {
@@ -61,9 +64,24 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         }
 
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
-        val raw = engine.generate(promptText, 512).trim()
+        val raw = generate(promptText).trim()
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         sanitize(raw).takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun generate(prompt: String): String = suspendCancellableCoroutine { continuation ->
+        val request = engine.newGeneration()
+        continuation.invokeOnCancellation { request.cancel() }
+        // Native cleanup must finish even when the caller's coroutine is cancelled.
+        cleanupScope.launch(Dispatchers.Default) {
+            try {
+                continuation.resume(engine.generate(prompt, 512, request))
+            } catch (failure: Exception) {
+                continuation.resumeWithException(failure)
+            } finally {
+                request.close()
+            }
+        }
     }
 
     private fun sanitize(text: String): String =
@@ -74,7 +92,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             .trim()
 
     // A generation holds JNI/engine locks. Screen disposal must not wait for them on Main.
-    fun close() { cleanupScope.launch { engine.close() } }
+    fun close() { engine.cancelGenerations(); cleanupScope.launch { engine.close() } }
 
     companion object {
         private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

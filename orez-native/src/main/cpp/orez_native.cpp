@@ -3,9 +3,62 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <memory>
+#include <unordered_map>
 
 static std::mutex g_mutex;
 static llama_model * g_model = nullptr;
+
+struct generation_request {
+    std::atomic<bool> cancelled{false};
+    std::atomic<bool> running{false};
+};
+// Cancellation must never wait for the model mutex held during CPU decoding.
+static std::mutex g_requests_mutex;
+static std::unordered_map<jlong, std::shared_ptr<generation_request>> g_requests;
+static std::atomic<jlong> g_next_request{1};
+
+static std::shared_ptr<generation_request> find_request(jlong id) {
+    std::lock_guard<std::mutex> lock(g_requests_mutex);
+    auto found = g_requests.find(id);
+    return found == g_requests.end() ? nullptr : found->second;
+}
+
+static bool abort_generation(void * data) {
+    auto * request = static_cast<generation_request *>(data);
+    request->running.store(true);
+    return request->cancelled.load();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_mangalens_oreznative_OrezNativeEngine_nativeCreateRequest(JNIEnv *, jobject) {
+    const jlong id = g_next_request.fetch_add(1);
+    std::lock_guard<std::mutex> lock(g_requests_mutex);
+    g_requests.emplace(id, std::make_shared<generation_request>());
+    return id;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_mangalens_oreznative_OrezNativeEngine_nativeCancelRequest(JNIEnv *, jobject, jlong id) {
+    if (auto request = find_request(id)) request->cancelled.store(true);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_mangalens_oreznative_OrezNativeEngine_nativeRequestRunning(JNIEnv *, jobject, jlong id) {
+    auto request = find_request(id);
+    return request && request->running.load() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_mangalens_oreznative_OrezNativeEngine_nativeReleaseRequest(JNIEnv *, jobject, jlong id) {
+    std::lock_guard<std::mutex> lock(g_requests_mutex);
+    auto found = g_requests.find(id);
+    if (found != g_requests.end()) {
+        found->second->cancelled.store(true);
+        g_requests.erase(found);
+    }
+}
 
 // Java strings expose modified UTF-8 through GetStringUTFChars, which corrupts emoji.
 static std::string java_utf8(JNIEnv * env, jstring value) {
@@ -42,9 +95,11 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeLoad(
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
-        JNIEnv * env, jobject, jstring prompt, jint maxTokens) {
+        JNIEnv * env, jobject, jstring prompt, jint maxTokens, jlong requestId) {
+    auto request = find_request(requestId);
+    if (!request || request->cancelled.load()) return env->NewStringUTF("");
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_model == nullptr) return env->NewStringUTF("");
+    if (g_model == nullptr || request->cancelled.load()) return env->NewStringUTF("");
     std::string input = java_utf8(env, prompt);
     if (env->ExceptionCheck()) return nullptr;
 
@@ -62,6 +117,8 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
     const uint32_t requestedCtx = static_cast<uint32_t>(nPrompt + safeTokens + 64);
     cp.n_ctx = requestedCtx > 8192 ? 8192 : requestedCtx;
     cp.n_batch = static_cast<uint32_t>(nPrompt);
+    cp.abort_callback = abort_generation;
+    cp.abort_callback_data = request.get();
     llama_context * ctx = llama_init_from_model(g_model, cp);
     if (ctx == nullptr) return env->NewStringUTF("");
 
@@ -73,12 +130,14 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
     if (llama_decode(ctx, batch) != 0) {
         llama_sampler_free(sampler);
         llama_free(ctx);
+        request->running.store(false);
         return env->NewStringUTF("");
     }
 
     std::string output;
     output.reserve(static_cast<size_t>(safeTokens) * 4);
     for (int i = 0; i < safeTokens; ++i) {
+        if (request->cancelled.load()) break;
         llama_token id = llama_sampler_sample(sampler, ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
         char piece[512];
@@ -90,6 +149,9 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
 
     llama_sampler_free(sampler);
     llama_free(ctx);
+    request->running.store(false);
+    // Partial output from a cancelled request must never become an answer.
+    if (request->cancelled.load()) return env->NewStringUTF("");
     // A token budget can stop inside a UTF-8 character split across model tokens.
     if (!output.empty()) {
         size_t lead = output.size() - 1;
