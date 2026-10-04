@@ -35,7 +35,9 @@ fun NativeVideoPlayer(
     translationEnabled: Boolean,
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
-    onOpenWeb: () -> Unit = {}
+    onOpenWeb: () -> Unit = {},
+    sourcePageUrl: String? = null,
+    requestHeaders: Map<String, String> = emptyMap()
 ) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -59,7 +61,10 @@ fun NativeVideoPlayer(
     var playing by remember { mutableStateOf(player.isPlaying) }
     var playbackHeight by remember { mutableIntStateOf(player.videoSize.height) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(url) { playbackError = null; playerVm.openHttp(url) }
+    LaunchedEffect(url, sourcePageUrl, requestHeaders) {
+        playbackError = null
+        playerVm.openHttp(url, referer = sourcePageUrl, headers = requestHeaders)
+    }
     LaunchedEffect(translationEnabled) { liveTranslationEnabled = translationEnabled }
 
     DisposableEffect(Unit) {
