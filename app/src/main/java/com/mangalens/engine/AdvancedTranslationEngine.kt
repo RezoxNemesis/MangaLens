@@ -127,29 +127,82 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
 
     private suspend fun recognizeTile(bitmap: Bitmap): List<TranslationRegion> {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
-        val script = prefs?.getString("script", "AUTO") ?: "AUTO"
+        val configuredScript = prefs?.getString("script", "AUTO") ?: "AUTO"
         val highAccuracy = prefs?.getBoolean("high_accuracy", true) ?: true
-        val candidates = if (script != "AUTO") listOf(createRecognizer(script)) else if (!highAccuracy) listOf(createRecognizer("LATIN")) else listOf(
-            createRecognizer("LATIN"), createRecognizer("DEVANAGARI"),
-            createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
-        )
-        return try {
+        val scripts = when {
+            configuredScript != "AUTO" -> listOf(configuredScript)
+            !highAccuracy -> listOf("LATIN")
+            else -> listOf("LATIN", "DEVANAGARI", "CHINESE", "JAPANESE", "KOREAN")
+        }
+
+        suspend fun recognizeCandidates(source: Bitmap): Pair<List<TranslationRegion>, Double> {
             val failures = mutableListOf<Throwable>()
-            val results = candidates.map { recognizer ->
+            val results = scripts.map { candidateScript ->
+                val recognizer = createRecognizer(candidateScript)
                 try {
-                    recognizeWith(recognizer, bitmap)
+                    recognizeWith(recognizer, source)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
                     failures += failure
                     emptyList()
+                } finally {
+                    recognizer.close()
                 }
             }
-            if (failures.size == candidates.size) throw failures.first()
-            results.maxByOrNull { it.sumOf { region -> region.source.length } } ?: emptyList()
-        } finally {
-            candidates.forEach { it.close() }
+            if (failures.size == scripts.size) throw failures.first()
+
+            val summaries = results.mapIndexed { index, regions ->
+                OcrCandidateSelector.Candidate(
+                    script = scripts[index],
+                    texts = regions.map { it.source },
+                    confidences = regions.map { it.recognitionConfidence }
+                )
+            }
+            val choice = OcrCandidateSelector.choose(summaries) ?: return emptyList<TranslationRegion>() to 0.0
+            val selectedScript = scripts[choice.index]
+            val filtered = results[choice.index].filter { region ->
+                OcrCandidateSelector.isReadableRegion(
+                    selectedScript,
+                    region.source,
+                    region.recognitionConfidence
+                )
+            }
+            return filtered to choice.score
         }
+
+        val primary = recognizeCandidates(bitmap)
+        if (!highAccuracy || primary.second >= 0.62) return primary.first
+
+        // A bounded grayscale/contrast retry helps faint or stylised speech without changing geometry.
+        val enhanced = enhanceForOcr(bitmap)
+        return try {
+            val fallback = recognizeCandidates(enhanced)
+            if (primary.first.isEmpty() || fallback.second > primary.second + 0.03) fallback.first else primary.first
+        } finally {
+            enhanced.recycle()
+        }
+    }
+
+    private fun enhanceForOcr(bitmap: Bitmap): Bitmap {
+        val output = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val grayscale = android.graphics.ColorMatrix().apply { setSaturation(0f) }
+        val contrast = 1.32f
+        val offset = (128f * (1f - contrast))
+        val contrastMatrix = android.graphics.ColorMatrix(
+            floatArrayOf(
+                contrast, 0f, 0f, 0f, offset,
+                0f, contrast, 0f, 0f, offset,
+                0f, 0f, contrast, 0f, offset,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+        grayscale.postConcat(contrastMatrix)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = android.graphics.ColorMatrixColorFilter(grayscale)
+        }
+        Canvas(output).drawBitmap(bitmap, 0f, 0f, paint)
+        return output
     }
 
     private fun createRecognizer(script: String): TextRecognizer = when (script.uppercase(Locale.ROOT)) {

@@ -20,6 +20,39 @@ class MultilingualOcrTest {
     @Test fun koreanRecognizerReadsHangul() = checkScript("KOREAN", "안녕하세요 세계", "안녕")
     @Test fun devanagariRecognizerReadsHindi() = checkScript("DEVANAGARI", "नमस्ते दुनिया", "नमस्ते")
 
+    @Test fun autoModePrefersConfidentLatinInsteadOfLongWrongScriptOutput() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
+        val oldScript = prefs.getString("script", "AUTO")
+        val oldAccuracy = prefs.getBoolean("high_accuracy", true)
+        prefs.edit().putString("script", "AUTO").putBoolean("high_accuracy", true).commit()
+        val bitmap = Bitmap.createBitmap(1500, 420, Bitmap.Config.ARGB_8888)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(28, 27, 25)
+            textSize = 78f
+            typeface = android.graphics.Typeface.create("serif", android.graphics.Typeface.ITALIC)
+        }
+        Canvas(bitmap).apply {
+            drawColor(Color.rgb(219, 212, 198))
+            drawText("THE SECOND SEMESTER OF MY FOURTH YEAR.", 65f, 235f, paint)
+        }
+        val engine = AdvancedTranslationEngine(context)
+        try {
+            val regions = engine.recognizeScriptAware(bitmap)
+            val actual = regions.joinToString(" ") { it.source }
+            assertTrue("AUTO OCR returned: $actual", actual.contains("SECOND", true))
+            assertTrue("AUTO OCR returned: $actual", actual.contains("SEMESTER", true))
+            assertTrue("AUTO OCR returned too little readable Latin text: $actual", actual.count { it.isLetter() } >= 20)
+            assertFalse("Wrong-script Devanagari hallucination: $actual", actual.any { it in '\u0900'..'\u097f' })
+            assertFalse("Wrong-script kana hallucination: $actual", actual.any { it in '\u3040'..'\u30ff' })
+            assertFalse("Wrong-script Hangul hallucination: $actual", actual.any { it in '\uac00'..'\ud7af' })
+        } finally {
+            engine.close()
+            bitmap.recycle()
+            prefs.edit().putString("script", oldScript).putBoolean("high_accuracy", oldAccuracy).commit()
+        }
+    }
+
     private fun checkScript(script: String, text: String, expected: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)

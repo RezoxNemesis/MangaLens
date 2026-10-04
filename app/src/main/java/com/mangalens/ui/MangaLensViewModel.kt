@@ -399,7 +399,21 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 bitmap = decodeForOcr(path) ?: error("Unable to decode page image")
                 val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
-                if (advancedRegions.isEmpty()) error("No readable text was detected on this page. Try a clearer, higher-resolution image.")
+                if (advancedRegions.isEmpty()) {
+                    val existing = _state.value.overlays[page.index].orEmpty()
+                    val anyExisting = existing.isNotEmpty() || _state.value.overlays.values.any { it.isNotEmpty() }
+                    _state.value = _state.value.copy(
+                        translating = false,
+                        translationEnabled = anyExisting,
+                        translationError = existing.isEmpty(),
+                        error = if (existing.isEmpty()) {
+                            "No readable text was detected on this page. Try a clearer, higher-resolution image."
+                        } else {
+                            null
+                        }
+                    )
+                    return@withLock
+                }
                 val style = currentTranslationStyle()
                 val chapterContext = _state.value.overlays.values.flatten().takeLast(8)
                     .joinToString("\n") { it.translatedText }
@@ -433,7 +447,13 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                 }
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                _state.value = _state.value.copy(translating = false, translationEnabled = true, overlays = _state.value.overlays + (page.index to translated))
+                _state.value = _state.value.copy(
+                    translating = false,
+                    translationEnabled = true,
+                    translationError = false,
+                    error = null,
+                    overlays = _state.value.overlays + (page.index to translated)
+                )
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
