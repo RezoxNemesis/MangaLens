@@ -48,7 +48,7 @@ bash .github/scripts/mangalens-device-regression.sh
 
 The second script downloads the pinned optional Qwen model (650,379,104 bytes), verifies its SHA-256, stages it in the debug app and runs native-model tests with `require_model=true`. Normal `connectedDebugAndroidTest` runs may skip that optional-model test when the model is absent.
 
-Test evidence covers bounded/resumable transfers, source/routing fixtures, real OCR, English-to-Hindi translation, Room migration, persistent library state, damaged-page translation recovery, secure WebView configuration, download-state guards and playback of an original HLS fixture after its server shuts down. Check the handoff for the exact commit/test totals. HLS fixture certificates/trust settings exist only in instrumentation tests.
+Test evidence covers bounded/resumable transfers, source/routing fixtures, real OCR, English-to-Hindi translation, Room migration, persistent library state, damaged-page translation recovery, secure WebView configuration, download-state guards, real adaptive failure/retry/pause/resume/removal and playback of an original HLS fixture after its server shuts down. Check the handoff for the exact commit/test totals. HLS fixture certificates/trust settings exist only in instrumentation tests.
 
 ## Storage and model lifecycle
 
