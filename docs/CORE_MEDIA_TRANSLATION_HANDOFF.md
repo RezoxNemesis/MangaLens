@@ -34,3 +34,8 @@ Site support depends on available extractors and accessible non-DRM media; priva
 Speech has chunk/inference latency and model-dependent accuracy/language coverage. Capturable Web audio needs Android 10+ and system consent.
 Lettering reconstruction approximates available fonts and simple backgrounds; complex artwork, OCR errors and semantic translation quality need representative raw chapter testing. The first three supplied screenshots show already overlaid translations; the final three are clean-source screenshot fixtures. Visual acceptance of the new rendered results remains pending.
 See DOWNLOAD_PIPELINE.md and LIVE_AUDIO_SUBTITLES.md for configuration, dependencies and verification.
+
+
+## Follow-up feature/screenshot request
+
+See [QA_FEATURE_RESULTS.md](QA_FEATURE_RESULTS.md) and [actual screenshot gallery](qa/SCREENSHOTS.md). A local retry with the test emulator's hardware watchdog multiplier set to 20 got past startup: the empty-buffer regression passed, the uploaded video downloaded byte-identically and reached READY with its correct duration, but the fixed 1.5-second seek assertion failed. That test now waits for READY plus advancement for up to 60 seconds; no accepted retry is claimed. The clean manga fixture test timed out after 240 seconds. Real recognizer shutdown started but its final outcome, live speech captions and Web capture were not verified before the execution environment went offline. Only generated CI screenshots are published; the user's private media and derived content stay outside Git.

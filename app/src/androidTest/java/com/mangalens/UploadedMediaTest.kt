@@ -85,8 +85,18 @@ class UploadedMediaTest {
             }
             var duration = 0L
             instrumentation.runOnMainSync { duration = vm.player.duration; vm.player.seekTo(12000); vm.player.play() }
-            delay(1500)
-            instrumentation.runOnMainSync { assertTrue("Playback did not advance", vm.player.currentPosition > 12000); assertNull(vm.player.playerError) }
+            // Seeking is asynchronous and can rebuffer, especially on software emulators.
+            // Verify eventual decoded playback rather than assuming a 1.5-second seek budget.
+            withTimeout(60_000) {
+                var advanced = false
+                while (!advanced) {
+                    instrumentation.runOnMainSync {
+                        assertNull("Seek failed playback", vm.player.playerError)
+                        advanced = vm.player.playbackState == Player.STATE_READY && vm.player.currentPosition > 12000
+                    }
+                    if (!advanced) delay(100)
+                }
+            }
             var frame: Bitmap? = null
             withTimeout(30_000) {
                 while (frame == null) {
