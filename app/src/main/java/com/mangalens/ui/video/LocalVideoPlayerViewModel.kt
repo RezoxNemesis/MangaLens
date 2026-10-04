@@ -88,7 +88,7 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         val requestKey = buildString {
             append(value).append('\n')
             append(referer.orEmpty()).append('\n')
-            properties.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (name, headerValue) ->
+            properties.entries.sortedBy { it.key.lowercase() }.forEach { (name, headerValue) ->
                 append(name.lowercase()).append('=').append(headerValue).append('\n')
             }
         }
