@@ -22,6 +22,8 @@ import com.mangalens.core.adblock.AdBlockWebViewClient
 import com.mangalens.core.translation.TranslationService
 import com.mangalens.core.translation.WebTranslationScript
 import com.mangalens.download.MediaDownloadManager
+import com.mangalens.ui.video.SniffedMedia
+import com.mangalens.ui.video.VideoSourcePolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -41,6 +43,7 @@ fun AdBlockedWebScreen(
     modifier: Modifier = Modifier,
     targetLanguage: String = "hi",
     onOpenManga: (String) -> Unit = {},
+    onOpenVideo: (SniffedMedia, String) -> Unit = { _, _ -> },
     onClose: (() -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -63,6 +66,7 @@ fun AdBlockedWebScreen(
     var translatedCount by remember { mutableIntStateOf(0) }
     var totalTranslatable by remember { mutableIntStateOf(0) }
     var translationStatus by remember { mutableStateOf<String?>(null) }
+    var detectedMedia by remember { mutableStateOf<SniffedMedia?>(null) }
     var hudVisible by remember { mutableStateOf(true) }
     var siteAdBlockEnabled by remember { mutableStateOf(adBlockEnabled) }
     val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
@@ -174,8 +178,32 @@ fun AdBlockedWebScreen(
                         false
                     }
                     webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && latestSiteAdBlockEnabled }) {
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): android.webkit.WebResourceResponse? {
+                            val mediaUrl = request?.url?.toString()
+                            if (mediaUrl != null && VideoSourcePolicy.isLikelyMediaRequest(mediaUrl)) {
+                                val allowed = setOf("accept", "cookie", "origin", "referer", "user-agent")
+                                val headers = request.requestHeaders
+                                    .filter { (name, value) -> name.lowercase() in allowed && value.length <= 16_384 }
+                                val candidate = SniffedMedia(mediaUrl, headers, "WEB")
+                                view?.post {
+                                    val current = detectedMedia
+                                    if (
+                                        current == null ||
+                                        VideoSourcePolicy.mediaScore(candidate.url) >= VideoSourcePolicy.mediaScore(current.url)
+                                    ) {
+                                        detectedMedia = candidate
+                                    }
+                                }
+                            }
+                            return super.shouldInterceptRequest(view, request)
+                        }
+
                         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                             pageReady = false
+                            detectedMedia = null
                             navigationEpoch++
                             currentUrl = pageUrl ?: currentUrl
                             translationStatus = null
@@ -207,6 +235,20 @@ fun AdBlockedWebScreen(
                     TextButton(onClick = { webView?.goForward() }, enabled = canGoForward) { Text("Forward") }
                     TextButton(onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() }) { Text(if (loadProgress < 100) "Stop" else "Reload") }
                     TextButton(onClick = { onOpenManga(currentUrl) }, enabled = pageReady) { Text("Open in Manga") }
+                    detectedMedia?.let { media ->
+                        TextButton(
+                            onClick = {
+                                val cookie = android.webkit.CookieManager.getInstance().getCookie(media.url).orEmpty()
+                                val enrichedHeaders = buildMap {
+                                    putAll(media.headers)
+                                    if (cookie.isNotBlank()) put("Cookie", cookie)
+                                    if (keys.none { it.equals("Referer", ignoreCase = true) }) put("Referer", currentUrl)
+                                }
+                                onOpenVideo(media.copy(headers = enrichedHeaders), currentUrl)
+                            },
+                            enabled = pageReady
+                        ) { Text("Open in Video") }
+                    }
                     TextButton(
                         onClick = {
                             siteAdBlockEnabled = !siteAdBlockEnabled
