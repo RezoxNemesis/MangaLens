@@ -196,14 +196,17 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(error = "The detected media URL is not a safe HTTP or HTTPS address.")
             return
         }
+        val safePageUrl = pageUrl.takeIf(UrlEngineRouter::isSafeWebUrl)
         val allowed = setOf("accept", "cookie", "origin", "referer", "user-agent")
         val safeHeaders = headers
             .filter { (name, value) -> name.lowercase() in allowed && value.length <= 16_384 }
             .toMap()
+        safePageUrl?.let { prefs.edit().putString("last_url", it).apply() }
         _state.value = _state.value.copy(
+            url = safePageUrl ?: _state.value.url,
             mode = ContentType.VIDEO_STREAM,
             videoUrl = url,
-            videoPageUrl = pageUrl.takeIf(UrlEngineRouter::isSafeWebUrl),
+            videoPageUrl = safePageUrl,
             videoHeaders = safeHeaders,
             loading = false,
             error = null
