@@ -134,7 +134,10 @@ class AdaptiveDownloadRecoveryTest {
             assertEquals("Late progress undid a user pause", DownloadState.PAUSED, dao.get(paused)!!.state)
             instrumentation.runOnMainSync { nativeManager.release() }
             val segment = server.url("/pause/mangalens-qa-00.ts").toString()
-            assertTrue("Pause did not preserve real cached bytes", MangaLensDownloadService.Holder.cache(app).getCachedSpans(segment).sumOf { it.length } > 0)
+            withTimeout(10_000) {
+                // The interrupted data source commits its partial cache span while closing.
+                while (MangaLensDownloadService.Holder.cache(app).getCachedSpans(segment).sumOf { it.length } == 0L) delay(20)
+            }
             createNativeManager()
             withTimeout(10_000) {
                 while (true) {
