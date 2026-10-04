@@ -30,7 +30,8 @@ data class TranslationRegion(
     val textColor: Int,
     val backgroundColor: Int,
     val textSize: Float,
-    val lineBounds: List<RectF> = listOf(bounds)
+    val lineBounds: List<RectF> = listOf(bounds),
+    val recognitionConfidence: Float = 0f
 )
 
 class AdvancedTranslationEngine(private val context: Context? = null) {
@@ -57,7 +58,8 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                             regions += TranslationRegion(source, source, RectF(box), detect(source),
                                 Color.BLACK, Color.WHITE,
                                 block.lines.mapNotNull { it.boundingBox?.height()?.toFloat() }.average().toFloat().coerceAtLeast(12f),
-                                block.lines.mapNotNull { it.boundingBox?.let(::RectF) })
+                                block.lines.mapNotNull { it.boundingBox?.let(::RectF) },
+                                block.lines.map { it.confidence }.filter { it.isFinite() && it > 0f }.average().toFloat().let { if (it.isFinite()) it else 0f })
                         }
                     }
                     if (continuation.isActive) continuation.resume(regions)
@@ -100,11 +102,20 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                     if (duplicate < 0) {
                         output += shifted
                         margins += margin
-                    } else if (margin > margins[duplicate] ||
-                        (margin == margins[duplicate] && shifted.source.length > output[duplicate].source.length)) {
-                        // Central detections retain full glyph context. Longer edge results can be OCR hallucinations.
-                        output[duplicate] = shifted
-                        margins[duplicate] = margin
+                    } else {
+                        val previous = output[duplicate]
+                        val clipped = margin < maxOf(2f, region.textSize * .12f)
+                        val previousClipped = margins[duplicate] < maxOf(2f, previous.textSize * .12f)
+                        val strongerConfidence = shifted.recognitionConfidence > previous.recognitionConfidence + .10f
+                        val fullerCoverage = shifted.bounds.width() * shifted.bounds.height() >
+                            previous.bounds.width() * previous.bounds.height() * 1.3f &&
+                            shifted.recognitionConfidence >= previous.recognitionConfidence - .15f
+                        // Keep a complete first reading unless evidence improves it. Extra OCR letters aren't quality.
+                        if ((previousClipped && !clipped) ||
+                            (previousClipped == clipped && (strongerConfidence || fullerCoverage))) {
+                            output[duplicate] = shifted
+                            margins[duplicate] = margin
+                        }
                     }
                 }
             } finally { tile.recycle() }
