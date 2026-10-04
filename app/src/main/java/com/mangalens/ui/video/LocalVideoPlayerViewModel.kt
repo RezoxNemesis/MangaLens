@@ -3,6 +3,10 @@ package com.mangalens.ui.video
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.*
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -15,6 +19,14 @@ import androidx.media3.ui.PlayerView
 
 @OptIn(UnstableApi::class)
 class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
+    val speech = VideoSpeechEngine(app, viewModelScope)
+    private val speechListener = object : androidx.media3.common.Player.Listener {
+        override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
+            speech.positionMs = newPosition.positionMs
+            speech.invalidate()
+        }
+        override fun onMediaItemTransition(item: MediaItem?, reason: Int) { speech.invalidate(clear = true) }
+    }
     private fun sourceFactory(http: androidx.media3.datasource.DataSource.Factory): DefaultMediaSourceFactory {
         val cached = CacheDataSource.Factory()
             .setCache(MangaLensDownloadService.Holder.cache(getApplication()))
@@ -30,12 +42,26 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     val player: ExoPlayer = ExoPlayer.Builder(
         app,
-        DefaultRenderersFactory(app)
+        object : DefaultRenderersFactory(app) {
+            override fun buildAudioSink(context: android.content.Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
+                DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(false)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(speech.processor)).build()
+        }
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             .setEnableDecoderFallback(true)
     )
         .setMediaSourceFactory(mediaSourceFactory)
         .build()
+
+    init {
+        player.addListener(speechListener)
+        viewModelScope.launch {
+            runCatching { speech.loadInstalled() }
+            while (isActive) { speech.positionMs = player.currentPosition; delay(100) }
+        }
+    }
 
     private var uri: Uri? = null
     private var httpRequestKey: String? = null
@@ -76,7 +102,10 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        player.removeListener(speechListener)
         player.release()
+        // Complete native cancellation before freeing its context; viewModelScope is already cancelled.
+        CoroutineScope(Dispatchers.IO).launch { speech.close() }
         super.onCleared()
     }
 }

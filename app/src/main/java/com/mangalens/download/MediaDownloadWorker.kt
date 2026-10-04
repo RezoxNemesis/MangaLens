@@ -55,7 +55,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         var lastPersistAt = 0L
         var lastPersistBytes = -PROGRESS_BYTES
         var lastNotificationAt = 0L
-        ResumableMediaTransfer(HTTP).download(url, temp, validatorFile) { done, total ->
+        val client = DownloadRequestContextStore(applicationContext).read(id)?.let { context ->
+            HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(context) { url -> android.webkit.CookieManager.getInstance().getCookie(url) }).build()
+        } ?: HTTP
+        ResumableMediaTransfer(client).download(url, temp, validatorFile) { done, total ->
             val now = SystemClock.elapsedRealtime()
             if (done - lastPersistBytes >= PROGRESS_BYTES || now - lastPersistAt >= PROGRESS_INTERVAL_MS) {
                 persistProgress(id, done, total)

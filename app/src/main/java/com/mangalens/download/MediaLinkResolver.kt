@@ -1,5 +1,7 @@
 package com.mangalens.download
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
@@ -21,19 +23,38 @@ data class ResolvedMediaLink(
     val mimeType: String?,
     val provider: String = "generic",
     val detectedHeight: Int? = null,
-    val title: String? = null
+    val title: String? = null,
+    val sourcePageUrl: String? = null,
+    val headers: Map<String, String> = emptyMap()
 )
 
 class MediaLinkResolver(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .followRedirects(true).followSslRedirects(true)
-        .callTimeout(45, TimeUnit.SECONDS).build()
+        .callTimeout(45, TimeUnit.SECONDS).build(),
+    private val siteExtractor: SiteMediaExtractor? = null
 ) {
+
+    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.P2160): ResolvedMediaLink? =
+        runInterruptible(Dispatchers.IO) { resolve(input, quality) }
 
     fun resolve(input: String, quality: DownloadQuality = DownloadQuality.P2160): ResolvedMediaLink? {
         val clean = input.trim()
-        require(clean.startsWith("http://") || clean.startsWith("https://")) { "Only HTTP(S) links are supported." }
+        val inputUri = runCatching { URI(clean) }.getOrNull()
+        require(inputUri?.scheme in setOf("http", "https") && !inputUri?.host.isNullOrBlank() && inputUri?.userInfo == null) {
+            "Only HTTP(S) links without embedded credentials are supported."
+        }
         val lower = clean.substringBefore("?").lowercase()
+        // Dedicated extractors know player API signatures and site formats that HTML scraping cannot.
+        var extractorFailure: Exception? = null
+        val dedicated = !isDirect(lower) && providerFor(clean) != "generic" && siteExtractor != null
+        if (dedicated) {
+            try { siteExtractor?.extract(clean, quality)?.let { return it } }
+            catch (failure: Exception) {
+                if (failure is InterruptedException) throw failure
+                extractorFailure = failure
+            }
+        }
 
         if (isDirect(lower)) {
             return ResolvedMediaLink(
@@ -53,16 +74,21 @@ class MediaLinkResolver(
             .header("Referer", clean)
             .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
-            val body = response.body ?: return null
+        val genericResult = try { client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val body = response.body ?: return@use null
+            val contentType = response.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
+            if (contentType?.startsWith("video/") == true || contentType in setOf(
+                    "application/vnd.apple.mpegurl", "application/x-mpegurl", "application/dash+xml")) {
+                return@use ResolvedMediaLink(response.request.url.toString(), contentType, "direct")
+            }
             val contentLength = body.contentLength()
-            if (contentLength > MAX_HTML_BYTES) return null
+            if (contentLength > MAX_HTML_BYTES) return@use null
             val source = body.source()
             // readUtf8(byteCount) requires exactly that many bytes and throws on ordinary short pages.
             // Request one byte beyond the limit so unknown-length/chunked responses stay bounded too.
             source.request(MAX_HTML_BYTES + 1L)
-            if (source.buffer.size > MAX_HTML_BYTES) return null
+            if (source.buffer.size > MAX_HTML_BYTES) return@use null
             val html = source.readUtf8()
             val provider = providerFor(clean)
             val title = Regex("""(?is)<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)""")
@@ -97,12 +123,13 @@ class MediaLinkResolver(
                         guessMime(it.substringBefore("?").lowercase()),
                         provider,
                         detectHeight(it),
-                        title
+                        title,
+                        sourcePageUrl = response.request.url.toString()
                     )
                 }
                 .toList()
 
-            if (resolved.isEmpty()) return null
+            if (resolved.isEmpty()) return@use null
             val videoCandidates = resolved.filter {
                 it.mimeType?.startsWith("video/") == true ||
                     it.mimeType == "application/x-mpegURL" ||
@@ -110,25 +137,37 @@ class MediaLinkResolver(
             }
             val pool = if (videoCandidates.isNotEmpty()) videoCandidates else resolved
 
-            return pool.maxByOrNull { candidate ->
+            pool.maxByOrNull { candidate ->
                 val height = candidate.detectedHeight ?: 0
                 val qualityFit = if (height <= quality.height) height * 1000 else -abs(height - quality.height)
                 qualityFit + if (candidate.mimeType == "video/mp4") 50 else 0
             }
+        } } catch (failure: java.io.IOException) {
+            if (siteExtractor == null) throw failure
+            null
         }
+        val videoPage = runCatching { URI(clean).path.orEmpty() }.getOrDefault("")
+            .split('/').any { it.lowercase() in setOf("video", "videos", "watch", "reel", "reels", "player") }
+        // A social/adult player thumbnail is not a successful video download.
+        val result = genericResult.takeUnless { videoPage && it?.mimeType?.startsWith("image/") == true }
+        result?.let { return it }
+        if (extractorFailure != null) throw extractorFailure
+        return if (dedicated) null else siteExtractor?.extract(clean, quality)
     }
 
     private fun providerFor(url: String): String {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
         return when {
-            host.contains("youtube.com") || host == "youtu.be" -> "youtube"
-            host.contains("instagram.com") -> "instagram"
-            host.contains("facebook.com") || host.contains("fb.watch") -> "facebook"
-            host.contains("twitter.com") || host.contains("x.com") -> "x"
-            host.contains("tiktok.com") -> "tiktok"
+            matchesHost(host, "youtube.com") || host == "youtu.be" -> "youtube"
+            matchesHost(host, "instagram.com") -> "instagram"
+            matchesHost(host, "facebook.com") || matchesHost(host, "fb.watch") -> "facebook"
+            matchesHost(host, "twitter.com") || matchesHost(host, "x.com") -> "x"
+            matchesHost(host, "tiktok.com") -> "tiktok"
             else -> "generic"
         }
     }
+
+    private fun matchesHost(host: String, domain: String) = host == domain || host.endsWith(".$domain")
 
     private fun detectHeight(url: String): Int? {
         val normalized = url.replace("%2F", "/").replace("%3A", ":")

@@ -9,6 +9,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.mangalens.download.MediaDownloadManager
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -48,6 +49,7 @@ fun NativeVideoPlayer(
     var downloadQuality by remember { mutableStateOf(com.mangalens.download.DownloadQuality.P1080) }
     var downloadStatus by remember { mutableStateOf<String?>(null) }
     var liveTranslationEnabled by remember { mutableStateOf(translationEnabled) }
+    var showSpeechSettings by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
     if (VideoSourcePolicy.isSourcePage(url)) {
@@ -186,6 +188,18 @@ fun NativeVideoPlayer(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (hudVisible) 132.dp else 8.dp)
         )
 
+        LiveAudioSubtitleOverlay(playerVm.speech,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp).padding(bottom = if (hudVisible) 142.dp else 24.dp))
+        if (showSpeechSettings) {
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showSpeechSettings = false }) {
+                Surface(shape = MaterialTheme.shapes.large) {
+                    Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState())) {
+                        LiveAudioSubtitleSettings(playerVm.speech)
+                        TextButton(onClick = { showSpeechSettings = false }) { Text("Close") }
+                    }
+                }
+            }
+        }
         if (playbackError != null) Surface(Modifier.align(Alignment.Center).padding(24.dp)) { Column(Modifier.padding(16.dp)) { Text(playbackError!!); TextButton(onClick = { playbackError = null; player.prepare(); player.play() }) { Text("Retry") }; TextButton(onClick = onOpenWeb) { Text("Open source page") } } }
         downloadStatus?.let { Text(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp), color = MaterialTheme.colorScheme.onSurface) }
         if (controlsLocked) TextButton(onClick = { controlsLocked = false; hudVisible = true }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock controls") }
@@ -208,10 +222,11 @@ fun NativeVideoPlayer(
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { downloadQuality = when (downloadQuality) { com.mangalens.download.DownloadQuality.P480 -> com.mangalens.download.DownloadQuality.P720; com.mangalens.download.DownloadQuality.P720 -> com.mangalens.download.DownloadQuality.P1080; com.mangalens.download.DownloadQuality.P1080 -> com.mangalens.download.DownloadQuality.P1440; com.mangalens.download.DownloadQuality.P1440 -> com.mangalens.download.DownloadQuality.P2160; com.mangalens.download.DownloadQuality.P2160 -> com.mangalens.download.DownloadQuality.P480 } }) { Text("Download quality") }
                         TextButton(onClick = { controlsLocked = true; hudVisible = false }) { Text("Lock controls") }
+                        TextButton(onClick = { showSpeechSettings = true }) { Text("English audio CC") }
                         TextButton(onClick = { liveTranslationEnabled = !liveTranslationEnabled }) { Text(if (liveTranslationEnabled) "Live OCR on" else "Live OCR off") }
                         TextButton(onClick = {
                             scope.launch {
-                                runCatching { MediaDownloadManager(context).enqueue(url, "MangaLens video", quality = downloadQuality) }
+                                runCatching { MediaDownloadManager(context).enqueue(url, "MangaLens video", quality = downloadQuality, sourcePageUrl = sourcePageUrl, headers = requestHeaders) }
                                     .onSuccess { downloadStatus = "Download queued at " + downloadQuality.label }
                                     .onFailure { downloadStatus = it.message ?: "Download failed" }
                             }

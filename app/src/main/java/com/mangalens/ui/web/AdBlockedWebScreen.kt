@@ -8,6 +8,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceError
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -16,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mangalens.core.adblock.AdBlockEngine
 import com.mangalens.core.adblock.AdBlockWebViewClient
@@ -48,6 +50,53 @@ fun AdBlockedWebScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    val speech = remember { com.mangalens.ui.video.VideoSpeechEngine(context.applicationContext, scope) }
+    val speechState by speech.state.collectAsState()
+    val captureActive by WebAudioCaptureService.active.collectAsState()
+    val captureStatus by WebAudioCaptureService.status.collectAsState()
+    var speechSettings by remember { mutableStateOf(false) }
+    val projectionManager = remember { context.getSystemService(android.media.projection.MediaProjectionManager::class.java) }
+    val projectionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            speech.setEnabled(true)
+            WebAudioCaptureService.windowSeconds = { speech.chunkSeconds }
+            WebAudioCaptureService.clock = { speech.positionMs = it }
+            WebAudioCaptureService.sink = { samples, start ->
+                speech.positionMs = start + samples.size * 1000L / 16000
+                speech.submitPcm16k(samples, start)
+            }
+            androidx.core.content.ContextCompat.startForegroundService(context,
+                android.content.Intent(context, WebAudioCaptureService::class.java).putExtra("token", result.data))
+        }
+    }
+    val audioPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
+    LaunchedEffect(speech) { speech.loadInstalled() }
+    LaunchedEffect(captureActive) { if (!captureActive) speech.setEnabled(false) }
+    LaunchedEffect(speechState.enabled) {
+        if (!speechState.enabled && captureActive) context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
+    }
+    DisposableEffect(speech) { onDispose {
+        context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
+        WebAudioCaptureService.sink = null
+        WebAudioCaptureService.windowSeconds = null
+        WebAudioCaptureService.clock = null
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { speech.close() }
+    } }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, speech) {
+        val listener = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
+                speech.setEnabled(false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(listener)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(listener) }
+    }
     val engine = remember { AdBlockEngine(com.mangalens.core.adblock.AdBlockStatsStore.shared) }
     val translator = remember { TranslationService() }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -162,6 +211,29 @@ fun AdBlockedWebScreen(
         }
     }
 
+    if (speechSettings) androidx.compose.ui.window.Dialog(onDismissRequest = { speechSettings = false }) {
+        Surface(shape = MaterialTheme.shapes.large) {
+            Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.mangalens.ui.video.LiveAudioSubtitleSettings(speech)
+                if (captureStatus.isNotBlank()) Text(captureStatus)
+                Text("Android asks for audio and capture permission. Site/device capture restrictions may require Open in Video. Only MangaLens playback is captured; audio stays on your device.", style = MaterialTheme.typography.bodySmall)
+                Button(onClick = {
+                    if (captureActive) {
+                        context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java)); speech.setEnabled(false)
+                    } else if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                    speechSettings = false
+                }, enabled = speechState.ready && !speechState.busy && android.os.Build.VERSION.SDK_INT >= 29) {
+                    Text(if (captureActive) "Stop web capture" else "Start web audio capture")
+                }
+                if (android.os.Build.VERSION.SDK_INT < 29) Text("Web audio capture requires Android 10+. Use Open in Video on this device.")
+                TextButton(onClick = { speechSettings = false }) { Text("Close") }
+            }
+        }
+    }
+
     Box(modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize().padding(top = 110.dp),
@@ -204,6 +276,7 @@ fun AdBlockedWebScreen(
                         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
                             pageReady = false
                             detectedMedia = null
+                            speech.invalidate(clear = true)
                             navigationEpoch++
                             currentUrl = pageUrl ?: currentUrl
                             translationStatus = null
@@ -261,7 +334,9 @@ fun AdBlockedWebScreen(
                 if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
             }
         }
-        if (hudVisible || translating) {
+        if (captureActive) com.mangalens.ui.video.LiveAudioSubtitleOverlay(speech,
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 125.dp, start = 16.dp, end = 16.dp))
+        if (hudVisible || translating || captureActive) {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
                 tonalElevation = 6.dp,
@@ -275,10 +350,13 @@ fun AdBlockedWebScreen(
                         }, enabled = pageReady) { Text(if (translating) "Translating…" else if (translated) "Translated ✓" else "Translate") }
                         Button(onClick = {
                             scope.launch {
-                                runCatching { MediaDownloadManager(context).enqueue(currentUrl, "MangaLens web page") }
+                                runCatching { MediaDownloadManager(context).enqueue(
+                                    detectedMedia?.url ?: currentUrl, "MangaLens web page",
+                                    sourcePageUrl = currentUrl, headers = detectedMedia?.headers.orEmpty()) }
                                     .onFailure { translationStatus = "Download failed: " + (it.message ?: "unknown error") }
                             }
                         }) { Text("Download") }
+                        Button(onClick = { speechSettings = true }) { Text("English subtitles") }
                         Button(onClick = { autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause" else "Scroll") }
                         if (autoScroll) Slider(value = speed, onValueChange = { speed = it }, valueRange = 1f..5f, steps = 3, modifier = Modifier.width(90.dp))
                     }

@@ -54,6 +54,8 @@ interface DownloadDao {
     suspend fun adaptiveProgressIfActive(id: String, done: Long, total: Long): Int
     @Query("UPDATE media_downloads SET state = :state, error = NULL WHERE id = :id AND state IN ('PAUSED', 'FAILED')")
     suspend fun resumeIfStopped(id: String, state: DownloadState): Int
+    @Query("UPDATE media_downloads SET sourceUrl = :url, mimeType = :mime WHERE id = :id AND state = 'FAILED'")
+    suspend fun refreshFailedSource(id: String, url: String, mime: String): Int
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 

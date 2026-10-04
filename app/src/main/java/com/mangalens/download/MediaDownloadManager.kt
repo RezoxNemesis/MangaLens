@@ -28,7 +28,8 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         override fun resume(id: String) = MangaLensDownloadService.resumeAdaptive(context, id)
         override fun remove(id: String) = MangaLensDownloadService.remove(context, id)
     })
-    private val resolver = MediaLinkResolver()
+    private val resolver = MediaLinkResolver(siteExtractor = YtDlpSiteMediaExtractor(context))
+    private val contexts = DownloadRequestContextStore(context)
     private val dao = DownloadDatabase.get(context).downloads()
     val downloads: Flow<List<DownloadEntity>> = dao.observe()
 
@@ -36,13 +37,15 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         url: String,
         title: String? = null,
         mimeType: String? = null,
-        quality: DownloadQuality = DownloadQuality.P2160
+        quality: DownloadQuality = DownloadQuality.P2160,
+        sourcePageUrl: String? = null,
+        headers: Map<String, String> = emptyMap()
     ): String = withContext(Dispatchers.IO) {
         val clean = url.trim()
         require(clean.startsWith("http://") || clean.startsWith("https://")) {
             "Only HTTP(S) media links can be downloaded."
         }
-        val resolved = resolver.resolve(clean, quality)
+        val resolved = resolver.resolveCancellable(clean, quality)
             ?: throw IllegalArgumentException("The page did not expose an accessible media source.")
         val mediaUrl = resolved.url
         val id = UUID.randomUUID().toString()
@@ -50,6 +53,10 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
             ?: resolved.title?.takeIf(String::isNotBlank)
             ?: mediaUrl.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
         val mime = mimeType ?: resolved.mimeType ?: "application/octet-stream"
+        contexts.write(id, resolved.copy(
+            sourcePageUrl = sourcePageUrl ?: resolved.sourcePageUrl,
+            headers = resolved.headers + headers
+        ))
         dao.upsert(DownloadEntity(id, mediaUrl, finalTitle, mime, state = DownloadState.QUEUED))
         start(id, mediaUrl, finalTitle, mime)
         id
@@ -66,8 +73,27 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
     }
 
     suspend fun resume(id: String) = withContext(Dispatchers.IO) {
-        val item = dao.get(id) ?: return@withContext
+        var item = dao.get(id) ?: return@withContext
         if (item.state != DownloadState.PAUSED && item.state != DownloadState.FAILED) return@withContext
+        if (item.state == DownloadState.FAILED) {
+            // Signed CDN URLs expire. Re-extract the original page rather than retrying an obsolete token.
+            val saved = contexts.readMedia(id)
+            val page = saved?.sourcePageUrl
+            if (!page.isNullOrBlank() && page != item.sourceUrl) {
+                val quality = DownloadQuality.selectable.firstOrNull { it.height == saved?.detectedHeight }
+                    ?: DownloadQuality.P2160
+                resolver.resolveCancellable(page, quality)?.let { refreshed ->
+                    val mime = refreshed.mimeType ?: item.mimeType
+                    if (dao.refreshFailedSource(id, refreshed.url, mime) > 0) {
+                        contexts.write(id, refreshed)
+                        item = item.copy(sourceUrl = refreshed.url, mimeType = mime)
+                        // A partial file/validator belongs to the previous signed representation.
+                        java.io.File(context.filesDir, "downloads/$id.part").delete()
+                        java.io.File(context.filesDir, "downloads/$id.validator").delete()
+                    }
+                }
+            }
+        }
         if (item.isAdaptive) {
             if (dao.resumeIfStopped(id, DownloadState.DOWNLOADING) == 0) return@withContext
             if (item.state == DownloadState.FAILED) {
@@ -91,6 +117,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
     suspend fun remove(id: String) = withContext(Dispatchers.IO) {
         cancel(id)
         dao.delete(id)
+        contexts.remove(id)
     }
 
     private fun start(id: String, url: String, title: String, mime: String) {

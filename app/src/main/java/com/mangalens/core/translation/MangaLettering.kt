@@ -33,11 +33,34 @@ object MangaLettering {
                 (line.right.toInt() + padding + 1).coerceAtMost(rect.right),
                 (line.bottom.toInt() + padding + 1).coerceAtMost(rect.bottom))
             val fill = borderColor(image, line, padding)
-            canvas.drawRect((area.left - rect.left).toFloat(), (area.top - rect.top).toFloat(),
-                (area.right - rect.left).toFloat(), (area.bottom - rect.top).toFloat(), Paint().apply { color = fill })
+            val topColor = rowColor(image, area.left, area.right, (area.top - 1).coerceAtLeast(0))
+            val bottomColor = rowColor(image, area.left, area.right, area.bottom.coerceAtMost(image.height - 1))
+            // A subtle paper gradient is common in coloured captions. Reconstruct it from
+            // pixels outside the glyphs rather than leaving a conspicuous flat rectangle.
+            val smooth = distance(topColor, bottomColor) < 100 &&
+                distance(topColor, fill) < 100 && distance(bottomColor, fill) < 100
+            val paint = Paint()
+            for (y in area.top until area.bottom) {
+                paint.color = if (smooth) mix(topColor, bottomColor,
+                    (y - area.top + 1f) / (area.height() + 1f)) else fill
+                canvas.drawRect((area.left - rect.left).toFloat(), (y - rect.top).toFloat(),
+                    (area.right - rect.left).toFloat(), (y - rect.top + 1).toFloat(), paint)
+            }
         }
         return Patch(rect, patch, style)
     }
+
+    private fun rowColor(image: Bitmap, left: Int, right: Int, y: Int): Int {
+        val colors = (left until right step max(1, (right - left) / 80)).map { image.getPixel(it, y) }
+        if (colors.isEmpty()) return image.getPixel(left.coerceIn(0, image.width - 1), y)
+        fun median(channel: (Int) -> Int) = colors.map(channel).sorted()[colors.size / 2]
+        return Color.rgb(median(Color::red), median(Color::green), median(Color::blue))
+    }
+
+    private fun mix(a: Int, b: Int, fraction: Float): Int = Color.rgb(
+        (Color.red(a) + (Color.red(b) - Color.red(a)) * fraction).toInt(),
+        (Color.green(a) + (Color.green(b) - Color.green(a)) * fraction).toInt(),
+        (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * fraction).toInt())
 
     private fun borderColor(image: Bitmap, box: RectF, pad: Int): Int {
         val colors = mutableListOf<Int>()

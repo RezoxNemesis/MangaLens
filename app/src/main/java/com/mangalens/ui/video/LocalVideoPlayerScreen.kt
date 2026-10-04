@@ -13,6 +13,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -167,6 +169,8 @@ fun LocalVideoPlayerScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (controls) 76.dp else 8.dp)
         )
 
+        LiveAudioSubtitleOverlay(vm.speech, modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp).padding(bottom = if (controls) 90.dp else 24.dp))
+
         AnimatedVisibility(
             visible = controls,
             enter = fadeIn(tween(180)),
@@ -196,7 +200,9 @@ fun LocalVideoPlayerScreen(
 
         if (showTools) {
             ModalBottomSheet(onDismissRequest = { showTools = false }) {
-                Column(Modifier.fillMaxWidth().padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LiveAudioSubtitleSettings(vm.speech)
+                    HorizontalDivider()
                     Text("Video controls", style = MaterialTheme.typography.headlineSmall)
                     Text("Fit, crop, stretch and pinch zoom are applied directly to the Media3 PlayerView.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

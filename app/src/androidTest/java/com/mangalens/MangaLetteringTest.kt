@@ -46,6 +46,29 @@ class MangaLetteringTest {
         } finally { patch.background.recycle(); image.recycle() }
     }
 
+    @Test fun sourceRemovalReconstructsTintGradientAtImageEdges() {
+        val image = Bitmap.createBitmap(400, 180, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(image)
+        for (y in 0 until image.height) canvas.drawRect(0f, y.toFloat(), 400f, y + 1f,
+            Paint().apply { color = Color.rgb(210 + y / 8, 200 + y / 8, 180 + y / 8) })
+        val source = "DIALOGUE"
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 38f }
+        val glyph = Rect(); paint.getTextBounds(source, 0, source.length, glyph)
+        canvas.drawText(source, 0f, 100f, paint)
+        val bounds = RectF(glyph).apply { offset(0f, 100f) }
+        val patch = MangaLettering.prepare(image, bounds, listOf(bounds), source, false)
+        try {
+            val top = patch.background.getPixel(patch.background.width / 2, 1)
+            val bottom = patch.background.getPixel(patch.background.width / 2, patch.background.height - 2)
+            assertTrue("Gradient collapsed to a flat rectangle", Color.red(bottom) > Color.red(top))
+            for (y in 0 until patch.background.height) for (x in 0 until patch.background.width) {
+                val pixel = patch.background.getPixel(x, y)
+                assertTrue("Original dark text survived", Color.red(pixel) > 200)
+                assertEquals(255, Color.alpha(pixel))
+            }
+        } finally { patch.background.recycle(); image.recycle() }
+    }
+
     @Test fun whiteItalicOnDarkAndLongHindiStayInsideOriginalRegion() {
         val image = Bitmap.createBitmap(900, 300, Bitmap.Config.ARGB_8888)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 60f; typeface = Typeface.create("serif", Typeface.ITALIC) }

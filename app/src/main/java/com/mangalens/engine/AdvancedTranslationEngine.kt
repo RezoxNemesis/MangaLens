@@ -15,6 +15,8 @@ import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.TextRecognizer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -146,10 +148,49 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                 }
             }
             if (failures.size == candidates.size) throw failures.first()
-            results.maxByOrNull { it.sumOf { region -> region.source.length } } ?: emptyList()
+            var best = results.maxByOrNull(::recognitionScore) ?: emptyList()
+            // A larger pile of hallucinated letters is not a better OCR result. Retry faint/small
+            // lettering at a bounded higher resolution, then map geometry back to the source.
+            if (highAccuracy && (best.isEmpty() || best.any { it.textSize < 24f })) {
+                currentCoroutineContext().ensureActive()
+                val factor = minOf(2f, 2560f / bitmap.width, 4096f / bitmap.height)
+                if (factor > 1.1f) {
+                    val enhanced = Bitmap.createScaledBitmap(bitmap,
+                        (bitmap.width * factor).toInt(), (bitmap.height * factor).toInt(), true)
+                    try {
+                        val retry = createRecognizer(if (script == "AUTO") dominantScript(best) else script)
+                        val reread = try { recognizeWith(retry, enhanced) } finally { retry.close() }
+                        val mapped = reread.map { region -> region.copy(
+                            bounds = RectF(region.bounds.left / factor, region.bounds.top / factor,
+                                region.bounds.right / factor, region.bounds.bottom / factor),
+                            lineBounds = region.lineBounds.map { RectF(it.left / factor, it.top / factor, it.right / factor, it.bottom / factor) },
+                            textSize = region.textSize / factor
+                        ) }
+                        if (recognitionScore(mapped) > recognitionScore(best)) best = mapped
+                    } finally { enhanced.recycle() }
+                }
+            }
+            best.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
         } finally {
             candidates.forEach { it.close() }
         }
+    }
+
+    private fun recognitionScore(regions: List<TranslationRegion>): Double = regions.sumOf { region ->
+        val letters = region.source.count(Char::isLetterOrDigit)
+        val confidence = region.recognitionConfidence.takeIf { it > 0f } ?: .65f
+        val garbage = region.source.count { !it.isLetterOrDigit() && !it.isWhitespace() && it !in ".,!?…:;\"'‘’“”()[]-—、。！？「」" }
+        letters.coerceAtMost(240) * confidence.toDouble() - garbage * 2.0
+    }
+
+    private fun dominantScript(regions: List<TranslationRegion>): String = when (
+        regions.groupBy { it.sourceLanguage }.maxByOrNull { entry -> entry.value.sumOf { it.source.length } }?.key
+    ) {
+        LocalSourceLanguage.JAPANESE -> "JAPANESE"
+        LocalSourceLanguage.KOREAN -> "KOREAN"
+        LocalSourceLanguage.CHINESE -> "CHINESE"
+        LocalSourceLanguage.HINDI -> "DEVANAGARI"
+        else -> "LATIN"
     }
 
     private fun createRecognizer(script: String): TextRecognizer = when (script.uppercase(Locale.ROOT)) {

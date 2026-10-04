@@ -94,7 +94,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val chapterScraper = MangaChapterScraper(application)
     private val staticAcquirer = com.mangalens.core.acquisition.StaticChapterAcquirer()
     private val chapterCatalog = MangaChapterCatalogScraper(application)
-    private val mediaLinkResolver = MediaLinkResolver()
+    private val mediaLinkResolver = MediaLinkResolver(siteExtractor = com.mangalens.download.YtDlpSiteMediaExtractor(application))
     private val translator = TranslationService()
     val captchaBridge = CaptchaBridge()
 
@@ -282,7 +282,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                             )
                         } else {
                             val staticResolved = withContext(Dispatchers.IO) {
-                                runCatching { mediaLinkResolver.resolve(target) }.getOrNull()
+                                try { mediaLinkResolver.resolveCancellable(target) }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (_: Exception) { null }
                             }?.takeIf { resolved ->
                                 resolved.mimeType?.startsWith("video/") == true ||
                                     resolved.mimeType == "application/x-mpegURL" ||
@@ -395,51 +397,13 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
         translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
             _state.value = _state.value.copy(translating = true, error = null, translationError = false)
-            var bitmap: android.graphics.Bitmap? = null
             try {
-                bitmap = decodeForOcr(path) ?: error("Unable to decode page image")
-                val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
-                if (advancedRegions.isEmpty()) error("No readable text was detected on this page. Try a clearer, higher-resolution image.")
-                val style = currentTranslationStyle()
-                val chapterContext = _state.value.overlays.values.flatten().takeLast(8)
-                    .joinToString("\n") { it.translatedText }
-                val translated = advancedRegions.map { region ->
-                    val refined = recallTranslation(region.source, targetLanguage, style) ?: run {
-                        val draft = translator.translate(region.source, targetLanguage)
-                        orezRefiner.refine(
-                            region.source,
-                            draft,
-                            targetLanguage,
-                            style,
-                            chapterContext = chapterContext,
-                        ).also { rememberTranslation(region.source, it, targetLanguage, style) }
-                    }
-                    TranslationOverlay(
-                        region = com.mangalens.core.translation.OcrRegion(
-                            region.source,
-                            region.bounds.left.toInt(),
-                            region.bounds.top.toInt(),
-                            region.bounds.right.toInt(),
-                            region.bounds.bottom.toInt()
-                        ),
-                        translatedText = refined,
-                        textColorArgb = region.textColor,
-                        backgroundColorArgb = region.backgroundColor,
-                        fontSizePx = region.textSize,
-                        maxWidthPx = region.bounds.width(),
-                        imageWidthPx = bitmap.width,
-                        imageHeightPx = bitmap.height,
-                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE).getBoolean("preserve_style", true))
-                    )
-                }
-                kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                _state.value = _state.value.copy(translating = false, translationEnabled = true, overlays = _state.value.overlays + (page.index to translated))
+                translatePageInternal(page, targetLanguage, requireText = true)
+                _state.value = _state.value.copy(translating = false)
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
                 _state.value = _state.value.copy(translating = false, translationError = true, error = t.message ?: "Local OCR translation failed")
-            } finally {
-                bitmap?.recycle()
             }
         } }
     }
@@ -488,17 +452,22 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         } }
     }
 
-    private suspend fun translatePageInternal(page: ChapterPage, targetLanguage: String) {
+    private suspend fun translatePageInternal(page: ChapterPage, targetLanguage: String, requireText: Boolean = false) {
         val path = page.localPath ?: error("Page ${page.index} is not available locally")
         val bitmap = decodeForOcr(path) ?: error("Unable to decode page ${page.index}")
         try {
         val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
-        if (advancedRegions.isEmpty()) return // Artwork-only slices are normal in continuous chapters.
+        if (advancedRegions.isEmpty()) {
+            if (requireText) error("No readable text was detected on this page. Try a clearer, higher-resolution image.")
+            return // Artwork-only slices are normal in continuous chapters.
+        }
         val style = currentTranslationStyle()
         val chapterContext = _state.value.overlays.values.flatten().takeLast(12)
             .joinToString("\n") { it.translatedText }
-        val translated = advancedRegions.map { region ->
-            TranslationOverlay(
+        val translated = mutableListOf<TranslationOverlay>()
+        for (region in advancedRegions) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val overlay = TranslationOverlay(
                 region = com.mangalens.core.translation.OcrRegion(
                     region.source, region.bounds.left.toInt(), region.bounds.top.toInt(),
                     region.bounds.right.toInt(), region.bounds.bottom.toInt()
@@ -521,13 +490,15 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         imageHeightPx = bitmap.height,
                         patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE).getBoolean("preserve_style", true))
             )
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            translated += overlay
+            // Publish complete reconstructed bubbles immediately; never blank source text
+            // while its translation is still pending.
+            _state.value = _state.value.copy(
+                translationEnabled = true,
+                overlays = _state.value.overlays + (page.index to translated.toList())
+            )
         }
-        kotlinx.coroutines.currentCoroutineContext().ensureActive()
-        _state.value = _state.value.copy(
-            translating = true,
-            translationEnabled = true,
-            overlays = _state.value.overlays + (page.index to translated)
-        )
         } finally {
             bitmap.recycle()
         }

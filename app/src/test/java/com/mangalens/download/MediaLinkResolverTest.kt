@@ -47,6 +47,34 @@ class MediaLinkResolverTest {
         assertEquals("application/x-mpegURL", result.mimeType)
     }
 
+    @Test fun opaqueSignedVideoEndpointUsesContentTypeWithoutReadingWholeMedia() = fixture { server, resolver ->
+        server.enqueue(MockResponse().setHeader("Content-Type", "video/mp4").setBody("media bytes"))
+        val result = resolver.resolve(server.url("/play?id=1&token=secret").toString())!!
+        assertEquals("video/mp4", result.mimeType)
+        assertEquals(server.url("/play?id=1&token=secret").toString(), result.url)
+    }
+
+    @Test fun videoPageThumbnailIsNotReportedAsVideoDownload() = fixture { server, resolver ->
+        server.enqueue(MockResponse().setBody("<meta property='og:image' content='/poster.jpg'>"))
+        assertNull(resolver.resolve(server.url("/video/123").toString()))
+    }
+
+    @Test fun dedicatedExtractorFallbackIsActuallyInvoked() {
+        val server = MockWebServer().apply { start() }
+        var invoked = false
+        val extractor = SiteMediaExtractor { url, quality ->
+            invoked = true
+            assertEquals(DownloadQuality.P720, quality)
+            ResolvedMediaLink("https://cdn.example/player?id=1", "video/mp4", sourcePageUrl = url)
+        }
+        try {
+            server.enqueue(MockResponse().setBody("<title>Rendered player</title>"))
+            val result = MediaLinkResolver(siteExtractor = extractor).resolve(server.url("/watch").toString(), DownloadQuality.P720)!!
+            assertTrue(invoked)
+            assertEquals("https://cdn.example/player?id=1", result.url)
+        } finally { server.shutdown() }
+    }
+
     @Test fun emptyOrUnsupportedPageReturnsNoInventedMedia() = fixture { server, resolver ->
         for (html in listOf("", "<title>No media</title><p>A normal page</p>")) {
             server.enqueue(MockResponse().setBody(html))

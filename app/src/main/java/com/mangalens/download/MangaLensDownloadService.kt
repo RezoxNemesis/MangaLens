@@ -17,6 +17,9 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import okhttp3.OkHttpClient
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import kotlinx.coroutines.CoroutineScope
@@ -163,13 +166,20 @@ class MangaLensDownloadService : DownloadService(
         internal fun createManager(context: Context, dataSource: DataSource.Factory, executor: Executor): DownloadManager {
             val app = context.applicationContext
             val (provider, cache) = storage(app)
-            val created = DownloadManager(
-                app,
-                provider,
-                cache,
-                dataSource,
-                executor
-            )
+            val contexts = DownloadRequestContextStore(app)
+            val created = DownloadManager(app, DefaultDownloadIndex(provider), DownloaderFactory { request ->
+                val requestContext = contexts.read(request.id)
+                val upstream = if (requestContext == null) dataSource else {
+                    OkHttpDataSource.Factory(
+                        OkHttpClient.Builder().connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                            .addNetworkInterceptor(scopedDownloadHeaders(requestContext) { url -> android.webkit.CookieManager.getInstance().getCookie(url) }).build()
+                    )
+                }
+                DefaultDownloaderFactory(
+                    CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(upstream), executor
+                ).createDownloader(request)
+            })
             created.maxParallelDownloads = 1
 
             val dao = DownloadDatabase.get(app).downloads()
