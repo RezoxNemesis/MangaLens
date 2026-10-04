@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import java.net.URI
 
 @OptIn(UnstableApi::class)
 class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
@@ -74,7 +75,16 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
                 properties[name] = headerValue
             }
         }
-        referer?.takeIf { it.startsWith("http") }?.let { properties["Referer"] = it }
+        referer?.takeIf { it.startsWith("http") }?.let {
+            properties["Referer"] = it
+            runCatching { URI(it) }.getOrNull()?.let { uri ->
+                val scheme = uri.scheme
+                val host = uri.host
+                if (!scheme.isNullOrBlank() && !host.isNullOrBlank() && properties.keys.none { name -> name.equals("Origin", true) }) {
+                    properties["Origin"] = "$scheme://$host"
+                }
+            }
+        }
         val requestKey = buildString {
             append(value).append('\n')
             append(referer.orEmpty()).append('\n')
