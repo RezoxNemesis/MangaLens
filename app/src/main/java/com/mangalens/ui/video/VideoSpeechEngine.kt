@@ -227,6 +227,9 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             return inputAudioFormat
         }
         override fun queueInput(inputBuffer: ByteBuffer) {
+            // Media3 drains processors with EMPTY_BUFFER. BaseAudioProcessor reuses that
+            // same zero-capacity buffer, so attempting to put it into itself throws.
+            if (!inputBuffer.hasRemaining()) return
             val copy = inputBuffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
             if (enabled) {
                 if (epoch != generation) { epoch = generation; used = 0; phase = 0; accumulated = 0f; accumulatedFrames = 0; start = positionMs }
