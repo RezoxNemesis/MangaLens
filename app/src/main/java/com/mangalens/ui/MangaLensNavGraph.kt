@@ -49,7 +49,8 @@ fun MangaLensNavGraph(
     onChapterDetails: (String, Boolean, com.mangalens.core.reader.ReadingStatus) -> Unit,
     onTranslationPaused: (Boolean) -> Unit,
     onTranslationCancelled: () -> Unit,
-    onImportImages: (List<android.net.Uri>) -> Unit
+    onImportImages: (List<android.net.Uri>) -> Unit,
+    onResolvedVideo: (String, Map<String, String>, String) -> Unit
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
@@ -132,7 +133,33 @@ fun MangaLensNavGraph(
                 MangaContinuousReader(title = state.activeChapter?.title ?: "Chapter", chapterId = state.activeChapter?.id ?: "", initialPosition = state.activeChapter?.position ?: 0, initialOffset = state.activeChapter?.scrollOffset ?: 0, onPositionChanged = { id, position, offset -> onReadingPositionChanged(id, position, offset) }, loading = state.loading, pages = state.pages, translated = state.translationEnabled, translating = state.translating, error = state.error, overlays = state.overlays, targetLanguage = state.targetLanguage, onTargetLanguageChanged = onTargetLanguageChanged, translationStyle = state.translationStyle, onTranslationStyleChanged = onTranslationStyleChanged, onBack = { navController.popBackStack() }, onTranslate = onTranslateChapter, onDownload = onDownloadChapter, onMenu = { navController.navigate("settings") }, onRetry = { if (state.translationError) onTranslateChapter() else onIngest() }, onOpenWeb = { navController.navigate("web") }, onLongPressPage = onTranslatePage, modifier = Modifier.fillMaxSize())
             }
             composable("video") {
-                state.videoUrl?.let { NativeVideoPlayer(it, translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize(), onBack = { navController.popBackStack() }, onOpenWeb = { navController.navigate("web") }) }
+                state.videoUrl?.let {
+                    NativeVideoPlayer(
+                        it,
+                        translationEnabled = state.videoTranslationEnabled,
+                        modifier = Modifier.fillMaxSize(),
+                        onBack = { navController.popBackStack() },
+                        onOpenWeb = { navController.navigate("web") },
+                        sourcePageUrl = state.videoPageUrl,
+                        requestHeaders = state.videoHeaders
+                    )
+                } ?: Column(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                ) {
+                    if (state.loading) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(16.dp))
+                        Text("Resolving playable video…")
+                    } else {
+                        Text(state.error ?: "No playable stream has been detected yet.")
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { navController.navigate("web") }) { Text("Open source page") }
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = onIngest) { Text("Retry detection") }
+                    }
+                }
             }
             composable("local_video") {
                 LocalVideoGalleryScreen(
@@ -155,7 +182,25 @@ fun MangaLensNavGraph(
                 val raw = entry.arguments?.getString("uri").orEmpty()
                 LocalVideoPlayerScreen(initialUri = raw.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse), translationEnabled = state.videoTranslationEnabled, modifier = Modifier.fillMaxSize())
             }
-            composable("web") { AdBlockedWebScreen(state.url, translationEnabled = state.webTranslationEnabled, adBlockEnabled = state.adBlockEnabled, modifier = Modifier.fillMaxSize(), targetLanguage = state.targetLanguage, onOpenManga = { value -> onUrlChanged(value); onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") }) }
+            composable("web") {
+                AdBlockedWebScreen(
+                    state.url,
+                    translationEnabled = state.webTranslationEnabled,
+                    adBlockEnabled = state.adBlockEnabled,
+                    modifier = Modifier.fillMaxSize(),
+                    targetLanguage = state.targetLanguage,
+                    onOpenManga = { value ->
+                        onUrlChanged(value)
+                        onModeSelected(ContentType.IMAGE_CHAPTER)
+                        onIngest()
+                        navController.navigate("reader")
+                    },
+                    onOpenVideo = { media, sourcePage ->
+                        onResolvedVideo(media.url, media.headers, sourcePage)
+                        navController.navigate("video")
+                    }
+                )
+            }
         }
     }
 }
