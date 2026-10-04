@@ -92,7 +92,8 @@ object MangaLettering {
                         if (a || b) union++
                         if (a != b) mismatch++
                     }
-                    val score = mismatch.toFloat() / max(1, union)
+                    val aspectPenalty = abs(kotlin.math.ln((glyph.width().toFloat() / glyph.height()) / (box.width() / box.height())))
+                    val score = mismatch.toFloat() / max(1, union) + aspectPenalty * .5f
                     if (score < bestScore) { bestScore = score; best = Style(family, face, ink, box.height() * 40f / glyph.height()) }
                 }
             }

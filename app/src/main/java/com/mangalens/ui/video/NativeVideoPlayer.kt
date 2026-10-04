@@ -50,6 +50,7 @@ fun NativeVideoPlayer(
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
     if (VideoSourcePolicy.isSourcePage(url)) {
         com.mangalens.ui.web.AdBlockedWebScreen(url, translationEnabled = false,
+            adBlockEnabled = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getBoolean("ad_block_enabled", true),
             modifier = modifier, onClose = onBack)
         return
     }
