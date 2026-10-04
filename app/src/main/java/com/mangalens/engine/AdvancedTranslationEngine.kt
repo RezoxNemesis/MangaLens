@@ -273,7 +273,8 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         val letters = value.count(Char::isLetterOrDigit)
         if (letters == 0) return false
         val confidence = region.recognitionConfidence
-        if (confidence > 0f && confidence < .30f) return false
+        if (region.sourceLanguage == LocalSourceLanguage.ENGLISH &&
+            confidence > 0f && confidence < .30f) return false
         if (region.textSize < 6f) return false
 
         val acceptedPunctuation = ".,!?…:;\"'‘’“”()[]-—、。！？「」~"
