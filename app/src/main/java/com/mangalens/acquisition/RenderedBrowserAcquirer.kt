@@ -237,6 +237,17 @@ class RenderedBrowserAcquirer(
         if (listOf(".js", ".css", ".html", ".json", ".xml", ".woff", ".svg").any { lower.endsWith(it) }) {
             return false
         }
+        if (listOf(
+                "google.com/recaptcha",
+                "gstatic.com/recaptcha",
+                "hcaptcha.com/",
+                "challenges.cloudflare.com/",
+                "/cdn-cgi/challenge-platform/",
+                "cf-chl-",
+                "/captcha/",
+                "captcha.php"
+            ).any { lower.contains(it) }
+        ) return false
         return listOf(".jpg", ".jpeg", ".png", ".webp", ".avif", "chapter", "page", "upload", "manga", "cdn")
             .any { lower.contains(it) }
     }
