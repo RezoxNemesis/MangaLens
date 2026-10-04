@@ -43,9 +43,22 @@ fun LiveAudioSubtitleOverlay(engine: VideoSpeechEngine, modifier: Modifier = Mod
             delay(100)
         }
     }
-    if (displayed.isNotBlank()) Text(displayed,
-        modifier = modifier.background(Color.Black.copy(alpha = prefs.getFloat("opacity", .75f)), RoundedCornerShape(8.dp)).padding(10.dp),
-        color = Color.White, fontSize = prefs.getInt("font_size", 22).sp, textAlign = TextAlign.Center)
+    if (displayed.isNotBlank()) {
+        val size = prefs.getInt("font_size", 22)
+        Text(
+            displayed,
+            modifier = modifier
+                .widthIn(max = 920.dp)
+                .background(Color.Black.copy(alpha = prefs.getFloat("opacity", .75f)), RoundedCornerShape(8.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            color = Color.White,
+            fontSize = size.sp,
+            lineHeight = (size * 1.18f).sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+    }
 }
 
 @Composable
