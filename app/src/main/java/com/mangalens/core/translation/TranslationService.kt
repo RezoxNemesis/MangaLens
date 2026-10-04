@@ -67,20 +67,28 @@ class TranslationService {
     private suspend fun detectSource(text: String): String {
         if (text.any { it in '\u3040'..'\u30ff' }) return TranslateLanguage.JAPANESE
         if (text.any { it in '\uac00'..'\ud7af' }) return TranslateLanguage.KOREAN
-        if (text.any { it in '\u4e00'..'\u9fff' }) return TranslateLanguage.CHINESE
         if (text.any { it in '\u0900'..'\u097f' }) return TranslateLanguage.HINDI
         if (isRomanizedHindi(text)) return TranslateLanguage.HINDI
+
+        // Han-only dialogue is common in Japanese manga. Treating every Kanji-only
+        // bubble as Chinese causes confidently wrong translations, so let ML Kit's
+        // language identifier distinguish ja/zh first and use Chinese only as a
+        // conservative fallback when the identifier cannot decide.
+        val hasHan = text.any { it in '\u4e00'..'\u9fff' }
         return suspendCancellableCoroutine { continuation ->
             languageIdentifier.identifyLanguage(text)
                 .addOnSuccessListener { code ->
                     if (continuation.isActive) {
                         continuation.resume(
-                            TranslateLanguage.fromLanguageTag(code) ?: TranslateLanguage.ENGLISH
+                            TranslateLanguage.fromLanguageTag(code)
+                                ?: if (hasHan) TranslateLanguage.CHINESE else TranslateLanguage.ENGLISH
                         )
                     }
                 }
                 .addOnFailureListener {
-                    if (continuation.isActive) continuation.resume(TranslateLanguage.ENGLISH)
+                    if (continuation.isActive) {
+                        continuation.resume(if (hasHan) TranslateLanguage.CHINESE else TranslateLanguage.ENGLISH)
+                    }
                 }
         }
     }
