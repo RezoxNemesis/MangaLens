@@ -39,6 +39,7 @@ class AdaptiveDownloadRecoveryTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext.applicationContext as Application
         val assets = instrumentation.context.assets
+        val playlistBytes = assets.open("hls/playlist.m3u8").use { it.readBytes().size.toLong() }
         val certificate = HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").build()
         val serverTrust = HandshakeCertificates.Builder().heldCertificate(certificate).build()
         val clientTrust = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
@@ -119,7 +120,8 @@ class AdaptiveDownloadRecoveryTest {
             withTimeout(10_000) {
                 while (true) {
                     instrumentation.runOnMainSync { snapshot = nativeManager.currentDownloads.find { it.request.id == paused } }
-                    if ((snapshot?.bytesDownloaded ?: 0) > 0) break
+                    // HlsDownloader includes the cached playlist in its byte count.
+                    if ((snapshot?.bytesDownloaded ?: 0) > playlistBytes) break
                     delay(20)
                 }
             }
