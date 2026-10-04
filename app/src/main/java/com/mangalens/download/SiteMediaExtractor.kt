@@ -14,7 +14,7 @@ fun interface SiteMediaExtractor {
     fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink?
 }
 
-class YtDlpSiteMediaExtractor(context: Context) : SiteMediaExtractor {
+class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams: Boolean = false) : SiteMediaExtractor {
     private val app = context.applicationContext
 
     override fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink? {
@@ -30,13 +30,13 @@ class YtDlpSiteMediaExtractor(context: Context) : SiteMediaExtractor {
             addOption("--retries", "1")
             addOption("--extractor-retries", "1")
             // Select a muxed representation. A video-only DASH URL would lose the audio.
-            addOption("-f", "best[height<=${quality.height}]/worst")
+            addOption("-f", if (allowSeparateStreams) "bestvideo[height<=${quality.height}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=${quality.height}]" else "best[height<=${quality.height}]/worst")
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
         val timeout = timer.schedule({ YoutubeDL.destroyProcessById(processId) }, 90, TimeUnit.SECONDS)
         return try {
             val response = YoutubeDL.execute(request, processId = processId, callback = null)
-            SiteMediaInfoParser.parse(response.out, url)
+            SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)?.copy(requestedHeight = quality.height)
         } catch (failure: Exception) {
             if (failure is InterruptedException) throw failure
             throw IllegalArgumentException(
@@ -58,10 +58,24 @@ class YtDlpSiteMediaExtractor(context: Context) : SiteMediaExtractor {
 
 /** Kept separate from the native runtime so format/security decisions have JVM tests. */
 internal object SiteMediaInfoParser {
-    fun parse(json: String, sourcePage: String): ResolvedMediaLink? {
+    fun parse(json: String, sourcePage: String, allowSeparateStreams: Boolean = false): ResolvedMediaLink? {
         if (json.length > 16 * 1024 * 1024) return null
         val info = JSONObject(json)
         if (info.optString("_type") in setOf("playlist", "multi_video") || info.optBoolean("has_drm")) return null
+        val formats = info.optJSONArray("requested_formats")
+        if (allowSeparateStreams && formats?.length() == 2) {
+            val parts = (0 until formats.length()).map { formats.getJSONObject(it) }
+            if (parts.any { it.optBoolean("has_drm") }) return null
+            val video = parts.singleOrNull { it.optString("vcodec") != "none" && it.optString("acodec") == "none" } ?: return null
+            val audio = parts.singleOrNull { it.optString("vcodec") == "none" && it.optString("acodec") != "none" } ?: return null
+            if (video.optString("ext") != "mp4" || audio.optString("ext") !in setOf("m4a", "mp4")) return null
+            val videoUrl = video.optString("url").takeIf(::isWebUrl) ?: return null
+            val audioUrl = audio.optString("url").takeIf(::isWebUrl) ?: return null
+            return ResolvedMediaLink(videoUrl, "video/mp4", info.optString("extractor_key", "yt-dlp"),
+                detectedHeight = video.optInt("height").takeIf { it > 0 }, title = info.optString("title"),
+                sourcePageUrl = sourcePage, headers = safeHeaders(info) + safeHeaders(video),
+                audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio))
+        }
         if (info.optString("vcodec") == "none" || info.optString("acodec") == "none") return null
         // Never substitute one of requested_formats: those commonly contain separate tracks.
         if (info.optJSONArray("requested_formats")?.length()?.let { it > 1 } == true) return null
@@ -75,21 +89,25 @@ internal object SiteMediaInfoParser {
             info.optString("ext") == "mov" -> "video/quicktime"
             else -> "video/mp4"
         }
-        val headers = linkedMapOf<String, String>()
-        info.optJSONObject("http_headers")?.let { values ->
-            values.keys().forEach { key ->
-                if (key.lowercase() in setOf("user-agent", "referer", "accept", "cookie")) {
-                    val value = values.optString(key)
-                    if (value.length <= 16_384 && value.none { it < ' ' || it == '\u007f' }) headers[key] = value
-                }
-            }
-        }
+        val headers = safeHeaders(info)
         return ResolvedMediaLink(
             url = url, mimeType = mime, provider = info.optString("extractor_key", "yt-dlp"),
             detectedHeight = info.optInt("height", 0).takeIf { it > 0 },
             title = info.optString("title").takeIf { it.isNotBlank() },
             sourcePageUrl = sourcePage, headers = headers
         )
+    }
+
+    private fun safeHeaders(info: JSONObject): Map<String, String> {
+        val headers = linkedMapOf<String, String>()
+        info.optJSONObject("http_headers")?.let { values ->
+            values.keys().forEach { key ->
+                val value = values.optString(key)
+                if (key.lowercase() in setOf("user-agent", "referer", "accept", "cookie") &&
+                    value.length <= 16_384 && value.none { it < ' ' || it == '\u007f' }) headers[key] = value
+            }
+        }
+        return headers
     }
 
     private fun isWebUrl(value: String): Boolean = runCatching {

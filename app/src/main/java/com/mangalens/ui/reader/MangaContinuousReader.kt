@@ -37,6 +37,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -80,18 +86,32 @@ fun MangaContinuousReader(
     var controls by remember { mutableStateOf(false) }
     var styleMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    var positionRestored by remember(chapterId) { mutableStateOf(false) }
+    var positionRestored by rememberSaveable(chapterId) { mutableStateOf(false) }
     var originalVisible by remember { mutableStateOf(false) }
     var hudVisible by remember { mutableStateOf(true) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var panX by remember { mutableFloatStateOf(0f) }
-    var panY by remember { mutableFloatStateOf(0f) }
+    var scale by rememberSaveable(chapterId) { mutableFloatStateOf(1f) }
+    var panX by rememberSaveable(chapterId) { mutableFloatStateOf(0f) }
+    var panY by rememberSaveable(chapterId) { mutableFloatStateOf(0f) }
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var languageMenu by remember { mutableStateOf(false) }
     val currentPages by rememberUpdatedState(pages)
     val currentPositionCallback by rememberUpdatedState(onPositionChanged)
     val listState = rememberLazyListState()
+    val modeKey = "mode_" + title.substringBefore("Chapter", title).trim().ifBlank { chapterId }
+    var readingMode by rememberSaveable(chapterId) { mutableStateOf(prefs.getString(modeKey, prefs.getString("default_mode", "vertical")) ?: "vertical") }
+    var activePage by rememberSaveable(chapterId) { mutableIntStateOf(initialPosition.coerceAtLeast(0)) }
+    var activeOffset by rememberSaveable(chapterId) { mutableIntStateOf(initialOffset.coerceAtLeast(0)) }
+    val pagerState = rememberPagerState(initialPage = activePage.coerceIn(0, pages.lastIndex.coerceAtLeast(0))) { pages.size }
+    val currentMode by rememberUpdatedState(readingMode)
+    fun goToPage(position: Int) {
+        if (pages.isEmpty()) return
+        scope.launch {
+            val target = position.coerceIn(0, pages.lastIndex)
+            if (readingMode == "vertical") listState.animateScrollToItem(target)
+            else pagerState.animateScrollToPage(target)
+        }
+    }
     val transformState = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 4f)
         if (scale > 1f) {
@@ -101,24 +121,38 @@ fun MangaContinuousReader(
         hudVisible = true
     }
 
-    LaunchedEffect(chapterId) {
-        scale = 1f
-        autoScroll = false
-        originalVisible = false
-        if (pages.isNotEmpty()) listState.scrollToItem(initialPosition.coerceIn(0, pages.lastIndex), initialOffset)
+    LaunchedEffect(chapterId, readingMode, pages.isNotEmpty()) {
+        if (pages.isEmpty()) return@LaunchedEffect
+        val position = activePage.coerceIn(0, pages.lastIndex)
+        if (readingMode == "vertical") listState.scrollToItem(position, activeOffset)
+        else pagerState.scrollToPage(position)
         positionRestored = true
     }
-    LaunchedEffect(listState, chapterId) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .debounce(500)
-            .collect { (position, offset) -> if (positionRestored && currentPages.isNotEmpty()) currentPositionCallback(chapterId, position, offset) }
+    LaunchedEffect(chapterId, readingMode, positionRestored) {
+        if (!positionRestored) return@LaunchedEffect
+        snapshotFlow {
+            if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            else pagerState.settledPage to 0
+        }.debounce(300).collect { (position, offset) ->
+            if (currentPages.isNotEmpty()) {
+                activePage = position.coerceIn(0, currentPages.lastIndex)
+                activeOffset = offset
+                currentPositionCallback(chapterId, activePage, offset)
+            }
+        }
     }
-
+    var zoomPage by rememberSaveable(chapterId) { mutableIntStateOf(activePage) }
+    LaunchedEffect(pagerState.settledPage) {
+        if (readingMode != "vertical" && zoomPage != pagerState.settledPage) { scale = 1f; panX = 0f; panY = 0f; zoomPage = pagerState.settledPage }
+    }
     DisposableEffect(chapterId) { onDispose {
-        if (positionRestored && currentPages.isNotEmpty()) currentPositionCallback(chapterId, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+        if (positionRestored && currentPages.isNotEmpty()) {
+            val position = if (currentMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
+            currentPositionCallback(chapterId, position, if (currentMode == "vertical") listState.firstVisibleItemScrollOffset else 0)
+        }
     } }
     LaunchedEffect(autoScroll, speed) {
-        while (autoScroll) {
+        while (autoScroll && readingMode == "vertical") {
             listState.scrollBy(3.5f * speed)
             delay(16L)
         }
@@ -136,29 +170,56 @@ fun MangaContinuousReader(
             detectTapGestures(onTap = { hudVisible = !hudVisible })
         }
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize()
-                .statusBarsPadding().navigationBarsPadding().clipToBounds()
-                .transformable(transformState)
-                .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
-        ) {
-            items(pages, key = { it.index }) { page ->
-                Box(
-                    modifier = Modifier.fillMaxWidth().pointerInput(page.index) {
-                        detectTapGestures(onLongPress = { onLongPressPage(page) })
+        if (readingMode == "vertical") {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().clipToBounds()
+                    .transformable(transformState)
+                    .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
+            ) {
+                items(pages, key = { it.sourceUrl }) { page ->
+                    if (page.error != null) {
+                        PageLoadError(page, onRetry)
+                        return@items
                     }
-                ) {
-                    AsyncImage(
-                        model = page.localPath ?: page.sourceUrl,
-                        contentDescription = "Page ${page.index}",
-                        modifier = Modifier.fillMaxWidth(),
-                        contentScale = ContentScale.FillWidth
-                    )
-                    if (translated && !originalVisible) MangaTranslationOverlay(
-                        overlays = overlays[page.index].orEmpty(),
-                        textScale = textScale, modifier = Modifier.matchParentSize()
-                    )
+                    Box(Modifier.fillMaxWidth().pointerInput(page.sourceUrl) {
+                        detectTapGestures(onTap = { hudVisible = !hudVisible },
+                            onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
+                            onLongPress = { onLongPressPage(page) })
+                    }) {
+                        AsyncImage(model = page.localPath ?: page.sourceUrl,
+                            contentDescription = "Page ${page.index}", modifier = Modifier.fillMaxWidth(),
+                            contentScale = ContentScale.FillWidth)
+                        if (translated && !originalVisible) MangaTranslationOverlay(
+                            overlays = overlays[page.index].orEmpty(), textScale = textScale, modifier = Modifier.matchParentSize())
+                    }
+                }
+            }
+        } else {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                HorizontalPager(state = pagerState, reverseLayout = readingMode == "rtl", beyondViewportPageCount = 1,
+                    userScrollEnabled = scale <= 1f, modifier = Modifier.fillMaxSize()) { position ->
+                    val page = pages[position]
+                    if (page.error != null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { PageLoadError(page, onRetry) }
+                        return@HorizontalPager
+                    }
+                    FittedMangaPage(page, modifier = Modifier.fillMaxSize().clipToBounds()
+                        .transformable(transformState)
+                        .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
+                        .pointerInput(page.sourceUrl, readingMode) {
+                            detectTapGestures(onTap = { tap ->
+                                if (scale > 1f || tap.x in size.width * .25f..size.width * .75f) hudVisible = !hudVisible
+                                else {
+                                    val next = (tap.x > size.width / 2) != (readingMode == "rtl")
+                                    goToPage(position + if (next) 1 else -1)
+                                }
+                            }, onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
+                                onLongPress = { onLongPressPage(page) })
+                        }) {
+                        if (translated && !originalVisible) MangaTranslationOverlay(
+                            overlays = overlays[page.index].orEmpty(), textScale = textScale, modifier = Modifier.matchParentSize())
+                    }
                 }
             }
         }
@@ -201,7 +262,7 @@ fun MangaContinuousReader(
                     androidx.compose.material3.IconButton(onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
                     Column(Modifier.weight(1f)) {
                         Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Page ${if (pages.isEmpty()) 0 else listState.firstVisibleItemIndex + 1} / ${pages.size}", style = MaterialTheme.typography.labelSmall)
+                        Text("Page ${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelSmall)
                     }
                     Row {
                         if (translated) Text("Translated", color = MaterialTheme.colorScheme.secondary)
@@ -220,16 +281,30 @@ fun MangaContinuousReader(
             Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton({ scope.launch { listState.animateScrollToItem((listState.firstVisibleItemIndex - 1).coerceAtLeast(0)) } }, enabled = pages.isNotEmpty() && listState.firstVisibleItemIndex > 0) { Text("‹ Prev") }
-                        Text("${if (pages.isEmpty()) 0 else listState.firstVisibleItemIndex + 1} / ${pages.size}", style = MaterialTheme.typography.labelMedium)
-                        TextButton({ scope.launch { listState.animateScrollToItem((listState.firstVisibleItemIndex + 1).coerceAtMost(pages.lastIndex)) } }, enabled = pages.isNotEmpty() && listState.firstVisibleItemIndex < pages.lastIndex) { Text("Next ›") }
+                        TextButton({ goToPage(activePage - 1) }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
+                        Text("${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelMedium)
+                        TextButton({ goToPage(activePage + 1) }, enabled = pages.isNotEmpty() && activePage < pages.lastIndex) { Text("Next ›") }
                     }
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(pages, key = { it.index }) { page ->
-                            AsyncImage(page.localPath ?: page.sourceUrl, "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { scope.launch { listState.animateScrollToItem(pages.indexOf(page)) } }, contentScale = ContentScale.Crop)
+                            AsyncImage(page.localPath ?: page.sourceUrl, "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page)) }, contentScale = ContentScale.Crop)
                         }
                     }
                     if (controls) {
+                        Text("Reading mode", style = MaterialTheme.typography.titleSmall)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL").forEach { (mode, label) ->
+                                androidx.compose.material3.FilterChip(selected = readingMode == mode, onClick = {
+                                    activePage = if (readingMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
+                                    activeOffset = if (readingMode == "vertical") listState.firstVisibleItemScrollOffset else 0
+                                    positionRestored = false
+                                    autoScroll = false
+                                    scale = 1f; panX = 0f; panY = 0f
+                                    readingMode = mode
+                                    prefs.edit().putString(modeKey, mode).putString("default_mode", mode).apply()
+                                }, label = { Text(label) })
+                            }
+                        }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Translation", style = MaterialTheme.typography.titleSmall)
                             androidx.compose.material3.Switch(translated && !originalVisible, { enabled -> if (enabled) { originalVisible = false; if (!translated) onTranslate() } else originalVisible = true })
@@ -251,7 +326,7 @@ fun MangaContinuousReader(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(onTranslate, enabled = !translating && pages.isNotEmpty()) { Text(if (translating) "Translating…" else "Translate") }
                         TextButton({ originalVisible = !originalVisible }) { Text(if (originalVisible) "Translation" else "Original") }
-                        TextButton({ autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause scroll" else "Auto-scroll") }
+                        if (readingMode == "vertical") TextButton({ autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause scroll" else "Auto-scroll") }
                         if (controls) { TextButton(onDownload) { Text("Download") }; TextButton(onMenu) { Text("More settings") } }
                     }
                     if (languageMenu) {
@@ -270,5 +345,34 @@ fun MangaContinuousReader(
                 }
             }
         }
+    }
+}
+
+/** Keep overlays in image coordinates, including letterboxing in paged mode. */
+@Composable
+private fun FittedMangaPage(page: ChapterPage, modifier: Modifier, overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    val ratio by produceState(1f, page.localPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            page.localPath?.let { android.graphics.BitmapFactory.decodeFile(it, options) }
+            if (options.outWidth > 0 && options.outHeight > 0) options.outWidth.toFloat() / options.outHeight else 1f
+        }
+    }
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val width = minOf(maxWidth, maxHeight * ratio)
+        val height = width / ratio
+        Box(Modifier.size(width, height)) {
+            AsyncImage(page.localPath ?: page.sourceUrl, "Page ${page.index}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            overlay()
+        }
+    }
+}
+
+@Composable
+private fun PageLoadError(page: ChapterPage, retry: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Page ${page.index} could not load", style = MaterialTheme.typography.titleMedium)
+        Text(page.error.orEmpty(), style = MaterialTheme.typography.bodySmall)
+        TextButton(retry) { Text("Retry page loading") }
     }
 }

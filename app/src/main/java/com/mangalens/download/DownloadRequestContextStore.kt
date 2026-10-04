@@ -18,6 +18,9 @@ internal class DownloadRequestContextStore(context: Context) {
             .put("headers", JSONObject(media.headers))
             .put("mime", media.mimeType ?: JSONObject.NULL)
             .put("height", media.detectedHeight ?: JSONObject.NULL)
+            .put("audioUrl", media.audioUrl ?: JSONObject.NULL)
+            .put("audioHeaders", JSONObject(media.audioHeaders))
+            .put("requestedHeight", media.requestedHeight ?: JSONObject.NULL)
         val temp = File(directory, "$id.tmp")
         temp.writeText(json.toString())
         check(temp.renameTo(File(directory, "$id.json"))) { "Unable to persist download request context" }
@@ -37,7 +40,10 @@ internal class DownloadRequestContextStore(context: Context) {
             val headers = values.keys().asSequence().associateWith { values.optString(it) }
             ResolvedMediaLink(json.getString("url"), json.optString("mime").takeIf { it != "null" },
                 detectedHeight = json.optInt("height", 0).takeIf { it > 0 },
-                sourcePageUrl = json.optString("page").takeIf { it != "null" }, headers = headers)
+                sourcePageUrl = json.optString("page").takeIf { it != "null" }, headers = headers,
+                audioUrl = json.optString("audioUrl").takeIf { it.isNotBlank() && it != "null" },
+                audioHeaders = json.optJSONObject("audioHeaders")?.let { h -> h.keys().asSequence().associateWith { h.optString(it) } }.orEmpty(),
+                requestedHeight = json.optInt("requestedHeight").takeIf { it > 0 })
         }.getOrNull()
     }
 

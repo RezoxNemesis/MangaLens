@@ -53,10 +53,14 @@ class OrezAiViewModel @JvmOverloads constructor(app:android.app.Application,
                 val targetLanguage = getApplication<android.app.Application>()
                     .getSharedPreferences("mangalens_preferences", android.content.Context.MODE_PRIVATE)
                     .getString("translation_target", "hi") ?: "hi"
-                val answer = (answerRequest ?: brain::answer)(input, OrezContext(recentMessages=recent,targetLanguage=targetLanguage))
+                val answer = kotlinx.coroutines.withTimeoutOrNull(60_000L) {
+                    (answerRequest ?: brain::answer)(input, OrezContext(recentMessages=recent,targetLanguage=targetLanguage))
+                } ?: OrezBrainResponse("This reply took too long. Try a shorter question or retry when the device has more free memory.", OrezIntent.GENERAL)
                 currentCoroutineContext().ensureActive()
                 val sources = answer.sources.distinct().filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl).take(6)
-                dao.insert(OrezMessageEntity(role="OREZ",text=answer.text + if (sources.isEmpty()) "" else "\n\nSources:\n" + sources.joinToString("\n")))
+                val resultText = answer.text + (if (sources.isEmpty()) "" else "\n\nSources:\n" + sources.joinToString("\n")) +
+                    (if (answer.videos.isEmpty()) "" else OrezVideoResultCodec.MARKER + OrezVideoResultCodec.encode(answer.videos))
+                dao.insert(OrezMessageEntity(role="OREZ",text=resultText))
             }catch(t:Throwable){
                 if(t is kotlinx.coroutines.CancellationException) throw t
                 dao.insert(OrezMessageEntity(role="OREZ",text="I hit a recoverable error: "+(t.message?:"unknown error")+". Please try again."))
@@ -109,7 +113,17 @@ fun OrezAiScreen(vm: OrezAiViewModel = viewModel(), library: List<com.mangalens.
                     Card(Modifier.widthIn(max = 340.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = if (message.role == "YOU") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text(message.role, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                            Text(message.text.substringBefore("\n\nSources:"))
+                            Text(message.text.substringBefore("\n\nSources:").substringBefore(OrezVideoResultCodec.MARKER))
+                            OrezVideoResultCodec.fromMessage(message.text).forEach { video ->
+                                video.thumbnail?.let { coil.compose.AsyncImage(it, video.title, Modifier.fillMaxWidth().height(150.dp), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+                                Text(video.title, style = MaterialTheme.typography.titleSmall)
+                                Text(listOfNotNull(video.creator.takeIf { it.isNotBlank() }, video.durationSeconds?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" }, video.uploadDate).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                                if (video.description.isNotBlank()) Text(video.description, maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                                Row {
+                                    TextButton({ onRoute(video.url, OrezRoute.WEB_VIEW) }) { Text("Open") }
+                                    TextButton({ onRoute(video.url, OrezRoute.VIDEO_PLAYER) }) { Text("Play") }
+                                }
+                            }
                             if (message.text.contains("\n\nSources:")) message.text.substringAfter("\n\nSources:").lineSequence().map { it.trim() }.filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl).take(6).forEach { url ->
                                 TextButton({ runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) } }) { Text(java.net.URI(url).host ?: "Source", maxLines = 1) }
                             }

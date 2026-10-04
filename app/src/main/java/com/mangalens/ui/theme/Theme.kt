@@ -11,6 +11,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
@@ -20,11 +23,11 @@ object MangaLensDesignTokens {
     val LightSurfaceBorder = Color(0xFFE0E0E6)
     val LightTextPrimary = Color(0xFF111111)
     val LightTextSecondary = Color(0xFF66666D)
-    val DarkBackground = Color(0xFF0A0A0A)
-    val DarkSurface = Color(0xFF121212)
-    val DarkSurfaceBorder = Color(0xFF22222A)
+    val DarkBackground = Color(0xFF0B0D14)
+    val DarkSurface = Color(0xFF151923)
+    val DarkSurfaceBorder = Color(0xFF303646)
     val DarkTextPrimary = Color(0xFFFFFFFF)
-    val DarkTextSecondary = Color(0xFFA0A0B0)
+    val DarkTextSecondary = Color(0xFFAFB8CB)
     val Primary = Color(0xFFD91936)
     val LogoViolet = Color(0xFF7C4DFF)
     val LogoCyan = Color(0xFF00E5FF)
@@ -34,10 +37,10 @@ object MangaLensDesignTokens {
 private val LightColors = lightColorScheme(
     primary = MangaLensDesignTokens.Primary,
     secondary = MangaLensDesignTokens.Secondary,
-    primaryContainer = Color(0xFF480A16),
-    onPrimaryContainer = Color(0xFFFFD9DF),
-    secondaryContainer = Color(0xFF2B111A),
-    onSecondaryContainer = Color(0xFFFFD9DF),
+    primaryContainer = Color(0xFFFFD9DF),
+    onPrimaryContainer = Color(0xFF480A16),
+    secondaryContainer = Color(0xFFFFE8ED),
+    onSecondaryContainer = Color(0xFF2B111A),
     background = MangaLensDesignTokens.LightBackground,
     surface = MangaLensDesignTokens.LightSurface,
     surfaceVariant = MangaLensDesignTokens.LightSurfaceBorder,
@@ -71,7 +74,11 @@ val MangaLensTypography = Typography(
     headlineLarge = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(30f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
     headlineMedium = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(26f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
     titleLarge = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(22f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-    titleMedium = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(17f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+    titleMedium = androidx.compose.ui.text.TextStyle(fontSize = androidx.compose.ui.unit.TextUnit(17f, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 21.sp),
+    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 18.sp),
+    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
 )
 
 @Composable

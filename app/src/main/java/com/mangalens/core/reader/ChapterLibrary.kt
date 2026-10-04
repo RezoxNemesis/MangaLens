@@ -38,7 +38,7 @@ class ChapterLibrary(context: Context) {
             .put("updatedAt", chapter.updatedAt).put("bookmarked", chapter.bookmarked).put("readingStatus", chapter.readingStatus.name)
             .put("pages", JSONArray().apply {
                 chapter.pages.forEach { page -> put(JSONObject().put("index", page.index)
-                    .put("source", page.sourceUrl).put("file", page.localPath?.let { File(it).name })) }
+                    .put("source", page.sourceUrl).put("file", page.localPath?.let { File(it).name }).put("error", page.error)) }
             })
         val atomic = AtomicFile(File(directory, chapter.id + ".json"))
         val stream = atomic.startWrite()
@@ -68,9 +68,10 @@ class ChapterLibrary(context: Context) {
                 val row = pages.getJSONObject(index)
                 val name = row.optString("file")
                 // Manifests cannot resolve paths outside the managed image directory.
-                if (name.isBlank() || name != File(name).name) null else {
+                if (name.isBlank() || name == "null") ChapterPage(row.getInt("index"), row.getString("source"), error = row.optString("error", "Page needs to be downloaded. Retry."))
+                else if (name != File(name).name) null else {
                     val image = File(images, name)
-                    if (!image.isFile || image.length() == 0L) null else ChapterPage(row.getInt("index"), row.getString("source"), image.absolutePath)
+                    if (!image.isFile || image.length() == 0L) ChapterPage(row.getInt("index"), row.getString("source"), error = "Saved page is missing. Retry the source.") else ChapterPage(row.getInt("index"), row.getString("source"), image.absolutePath)
                 }
             }, json.optInt("position").coerceAtLeast(0), json.optInt("offset").coerceAtLeast(0), json.optLong("updatedAt"), json.optBoolean("bookmarked"),
             ReadingStatus.entries.firstOrNull { it.name == json.optString("readingStatus") } ?: ReadingStatus.READING)

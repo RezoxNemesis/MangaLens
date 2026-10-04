@@ -19,6 +19,11 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     suspend fun answer(prompt: String, recent: List<OrezMessageEntity>): String? = withContext(Dispatchers.Default) {
         val file: File = manager.modelFile
         if (!file.exists() || file.length() < OrezModelManager.MODEL_BYTES) return@withContext null
+        if (!engine.isLoaded) {
+            val info = android.app.ActivityManager.MemoryInfo()
+            (manager.context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(info)
+            if (info.lowMemory || info.availMem < file.length() + 192L * 1024 * 1024) return@withContext null
+        }
         if (!engine.load(file.absolutePath)) return@withContext null
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
@@ -26,7 +31,9 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             "<|im_start|>$role\n${message.text}\n<|im_end|>"
         }.takeLast(9000)
 
-        val examples = runCatching { packStore.search(prompt, 3) }.getOrDefault(emptyList())
+        val examples = try { packStore.search(prompt, 3) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { emptyList() }
         val retrieval = examples.joinToString("\n\n") {
             "REFERENCE EXAMPLE [" + it.domain + "]:\nUser: " + it.prompt.take(1200) + "\nAssistant: " + it.response.take(1800)
         }.take(6000)

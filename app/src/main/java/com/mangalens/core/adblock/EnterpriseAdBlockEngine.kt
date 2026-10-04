@@ -17,7 +17,6 @@ class EnterpriseAdBlockEngine(
     ): WebResourceResponse? {
         val safeRequest = request ?: return null
         val destination = safeRequest.requestHeaders["Sec-Fetch-Dest"].orEmpty().lowercase()
-        if (destination in setOf("beacon", "object", "track")) return emptyResponse()
         return base.shouldBlockRequest(safeRequest.url.toString())
     }
 
@@ -44,10 +43,10 @@ class EnterpriseAdBlockEngine(
           window.__mangalensEnterpriseAdGuard = true;
           const deny = /(batery|battery|esbal|casino|slot|gambl|popup|popunder|interstitial|advert|sponsor)/i;
           const selectors = [
-            '[id*="ad" i]','[class*="ad-" i]','[class*="-ad" i]',
+            '[id="ad" i]','[id^="ad-" i]','[class~="ad" i]','[class~="ads" i]','[class*="ad-banner" i]',
             '[class*="popup" i]','[class*="popunder" i]',
             '[class*="interstitial" i]','[class*="overlay-ad" i]',
-            'iframe[src*="ad" i]','iframe[src*="bet" i]'
+            'iframe[src*="doubleclick.net" i]','iframe[src*="googlesyndication.com" i]'
           ];
           function remove(root) {
             if (!root || root.nodeType !== 1) return;
@@ -56,10 +55,7 @@ class EnterpriseAdBlockEngine(
             matched.concat(descendants).forEach(function(el) {
               if (el.tagName !== 'IMG' && el.tagName !== 'VIDEO') el.remove();
             });
-            if (root.textContent && deny.test(root.textContent) && root.children.length < 8) {
-              const rect = root.getBoundingClientRect();
-              if (rect.width > 120 && rect.height > 40 && rect.height < window.innerHeight * .75) root.remove();
-            }
+
           }
           remove(document.documentElement);
           const observer = new MutationObserver(function(mutations) {

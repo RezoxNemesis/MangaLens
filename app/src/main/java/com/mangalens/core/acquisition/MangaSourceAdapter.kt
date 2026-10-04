@@ -14,17 +14,22 @@ interface MangaSourceAdapter {
 
 /** Conservative HTML fallback: only chapter reader containers supply pages, never site logos. */
 class GenericMangaSourceAdapter : MangaSourceAdapter {
+    companion object {
+        const val READER_SELECTORS = ".reading-content, .reader-area, .chapter-content, #readerarea, #chapter-images, .manga-reader, #reader, .chapter-reader, .reader-container, .pages, .page-container"
+    }
     override val id = "generic-html-v1"
     private val chapterPattern = Regex("(?i)(chapter|chap|episode|ep)[/ _-]*(\\d+(?:\\.\\d+)?)")
     override fun parse(html: String, sourceUrl: String): SourceContent {
         require(html.length <= 1_500_000) { "Source page is too large for lightweight extraction." }
         require(UrlEngineRouter.isSafeWebUrl(sourceUrl))
         val document = Jsoup.parse(html, sourceUrl)
-        val readers = document.select(".reading-content, .reader-area, .chapter-content, #readerarea, #chapter-images, .manga-reader")
+        val readers = document.select(READER_SELECTORS)
         val pages = readers.select("img").mapNotNull { image ->
+            if (image.parents().any { it.hasClass("advertisement") || it.hasClass("ads") || it.hasClass("recommendations") }) return@mapNotNull null
+            val description = image.attr("alt") + " " + image.className() + " " + image.id()
             listOf("data-src", "data-original", "data-lazy-src", "src").asSequence()
                 .map { image.absUrl(it).trim().substringBefore('#') }
-                .firstOrNull(UrlEngineRouter::isSafeWebUrl)
+                .firstOrNull { ChapterImagePolicy.accepts(it, description) }
         }.distinct().take(3000)
         val host = URI(sourceUrl).host
         val chapters = document.select("a[href]").asSequence().mapNotNull { link ->

@@ -36,6 +36,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             throw cancelled
         } catch (e: IOException) {
             if (runAttemptCount < MAX_RETRIES) {
+                dao.stageIfActive(id, "Waiting to retry network transfer (${runAttemptCount + 1}/$MAX_RETRIES)")
                 Result.retry()
             } else {
                 markFailed(id, e.message ?: "Network failure")
@@ -51,6 +52,8 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         if (dao.get(id) == null) throw CancellationException("Download was removed")
         val temp = File(applicationContext.filesDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
 
+        val metadata = DownloadRequestContextStore(applicationContext).readMedia(id)
+        dao.stageIfActive(id, "Downloading video")
         val validatorFile = File(temp.parentFile, "$id.validator")
         var lastPersistAt = 0L
         var lastPersistBytes = -PROGRESS_BYTES
@@ -73,17 +76,43 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
 
         currentCoroutineContext().ensureActive()
         check(temp.length() > 0L) { "The downloaded file is empty." }
-        val uri = publish(temp, title, mime)
+        var publication = temp
+        val audio = File(temp.parentFile, "$id.audio.part")
+        val audioValidator = File(temp.parentFile, "$id.audio.validator")
+        val muxed = File(temp.parentFile, "$id.muxed.mp4")
+        metadata?.audioUrl?.let { audioUrl ->
+            dao.stageIfActive(id, "Downloading audio")
+            val audioClient = HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(
+                com.mangalens.ui.video.MediaRequestContext(audioUrl, metadata.sourcePageUrl, metadata.audioHeaders)
+            ) { actual -> android.webkit.CookieManager.getInstance().getCookie(actual) }).build()
+            ResumableMediaTransfer(audioClient).download(audioUrl, audio, audioValidator) { done, total ->
+                persistProgress(id, temp.length() + done, if (total > 0) temp.length() + total else -1)
+            }
+            currentCoroutineContext().ensureActive()
+            dao.stageIfActive(id, "Muxing video and audio")
+            val jobContext = currentCoroutineContext()
+            LocalMediaMuxer.mux(temp, audio, muxed) { jobContext.ensureActive() }
+            publication = muxed
+        }
+        dao.stageIfActive(id, "Checking media quality")
+        val actualHeight = if (mime.startsWith("video/")) LocalMediaMuxer.videoHeight(publication, metadata?.audioUrl != null) else null
+        metadata?.requestedHeight?.let { ceiling ->
+            check(actualHeight == null || actualHeight <= ceiling) { "Source output is ${actualHeight}p, above the selected ${ceiling}p ceiling." }
+        }
+        val qualityNote = if (actualHeight != null && metadata?.requestedHeight != null && actualHeight < metadata.requestedHeight)
+            "Completed at ${actualHeight}p; source selection was below the ${metadata.requestedHeight}p ceiling." else "Completed and media checked"
+        val uri = publish(publication, title, mime)
         try {
             currentCoroutineContext().ensureActive()
-            if (dao.completeIfActive(id, uri.toString(), temp.length()) == 0) {
+            if (dao.completeIfActive(id, uri.toString(), publication.length()) == 0) {
                 throw CancellationException("Download stopped before publication")
             }
         } catch (failure: Throwable) {
             applicationContext.contentResolver.delete(uri, null, null)
             throw failure
         }
-        temp.delete()
+        dao.completedDetails(id, actualHeight, qualityNote)
+        temp.delete(); audio.delete(); muxed.delete(); audioValidator.delete()
         validatorFile.delete()
     }
 

@@ -12,6 +12,7 @@ import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import android.webkit.CookieManager
@@ -39,14 +40,19 @@ class ProgressiveChapterRepository(
         val jobContext = currentCoroutineContext()
         jobContext.ensureActive()
         val file = File(chapterDir, index.toString() + "_" + sha256(sourceUrl) + ".img")
-        if (file.length() == 0L) file.delete()
+        require(com.mangalens.core.acquisition.ChapterImagePolicy.accepts(sourceUrl)) { "Non-chapter verification or placeholder image excluded." }
+        if (file.isFile && runCatching { validateImage(file, remote = true) }.isFailure) file.delete()
         if (!file.isFile) {
             val temp = File(chapterDir, file.name + ".part")
             temp.delete()
             try {
-                client.newCall(Request.Builder().url(sourceUrl).apply {
+                val call = client.newCall(Request.Builder().url(sourceUrl).apply {
                     referrer?.takeIf { it.startsWith("https://") || it.startsWith("http://") }?.let { header("Referer", it.substringBefore('#')) }
-                }.build()).execute().use { response ->
+                }.build())
+                val watcher = kotlinx.coroutines.CoroutineScope(jobContext).launch {
+                    try { kotlinx.coroutines.awaitCancellation() } finally { call.cancel() }
+                }
+                try { call.execute().use { response ->
                     check(response.isSuccessful) { "Page download failed: HTTP " + response.code }
                     val body = response.body ?: error("Empty image response")
                     val declaredLength = body.contentLength()
@@ -59,8 +65,9 @@ class ProgressiveChapterRepository(
                         }
                     }
                 }
+                } finally { watcher.cancel() }
                 check(temp.length() > 0L) { "Downloaded chapter page is empty." }
-                validateImage(temp)
+                validateImage(temp, remote = true)
                 if (!temp.renameTo(file)) {
                     temp.copyTo(file, overwrite = true)
                     temp.delete()
@@ -79,9 +86,16 @@ class ProgressiveChapterRepository(
 
     suspend fun persistDiscoveredPages(urls: List<String>, referrer: String? = null): List<ChapterPage> {
         val result = mutableListOf<ChapterPage>()
-        urls.distinct().forEachIndexed { index, url ->
-            result += persistPage(index + 1, url, referrer)
+        urls.distinct().filter { com.mangalens.core.acquisition.ChapterImagePolicy.accepts(it) }.forEachIndexed { index, url ->
+            try { result += persistPage(index + 1, url, referrer) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                val failed = ChapterPage(index + 1, url, error = failure.message ?: "Page could not load. Retry to recover.")
+                result += failed
+                _pages.value = result.toList()
+            }
         }
+        _pages.value = result.toList()
         return result
     }
 
@@ -121,10 +135,11 @@ class ProgressiveChapterRepository(
     fun clearChapterCache() { _pages.value = emptyList() }
     fun restorePages(pages: List<ChapterPage>) { _pages.value = pages }
 
-    private fun validateImage(file: File) {
+    private fun validateImage(file: File, remote: Boolean = false) {
         val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "The page is not a supported image. Open the source in Web mode or choose another image." }
+        if (remote) check(bounds.outWidth >= 100 && bounds.outHeight >= 100) { "Tiny loading/placeholder image excluded; retry the source." }
         check(bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) { "The image is too large to decode safely." }
     }
 

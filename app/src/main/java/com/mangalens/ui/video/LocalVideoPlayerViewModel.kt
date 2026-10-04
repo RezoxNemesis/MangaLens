@@ -19,6 +19,11 @@ import androidx.media3.ui.PlayerView
 
 @OptIn(UnstableApi::class)
 class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
+    private val positions = app.getSharedPreferences("mangalens_video_positions", 0)
+    private fun positionKey(value: Uri) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toString().toByteArray()).joinToString("") { "%02x".format(it) }
+    private fun savePosition() {
+        uri?.let { if (player.currentPosition > 0) positions.edit().putLong(positionKey(it), player.currentPosition).apply() }
+    }
     val speech = VideoSpeechEngine(app, viewModelScope)
     private val speechListener = object : androidx.media3.common.Player.Listener {
         override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
@@ -59,7 +64,8 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         player.addListener(speechListener)
         viewModelScope.launch {
             runCatching { speech.loadInstalled() }
-            while (isActive) { speech.positionMs = player.currentPosition; delay(100) }
+            var ticks = 0
+            while (isActive) { speech.positionMs = player.currentPosition; if (++ticks % 20 == 0) savePosition(); delay(100) }
         }
     }
 
@@ -68,9 +74,10 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun open(value: Uri) {
         if (uri == value && player.mediaItemCount > 0) return
+        savePosition()
         uri = value
         httpRequestKey = null
-        player.setMediaItem(MediaItem.fromUri(value))
+        player.setMediaItem(MediaItem.fromUri(value), positions.getLong(positionKey(value), 0L))
         player.prepare()
         player.playWhenReady = true
     }
@@ -88,11 +95,12 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         if (httpRequestKey == requestKey && player.mediaItemCount > 0) return
+        savePosition()
         uri = Uri.parse(value)
         httpRequestKey = requestKey
         // Each media source owns a snapshot, so old segment requests cannot inherit a new session.
         val factory = sourceFactory(MediaPlaybackDataSource.factory(MediaRequestContext(value, referer, headers)))
-        player.setMediaSource(factory.createMediaSource(MediaItem.fromUri(value)))
+        player.setMediaSource(factory.createMediaSource(MediaItem.fromUri(value)), positions.getLong(positionKey(Uri.parse(value)), 0L))
         player.prepare()
         player.playWhenReady = true
     }
@@ -102,6 +110,7 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        savePosition()
         player.removeListener(speechListener)
         player.release()
         // Complete native cancellation before freeing its context; viewModelScope is already cancelled.

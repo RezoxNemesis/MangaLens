@@ -25,7 +25,10 @@ data class ResolvedMediaLink(
     val detectedHeight: Int? = null,
     val title: String? = null,
     val sourcePageUrl: String? = null,
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    val audioUrl: String? = null,
+    val audioHeaders: Map<String, String> = emptyMap(),
+    val requestedHeight: Int? = null
 )
 
 class MediaLinkResolver(
@@ -116,7 +119,7 @@ class MediaLinkResolver(
                 .findAll(html).forEach { candidates += unescape(it.value) }
 
             val resolved = candidates.mapNotNull { normalize(it, clean) }
-                .filter { isDirect(it.substringBefore("?").lowercase()) }
+                .filter { isDirect(it.substringBefore("?").lowercase()) && !isObviousAd(it) }
                 .map {
                     ResolvedMediaLink(
                         it,
@@ -153,6 +156,13 @@ class MediaLinkResolver(
         result?.let { return it }
         if (extractorFailure != null) throw extractorFailure
         return if (dedicated) null else siteExtractor?.extract(clean, quality)
+    }
+
+    private fun isObviousAd(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return true
+        val host = uri.host.orEmpty().lowercase()
+        if (listOf("doubleclick.net", "googlesyndication.com", "trafficjunky.net", "exoclick.com", "juicyads.com").any { matchesHost(host, it) }) return true
+        return Regex("(?i)(?:^|[/_.-])(ads?|advertisement|preroll|pre-roll|vast)(?:$|[/_.-])").containsMatchIn(uri.path.orEmpty())
     }
 
     private fun providerFor(url: String): String {

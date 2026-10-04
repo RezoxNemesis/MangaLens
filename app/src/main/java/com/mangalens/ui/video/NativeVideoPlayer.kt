@@ -48,7 +48,7 @@ fun NativeVideoPlayer(
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var downloadQuality by remember { mutableStateOf(com.mangalens.download.DownloadQuality.P1080) }
     var downloadStatus by remember { mutableStateOf<String?>(null) }
-    var liveTranslationEnabled by remember { mutableStateOf(translationEnabled) }
+    var liveTranslationEnabled by remember { mutableStateOf(false) }
     var showSpeechSettings by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
@@ -67,7 +67,7 @@ fun NativeVideoPlayer(
         playbackError = null
         playerVm.openHttp(url, referer = sourcePageUrl, headers = requestHeaders)
     }
-    LaunchedEffect(translationEnabled) { liveTranslationEnabled = translationEnabled }
+    LaunchedEffect(translationEnabled) { if (!translationEnabled) liveTranslationEnabled = false }
 
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window

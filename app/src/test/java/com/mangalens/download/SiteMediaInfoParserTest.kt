@@ -34,4 +34,16 @@ class SiteMediaInfoParserTest {
             assertNull(SiteMediaInfoParser.parse("{\"url\":\"$url\"}", "https://example.com"))
         }
     }
+    @Test fun downloadSelectionRetainsBothTracksAndNeverPretendsVideoOnlyHasAudio() {
+        val json = """{"title":"Fixture","requested_formats":[
+          {"url":"https://cdn.example/video.mp4","ext":"mp4","height":1080,"vcodec":"avc1","acodec":"none"},
+          {"url":"https://cdn.example/audio.m4a","ext":"m4a","vcodec":"none","acodec":"mp4a"}
+        ]}"""
+        assertNull(SiteMediaInfoParser.parse(json, "https://example.com/video"))
+        val selected = SiteMediaInfoParser.parse(json, "https://example.com/video", true)!!
+        assertEquals(1080, selected.detectedHeight)
+        assertEquals("https://cdn.example/audio.m4a", selected.audioUrl)
+        assertEquals("video/mp4", selected.mimeType)
+    }
+
 }

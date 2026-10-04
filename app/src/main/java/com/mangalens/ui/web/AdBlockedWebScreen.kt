@@ -274,6 +274,7 @@ fun AdBlockedWebScreen(
                         }
 
                         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
+                            super.onPageStarted(view, pageUrl, favicon)
                             pageReady = false
                             detectedMedia = null
                             speech.invalidate(clear = true)

@@ -9,9 +9,15 @@ class OrezNativeEngine {
         // JNI currently shares one physical model; each feature holds its own lease.
         private val modelLock = Any()
         private val modelOwners = mutableSetOf<OrezNativeEngine>()
+        fun trimMemory() {
+            val owners = synchronized(modelLock) { modelOwners.toList() }
+            owners.forEach { it.cancelGenerations() }
+            Thread({ owners.forEach { it.close() } }, "orez-memory-release").start()
+        }
     }
 
-    private var loaded = false
+    @Volatile private var loaded = false
+    val isLoaded: Boolean get() = loaded
     private val generations = ConcurrentHashMap.newKeySet<Generation>()
 
     private external fun nativeLoad(path: String): Boolean

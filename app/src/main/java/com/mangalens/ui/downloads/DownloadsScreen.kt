@@ -140,6 +140,8 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
                     Column(Modifier.padding(14.dp)) {
                         Text(item.title, style = MaterialTheme.typography.titleMedium)
                         Text(item.mimeType, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        item.stage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        item.actualHeight?.let { Text("Verified output: ${it}p", style = MaterialTheme.typography.labelMedium) }
                         Text(item.state.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         if (item.totalBytes > 0L) {

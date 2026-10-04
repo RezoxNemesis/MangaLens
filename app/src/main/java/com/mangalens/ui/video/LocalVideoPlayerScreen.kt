@@ -53,6 +53,8 @@ fun LocalVideoPlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    var locked by rememberSaveable { mutableStateOf(false) }
+    var playbackSpeed by rememberSaveable { mutableFloatStateOf(1f) }
     var controls by rememberSaveable { mutableStateOf(true) }
     var zoom by rememberSaveable { mutableFloatStateOf(1f) }
     var resizeMode by rememberSaveable { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -65,7 +67,7 @@ fun LocalVideoPlayerScreen(
     var subtitleBusy by rememberSaveable { mutableStateOf(false) }
     var subtitleStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var subtitleLanguage by rememberSaveable { mutableStateOf("hi") }
-    var liveTranslationEnabled by rememberSaveable { mutableStateOf(translationEnabled) }
+    var liveTranslationEnabled by rememberSaveable { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -82,6 +84,7 @@ fun LocalVideoPlayerScreen(
     }
 
     fun interact() {
+        if (locked) return
         controls = true
         lastInteraction = System.currentTimeMillis()
     }
@@ -102,7 +105,7 @@ fun LocalVideoPlayerScreen(
     val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> subtitle = uri; subtitleStatus = uri?.let { "Subtitle file selected." } }
 
     LaunchedEffect(initialUri) { initialUri?.let(vm::open) }
-    LaunchedEffect(translationEnabled) { liveTranslationEnabled = translationEnabled }
+    LaunchedEffect(translationEnabled) { if (!translationEnabled) liveTranslationEnabled = false }
 
     DisposableEffect(vm.player) {
         val listener = object : androidx.media3.common.Player.Listener {
@@ -116,19 +119,21 @@ fun LocalVideoPlayerScreen(
 
     Box(
         modifier.fillMaxSize().background(Color.Black)
-            .pointerInput(Unit) {
+            .pointerInput(locked) {
                 detectTapGestures(
                     onTap = { interact() },
-                    onDoubleTap = { point ->
+                    onDoubleTap = doubleTap@ { point ->
+                        if (locked) return@doubleTap
                         val delta = if (point.x < size.width / 2f) -10_000L else 10_000L
                         vm.player.seekTo((vm.player.currentPosition + delta).coerceAtLeast(0L))
                         interact()
                     }
                 )
             }
-            .pointerInput(Unit) {
+            .pointerInput(locked) {
                 detectVerticalDragGestures { change, drag ->
                     change.consume()
+                    if (locked) return@detectVerticalDragGestures
                     if (change.position.x < size.width / 2f) {
                         activity?.let { a ->
                             val attrs = a.window.attributes
@@ -146,6 +151,7 @@ fun LocalVideoPlayerScreen(
                 }
             }
             .transformable(rememberTransformableState { scale, _, _ ->
+                if (locked) return@rememberTransformableState
                 zoom = (zoom * scale).coerceIn(1f, 3f)
                 resizeMode = if (zoom > 1.05f) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else resizeMode
                 interact()
@@ -155,6 +161,7 @@ fun LocalVideoPlayerScreen(
             factory = { (android.view.LayoutInflater.from(it).inflate(com.mangalens.R.layout.ocr_player_view, null) as PlayerView).apply { playerView = this; vm.bind(this); useController = true; controllerAutoShow = false } },
             update = { view ->
                 playerView = view
+                view.useController = !locked
                 view.setResizeMode(resizeMode)
                 view.scaleX = zoom
                 view.scaleY = zoom
@@ -172,7 +179,7 @@ fun LocalVideoPlayerScreen(
         LiveAudioSubtitleOverlay(vm.speech, modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp).padding(bottom = if (controls) 90.dp else 24.dp))
 
         AnimatedVisibility(
-            visible = controls,
+            visible = controls && !locked,
             enter = fadeIn(tween(180)),
             exit = fadeOut(tween(350)),
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -198,11 +205,22 @@ fun LocalVideoPlayerScreen(
             }
         }
 
+        if (locked) {
+            TextButton(onClick = { locked = false; interact() }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock") }
+        }
         if (showTools) {
             ModalBottomSheet(onDismissRequest = { showTools = false }) {
                 Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     LiveAudioSubtitleSettings(vm.speech)
                     HorizontalDivider()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton({
+                            val speeds = listOf(.5f, 1f, 1.25f, 1.5f, 2f)
+                            playbackSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.size]
+                            vm.player.setPlaybackSpeed(playbackSpeed)
+                        }) { Text("Speed: ${playbackSpeed}x") }
+                        TextButton({ locked = true; controls = false; showTools = false }) { Text("Lock controls") }
+                    }
                     Text("Video controls", style = MaterialTheme.typography.headlineSmall)
                     Text("Fit, crop, stretch and pinch zoom are applied directly to the Media3 PlayerView.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

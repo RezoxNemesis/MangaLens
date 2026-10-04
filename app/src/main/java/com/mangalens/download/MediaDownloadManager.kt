@@ -28,7 +28,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         override fun resume(id: String) = MangaLensDownloadService.resumeAdaptive(context, id)
         override fun remove(id: String) = MangaLensDownloadService.remove(context, id)
     })
-    private val resolver = MediaLinkResolver(siteExtractor = YtDlpSiteMediaExtractor(context))
+    private val resolver = MediaLinkResolver(siteExtractor = YtDlpSiteMediaExtractor(context, allowSeparateStreams = true))
     private val contexts = DownloadRequestContextStore(context)
     private val dao = DownloadDatabase.get(context).downloads()
     val downloads: Flow<List<DownloadEntity>> = dao.observe()
@@ -90,6 +90,8 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
                         // A partial file/validator belongs to the previous signed representation.
                         java.io.File(context.filesDir, "downloads/$id.part").delete()
                         java.io.File(context.filesDir, "downloads/$id.validator").delete()
+                        java.io.File(context.filesDir, "downloads/$id.audio.part").delete()
+                        java.io.File(context.filesDir, "downloads/$id.audio.validator").delete()
                     }
                 }
             }

@@ -80,6 +80,7 @@ fun LiveAudioSubtitleSettings(engine: VideoSpeechEngine) {
             Text(if (state.enabled) "Listening to video" else "Off")
         }
         Text(state.status, style = MaterialTheme.typography.bodySmall)
+        if (state.inferenceMs > 0) Text("Last audio processing: ${state.inferenceMs} ms", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(enabled = !state.busy, onClick = { scope.launch { engine.installTiny() } }) { Text("Download model (74 MiB)") }
             TextButton(enabled = !state.busy, onClick = { import.launch(arrayOf("application/octet-stream", "*/*")) }) { Text("Import model") }
@@ -92,6 +93,14 @@ fun LiveAudioSubtitleSettings(engine: VideoSpeechEngine) {
                 val languages = listOf("auto", "en", "hi", "ja", "ko", "zh", "es", "fr", "de", "ar", "ru", "ta", "te")
                 language = languages[(languages.indexOf(language) + 1) % languages.size]; engine.language = language; prefs.edit().putString("source", language).apply(); engine.invalidate()
             }) { Text("Change") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Low latency" to 3, "Balanced" to 6, "Quality" to 12).forEach { (label, seconds) ->
+                FilterChip(selected = chunk.toInt() == seconds, onClick = {
+                    chunk = seconds.toFloat(); engine.chunkSeconds = seconds; engine.invalidate()
+                    prefs.edit().putInt("chunk_seconds", seconds).apply()
+                }, label = { Text(label) })
+            }
         }
         Text("Chunk: ${chunk.toInt()} seconds (shorter = quicker; longer = more context)", style = MaterialTheme.typography.bodySmall)
         Slider(chunk, onValueChange = { chunk = it; engine.chunkSeconds = it.toInt(); prefs.edit().putInt("chunk_seconds", it.toInt()).apply() }, valueRange = 3f..12f, steps = 8)

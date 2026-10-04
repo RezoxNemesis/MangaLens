@@ -53,7 +53,7 @@ fun MangaLensNavGraph(
     onResolvedVideo: (String, Map<String, String>, String) -> Unit
 ) {
     val backStack by navController.currentBackStackEntryAsState()
-    val currentRoute = backStack?.destination?.route
+    val currentRoute = backStack?.destination?.route?.substringBefore('?')
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),

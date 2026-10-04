@@ -27,7 +27,9 @@ data class DownloadEntity(
     val totalBytes: Long = -1L,
     val state: DownloadState = DownloadState.QUEUED,
     val error: String? = null,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val actualHeight: Int? = null,
+    val stage: String? = null
 ) {
     val progress: Float get() = if (state == DownloadState.COMPLETED) 1f else if (totalBytes <= 0L) 0f else (bytesDownloaded.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
     val isAdaptive: Boolean get() = isAdaptiveMediaSource(sourceUrl, mimeType)
@@ -56,10 +58,14 @@ interface DownloadDao {
     suspend fun resumeIfStopped(id: String, state: DownloadState): Int
     @Query("UPDATE media_downloads SET sourceUrl = :url, mimeType = :mime WHERE id = :id AND state = 'FAILED'")
     suspend fun refreshFailedSource(id: String, url: String, mime: String): Int
+    @Query("UPDATE media_downloads SET stage = :stage WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING')")
+    suspend fun stageIfActive(id: String, stage: String): Int
+    @Query("UPDATE media_downloads SET actualHeight = :height, stage = :stage WHERE id = :id AND state = 'COMPLETED'")
+    suspend fun completedDetails(id: String, height: Int?, stage: String): Int
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 
-@Database(entities = [DownloadEntity::class], version = 1, exportSchema = false)
+@Database(entities = [DownloadEntity::class], version = 2, exportSchema = false)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloads(): DownloadDao
     companion object {
@@ -67,6 +73,12 @@ abstract class DownloadDatabase : RoomDatabase() {
         fun get(context: android.content.Context): DownloadDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(context.applicationContext, DownloadDatabase::class.java, "mangalens_downloads.db")
+                    .addMigrations(object : androidx.room.migration.Migration(1, 2) {
+                        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                            db.execSQL("ALTER TABLE media_downloads ADD COLUMN actualHeight INTEGER")
+                            db.execSQL("ALTER TABLE media_downloads ADD COLUMN stage TEXT")
+                        }
+                    })
                     .build()
                     .also { instance = it }
             }

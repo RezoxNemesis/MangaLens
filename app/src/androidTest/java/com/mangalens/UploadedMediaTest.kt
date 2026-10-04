@@ -37,6 +37,14 @@ class UploadedMediaTest {
         val app = instrumentation.targetContext.applicationContext as Application
         val source = File(path!!)
         assertTrue(source.isFile)
+        val metadata = android.media.MediaMetadataRetriever()
+        val expectedDuration: Long
+        val expectedWidth: Int
+        try {
+            metadata.setDataSource(source.absolutePath)
+            expectedDuration = metadata.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+            expectedWidth = metadata.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)!!.toInt()
+        } finally { metadata.release() }
         val certificate = HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").build()
         val serverTrust = HandshakeCertificates.Builder().heldCertificate(certificate).build()
         val clientTrust = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
@@ -78,7 +86,7 @@ class UploadedMediaTest {
                 while (!ready) {
                     instrumentation.runOnMainSync {
                         assertNull("Uploaded sample failed playback", vm.player.playerError)
-                        ready = vm.player.playbackState == Player.STATE_READY && vm.player.duration in 23000..24000
+                        ready = vm.player.playbackState == Player.STATE_READY && kotlin.math.abs(vm.player.duration - expectedDuration) <= 1000
                     }
                     if (!ready) delay(100)
                 }
@@ -103,7 +111,7 @@ class UploadedMediaTest {
                     instrumentation.runOnMainSync {
                         assertNull(vm.player.playerError)
                         val texture = playerView!!.videoSurfaceView as TextureView
-                        if (texture.isAvailable && vm.player.videoSize.width == 1280) {
+                        if (texture.isAvailable && vm.player.videoSize.width == expectedWidth) {
                             val image = texture.getBitmap(640, 288)
                             if (image != null) {
                                 val pixels = (0 until 288 step 8).flatMap { y -> (0 until 640 step 8).map { x -> image.getPixel(x, y) } }

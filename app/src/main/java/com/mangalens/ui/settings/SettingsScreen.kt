@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +34,8 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                 .onFailure{packSelectionError=it.message ?: "Unable to queue this data pack."}
         }
     }
+    var advancedImport by rememberSaveable { mutableStateOf(false) }
+    var showBlockEvents by remember { mutableStateOf(false) }
     var resourceUrl by remember{mutableStateOf("")}
     LaunchedEffect(resourceManager){
         androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(OrezResourcePackManager.TAG).collect {
@@ -104,7 +107,17 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                     }
                     Text(state.adBlockStats.blockedRequests.toString()+" requests blocked",style=MaterialTheme.typography.titleLarge)
                     Text((state.adBlockStats.knownBytesSaved/1024).toString()+" KB saved",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick=onResetAdBlockStats){Text("Reset stats")}
+                    Row {
+                        TextButton({ showBlockEvents = !showBlockEvents }) { Text(if (showBlockEvents) "Hide activity" else "Inspect blocked requests") }
+                        TextButton(onClick=onResetAdBlockStats){Text("Reset")}
+                    }
+                    if (showBlockEvents) {
+                        Text("Local log • latest 200 blocked requests • no cookies or URL queries", style = MaterialTheme.typography.bodySmall)
+                        state.adBlockStats.events.take(20).forEach { event ->
+                            Text(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(event.timestamp)) + " · " + event.host, style = MaterialTheme.typography.labelMedium)
+                            Text("${event.type} · ${event.rule} · ${if (event.thirdParty) "third party" else "same site / unknown"} · ${event.pageHost}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
         }
@@ -124,11 +137,18 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                         }
                     }
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("High accuracy");Switch(highAccuracy,{highAccuracy=it;ocrPrefs.edit().putBoolean("high_accuracy",it).apply()})}
+                    var refinement by remember { mutableStateOf(ocrPrefs.getBoolean("local_refinement", false)) }
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Local dialogue refinement")
+                            Text("Optional slower editing; each bubble has an 8-second fallback.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(refinement, { refinement = it; ocrPrefs.edit().putBoolean("local_refinement", it).apply() })
+                    }
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Preserve visual style");Switch(preserveStyle,{preserveStyle=it;ocrPrefs.edit().putBoolean("preserve_style",it).apply()})}
                 }
             }
         }
-        item{Text("Translation Modules",fontWeight=FontWeight.Bold)}
         item{
             Text("Translation Style",fontWeight=FontWeight.Bold)
             Card(Modifier.fillMaxWidth()){
@@ -166,10 +186,8 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                 }
             }
         }
-        item{TranslationSwitch("Manga Mode","On-device OCR and reconstructed bubble overlays",state.mangaTranslationEnabled,onMangaTranslationChanged)}
-        item{TranslationSwitch("Video Mode","Subtitle translation and sync",state.videoTranslationEnabled,onVideoTranslationChanged)}
-        item{TranslationSwitch("Web Mode","DOM text-node translation",state.webTranslationEnabled,onWebTranslationChanged)}
-        item{
+        item { TextButton({ advancedImport = !advancedImport }) { Text(if (advancedImport) "Hide advanced data import" else "Advanced / Data import →") } }
+        if (advancedImport) item{
             Text("OREZ Conversation Master Pack",fontWeight=FontWeight.Bold)
             Card(Modifier.fillMaxWidth()){
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
@@ -182,7 +200,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                     if(resourceState.active){LinearProgressIndicator(progress={resourceState.progress},modifier=Modifier.fillMaxWidth());Text(formatBytes(resourceState.bytes)+" / "+if(resourceState.total>0)formatBytes(resourceState.total) else "processing")}
                     resourceState.error?.let{Text("Pack error: "+it,color=MaterialTheme.colorScheme.error)}
                     resourceState.message?.let{Text(it,color=MaterialTheme.colorScheme.primary)}
-                    Text("Large archives are processed as streams. OREZ imports up to 100,000 usable records per selected pack to protect phone storage and memory.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+                    Text("Large archives are streamed in bounded batches. Import continues while device storage is available.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
                 }
             }
         }

@@ -248,6 +248,8 @@ jobs:
           test -f orez-native/build.gradle.kts
           grep -q 'include(":orez-native")' settings.gradle.kts
           grep -q 'implementation(project(":orez-native"))' app/build.gradle.kts
+      - name: Generate controlled media fixtures
+        run: bash .github/scripts/create-video-ocr-fixture.sh
       - name: Run unit tests
         run: gradle --no-daemon clean testDebugUnitTest --stacktrace
       - name: Run lint
@@ -326,6 +328,8 @@ jobs:
           test -f orez-native/build.gradle.kts
           grep -q 'include(":orez-native")' settings.gradle.kts
           grep -q 'implementation(project(":orez-native"))' app/build.gradle.kts
+      - name: Generate controlled media fixtures
+        run: bash .github/scripts/create-video-ocr-fixture.sh
       - name: Run unit tests
         run: gradle --no-daemon clean testDebugUnitTest --stacktrace
       - name: Run lint

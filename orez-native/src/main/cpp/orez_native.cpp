@@ -6,6 +6,8 @@
 #include <atomic>
 #include <memory>
 #include <unordered_map>
+#include <thread>
+#include <algorithm>
 
 static std::mutex g_mutex;
 static llama_model * g_model = nullptr;
@@ -88,6 +90,7 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeLoad(
     llama_backend_init();
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
+    params.load_mode = LLAMA_LOAD_MODE_MMAP;
     g_model = llama_model_load_from_file(chars, params);
     env->ReleaseStringUTFChars(path, chars);
     return g_model != nullptr ? JNI_TRUE : JNI_FALSE;
@@ -116,7 +119,11 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
     const int safeTokens = maxTokens < 1 ? 1 : (maxTokens > 512 ? 512 : maxTokens);
     const uint32_t requestedCtx = static_cast<uint32_t>(nPrompt + safeTokens + 64);
     cp.n_ctx = requestedCtx > 8192 ? 8192 : requestedCtx;
-    cp.n_batch = static_cast<uint32_t>(nPrompt);
+    // Bound prefill scratch allocations and leave CPU headroom for the UI/player.
+    cp.n_batch = 256;
+    cp.n_ubatch = 128;
+    cp.n_threads = std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+    cp.n_threads_batch = cp.n_threads;
     cp.abort_callback = abort_generation;
     cp.abort_callback_data = request.get();
     llama_context * ctx = llama_init_from_model(g_model, cp);
@@ -126,12 +133,15 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
     llama_sampler * sampler = llama_sampler_chain_init(sp);
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
 
-    llama_batch batch = llama_batch_get_one(tokens.data(), tokens.size());
-    if (llama_decode(ctx, batch) != 0) {
-        llama_sampler_free(sampler);
-        llama_free(ctx);
-        request->running.store(false);
-        return env->NewStringUTF("");
+    llama_batch batch;
+    for (int offset = 0; offset < nPrompt; offset += 256) {
+        batch = llama_batch_get_one(tokens.data() + offset, std::min(256, nPrompt - offset));
+        if (request->cancelled.load() || llama_decode(ctx, batch) != 0) {
+            llama_sampler_free(sampler);
+            llama_free(ctx);
+            request->running.store(false);
+            return env->NewStringUTF("");
+        }
     }
 
     std::string output;

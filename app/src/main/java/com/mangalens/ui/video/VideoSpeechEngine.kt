@@ -24,7 +24,7 @@ import okhttp3.Request
  data class SpeechCue(val startMs: Long, val endMs: Long, val text: String)
  data class SpeechState(val enabled: Boolean = false, val ready: Boolean = false, val busy: Boolean = false,
     val status: String = "Install a multilingual speech model to generate English subtitles from video audio.",
-    val cues: List<SpeechCue> = emptyList(), val latestText: String = "", val revision: Long = 0)
+    val inferenceMs: Long = 0, val cues: List<SpeechCue> = emptyList(), val latestText: String = "", val revision: Long = 0)
 
 /** Transcribes decoded media audio only; never opens the microphone. */
 @OptIn(UnstableApi::class)
@@ -51,6 +51,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             for (chunk in chunks) {
                 if (closed || !enabled || chunk.generation != generation) continue
                 try {
+                    val started = android.os.SystemClock.elapsedRealtime()
                     val segments = lock.withLock {
                         if (!enabled || chunk.generation != generation || handle == 0L) emptyArray()
                         else native.infer(handle, chunk.audio, language, Runtime.getRuntime().availableProcessors().coerceIn(1, 4))
@@ -66,8 +67,8 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                             SpeechCue(chunk.startMs + start, chunk.startMs + end, text)
                         }
                     }
-                    mutable.value = mutable.value.copy(cues = (mutable.value.cues + cues).takeLast(5000),
-                        latestText = cues.lastOrNull()?.text.orEmpty(), revision = mutable.value.revision + 1,
+                    mutable.value = mutable.value.copy(cues = SpeechWindowPolicy.append(mutable.value.cues, cues),
+                        inferenceMs = android.os.SystemClock.elapsedRealtime() - started, latestText = cues.lastOrNull()?.text.orEmpty(), revision = mutable.value.revision + 1,
                         status = if (cues.isEmpty()) "Listening to video audio…" else "English subtitles • offline • short processing delay")
                 } catch (e: Exception) { mutable.value = mutable.value.copy(status = e.message ?: "Speech inference failed") }
             }
@@ -89,7 +90,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     }
     /** Accepts Web playback-capture audio already resampled to mono 16 kHz. */
     fun submitPcm16k(samples: FloatArray, startMs: Long) {
-        if (enabled && samples.isNotEmpty() && samples.size <= 16000 * 12) {
+        if (enabled && samples.size <= 16000 * 12 && SpeechWindowPolicy.hasActivity(samples)) {
             chunks.trySend(Chunk(samples.copyOf(), startMs, generation))
         }
     }
@@ -250,15 +251,17 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             }
             val out = replaceOutputBuffer(inputBuffer.remaining()); out.put(inputBuffer); out.flip()
         }
-        private fun sendChunk() {
-            var energy = 0.0; for (i in 0 until used) energy += samples[i] * samples[i]
-            if (energy / used.coerceAtLeast(1) > 0.000015) {
+        private fun sendChunk(overlap: Boolean = true) {
+            if (SpeechWindowPolicy.hasActivity(samples.copyOf(used))) {
                 if (chunks.trySend(Chunk(samples.copyOf(used), start, epoch)).isFailure)
                     mutable.value = mutable.value.copy(status = "Speech engine is behind playback. Use a smaller model or longer chunks.")
             }
-            start += used * 1000L / 16000; used = 0
+            val retained = if (overlap) minOf(8000, used) else 0
+            start += (used - retained) * 1000L / 16000
+            if (retained > 0) samples.copyInto(samples, 0, used - retained, used)
+            used = retained
         }
-        override fun onQueueEndOfStream() { if (enabled && used > 8000) sendChunk() }
+        override fun onQueueEndOfStream() { if (enabled && used > 8000) sendChunk(overlap = false) }
         override fun onFlush() { used = 0; phase = 0; accumulated = 0f; accumulatedFrames = 0; epoch = -1 }
         override fun onReset() { onFlush() }
     }

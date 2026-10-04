@@ -60,7 +60,7 @@ internal fun buildTranslationRefinementPrompt(
     """.trimIndent()
 }
 
-class TranslationOrezRefiner(context: Context) {
+class TranslationOrezRefiner(private val context: Context) {
     private val model = OrezLocalModelService(OrezModelManager(context))
 
     suspend fun refine(
@@ -72,6 +72,10 @@ class TranslationOrezRefiner(context: Context) {
         glossary: Map<String, String> = emptyMap()
     ): String {
         if (source.isBlank() || translated.isBlank()) return translated
+        // A 650 MB generative model per bubble stalls chapters on ordinary phones.
+        // The fast on-device draft is the default; editing is an explicit quality option.
+        if (!context.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
+                .getBoolean("local_refinement", false)) return translated
 
         val prompt = buildTranslationRefinementPrompt(
             source = source,
@@ -82,7 +86,7 @@ class TranslationOrezRefiner(context: Context) {
             glossary = glossary
         )
 
-        return model.answer(prompt, emptyList())
+        return kotlinx.coroutines.withTimeoutOrNull(8_000L) { model.answer(prompt, emptyList()) }
             ?.replace(Regex("\\s+"), " ")
             ?.trim()
             ?.takeIf { it.isNotBlank() }

@@ -12,13 +12,18 @@ open class AdBlockWebViewClient(
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
         request == null || !com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(request.url.toString())
 
+    @Volatile private var pageOrigin: String? = null
+    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+        pageOrigin = url
+        super.onPageStarted(view, url, favicon)
+    }
+
     private val enterpriseGuard = EnterpriseAdBlockEngine(adBlockEngine)
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         if (!enabled()) return super.shouldInterceptRequest(view, request)
         val reqUrl = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
-        enterpriseGuard.shouldInterceptRequest(view, request)?.let { return it }
-        return adBlockEngine.shouldBlockRequest(reqUrl) ?: super.shouldInterceptRequest(view, request)
+        return adBlockEngine.shouldBlockRequest(reqUrl, pageOrigin, request?.requestHeaders?.get("Sec-Fetch-Dest") ?: "unknown") ?: super.shouldInterceptRequest(view, request)
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {

@@ -11,7 +11,7 @@ import kotlin.math.max
 
 enum class OrezIntent { GREETING, QUESTION, ADVICE, REASONING, PLANNING, TRANSLATION, TROUBLESHOOTING, MANGA, VIDEO, WEB_SEARCH, COMMAND, MATH, GENERAL }
 data class OrezContext(val recentMessages:List<OrezMessageEntity>,val targetLanguage:String="hi",val sourceText:String?=null)
-data class OrezBrainResponse(val text:String,val intent:OrezIntent,val sources:List<String> = emptyList(),val usedLocalKnowledge:Boolean=false,val usedLiveSearch:Boolean=false)
+data class OrezBrainResponse(val text:String,val intent:OrezIntent,val sources:List<String> = emptyList(),val usedLocalKnowledge:Boolean=false,val usedLiveSearch:Boolean=false,val videos:List<OrezVideoResult> = emptyList())
 
 class OrezBrain(private val database:OrezRoomDatabase, private val context: android.content.Context, private val liveSearch:suspend(String)->LiveSearchAnswer){
     private val v12Router = OrezIntentRouterV12()
@@ -25,6 +25,13 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         val intent=classify(clean)
         if(intent==OrezIntent.MATH) return@withContext OrezBrainResponse(solveMath(clean),intent)
 
+        if (OrezVideoSearch.isDiscovery(clean)) {
+            val videos = try { OrezVideoSearch(this@OrezBrain.context).search(clean) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { emptyList() }
+            if (videos.isNotEmpty()) return@withContext OrezBrainResponse("Here are public YouTube results for your request.", OrezIntent.VIDEO, usedLiveSearch = true, videos = videos)
+            return@withContext OrezBrainResponse("Video search is unavailable or returned no usable public results. Check your connection and retry.", OrezIntent.VIDEO)
+        }
         val contextualQuery=buildContextualQuery(clean,context)
         if(intent==OrezIntent.TRANSLATION){
             val sourceText = extractTranslationText(clean)

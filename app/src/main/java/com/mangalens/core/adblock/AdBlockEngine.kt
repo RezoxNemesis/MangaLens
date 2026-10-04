@@ -36,12 +36,13 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
         ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".woff", ".woff2"
     )
 
-    fun shouldBlockRequest(url: String): WebResourceResponse? {
+    fun shouldBlockRequest(url: String, pageUrl: String? = null, type: String = "unknown"): WebResourceResponse? {
         val uri = runCatching { URI(url) }.getOrNull() ?: return null
         val host = uri.host?.lowercase().orEmpty()
         val path = uri.rawPath?.lowercase().orEmpty()
         val query = uri.rawQuery?.lowercase().orEmpty()
 
+        val pageHost = runCatching { URI(pageUrl.orEmpty()).host.orEmpty() }.getOrDefault("")
         if (host.isBlank() || isVerificationHost(host) || mediaExtensions.any(path::endsWith)) {
             return null
         }
@@ -52,7 +53,7 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
 
         if (!blocked) return null
 
-        statsStore.recordBlocked(host)
+        statsStore.recordBlocked(host, pageHost = pageHost, type = type, rule = if (isBlockedHost(host)) "Local ad/tracker domain" else "Local ad/tracker path or query")
         return WebResourceResponse(
             "text/plain",
             StandardCharsets.UTF_8.name(),
@@ -76,7 +77,7 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
     fun getElementHidingScript(): String = """
         (function(){
           const selectors=[
-            '[id*="ad" i]','[class*="ad-" i]','[class*="-ad" i]',
+            '[id="ad" i]','[id^="ad-" i]','[class~="ad" i]','[class~="ads" i]','[class*="ad-banner" i]',
             '[class*="popup" i]','[class*="popunder" i]',
             '[class*="overlay-ad" i]','[class*="interstitial" i]',
             '[id*="popup" i]','[id*="popunder" i]'

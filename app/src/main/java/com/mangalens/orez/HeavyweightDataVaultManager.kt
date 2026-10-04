@@ -3,6 +3,7 @@ package com.mangalens.orez
 import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -199,7 +200,8 @@ class HeavyweightDataVaultManager(private val context: Context) {
         val translations = ArrayList<HeavyTranslationEntity>(1000)
         val regex = ArrayList<HeavyRegexEntity>(1000)
         var importedRecords = 0
-        while (importedRecords < MAX_EXTERNAL_RECORDS) {
+        while (true) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             val line = reader.readLine() ?: break
             if (line.isBlank()) continue
             val obj = runCatching { JSONObject(line) }.getOrNull() ?: continue
@@ -391,6 +393,5 @@ class HeavyweightDataVaultManager(private val context: Context) {
 
     companion object {
         private const val BUNDLED_VERSION = 2
-        private const val MAX_EXTERNAL_RECORDS = 100_000
     }
 }
