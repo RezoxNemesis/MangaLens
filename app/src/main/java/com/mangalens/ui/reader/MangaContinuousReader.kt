@@ -351,8 +351,9 @@ fun MangaContinuousReader(
 /** Keep overlays in image coordinates, including letterboxing in paged mode. */
 @Composable
 private fun FittedMangaPage(page: ChapterPage, modifier: Modifier, overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
-    val ratio by produceState(1f, page.localPath) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    var ratio by remember(page.localPath) { mutableFloatStateOf(1f) }
+    LaunchedEffect(page.localPath) {
+        ratio = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
             page.localPath?.let { android.graphics.BitmapFactory.decodeFile(it, options) }
             if (options.outWidth > 0 && options.outHeight > 0) options.outWidth.toFloat() / options.outHeight else 1f
