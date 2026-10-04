@@ -1,52 +1,73 @@
 # MangaLens engineering handoff
 
-3 October 2026. Application commit: `9656ec8674effd1925c633b52f53cb8059e97a67`. [PR #6](https://github.com/RezoxNemesis/MangaLens/pull/6) incorporates the active branding work from PR #5. Debug engineering build; production readiness is not claimed.
+4 October 2026. Tested application commit: `a3faf6071523a038bec85162238d0ed5960fe937`. [PR #6](https://github.com/RezoxNemesis/MangaLens/pull/6) incorporates the supplied branding from PR #5 and the latest dark red/black design. This handoff and README are a documentation-only follow-up. Debug engineering build; production readiness is not claimed.
 
 ## COMPLETED
-Persistent offline chapters, reading position, real Library/Continue Reading, bounded chapter/catalog adapters, browser fallback and controls, scoped sessions, download/model-worker hardening, optional native-model safety, OREZ source parsing/display, working video back/lock/background pause, exact supplied logo and red-black theme.
+
+Persistent offline chapter/library workflows, chapter acquisition and browser fallback, OCR/translation, media downloads/player, optional local OREZ generation, public retrieval and the supplied visual assets are implemented on `engineering/mangalens-production`. This continuation fixed partial chapter translation failures/retries, bounded HTML media discovery, paused/deleted adaptive-download state races, encyclopedia fallback attribution and native-model ownership/cleanup.
 
 ## VERIFIED
-- 29 JVM tests passed: routing, safe URLs, chapter discovery/order, bounded transfers, ad blocking, verification state, Web translation scripts and live-search parsing.
-- Debug app and test APKs assembled; lint passed; ARM64 and x86_64 native libraries compiled.
-- Both CI APK archives and signatures passed integrity verification.
-- All six API 35 emulator tests passed: offline retention/progress, safe shared-page deletion, real Latin OCR, WebView policy, restricted download grants and real navigation with a persisted chapter opening in Reader.
-- Final navigation waits for the unique Download Room title, preventing a false-positive navbar match.
+
+- **55 JVM tests passed**, with zero failures, errors or skips; counts checked from the final XML reports.
+- **19 API 35 x86_64 instrumentation tests passed**, with zero failures or skips; the optional model was staged and actual native generation ran.
+- Unit tests, lint, debug/test APK assembly and both ARM64/x86_64 native builds passed. CI verified both APK archives and signatures.
+- Real Latin OCR, English-to-Hindi translation, damaged-page chapter translation recovery, persisted offline chapters/progress/bookmarks, Room migration, secure WebView policy and restricted download grants passed.
+- Original AAC HLS fixture downloaded into the durable media cache and played to completion after its HTTPS server shut down. Adaptive state updates/resume ignore deleted or stopped rows.
+- OREZ tests cover attributed encyclopedia fallback, malformed responses, primary search precedence and cancellation of a stalled request. Runtime fallback does not present encyclopedia snippets as a verified current gold price.
+- Shared native ownership test confirms that closing an unused engine cannot unload a loaded engine, and that a remaining owner can generate after another owner closes.
 
 ## MANGA
-Selected-mode routing, reader-focused image discovery, naturally ordered catalogs, progressive acquisition, atomic manifests and saved position. Switching chapters retains offline pages. Confirmed deletion preserves shared images. Specialty sources still depend on compatibility or Web fallback.
+
+Selected-mode routing, reader-focused image discovery, naturally ordered catalogs, progressive acquisition, atomic manifests and saved position are implemented. Offline persistence, bookmarks/status, safe shared-image deletion and Library-to-Reader navigation have runtime coverage. Broad source compatibility and representative complete manga remain device/source validation work; verification-heavy sources retain ordinary Web fallback.
 
 ## OCR / TRANSLATION
-Five bundled script recognizers; a real Latin OCR engine recognized a bitmap containing “Hello MangaLens”. Page/chapter translation, target language, style/custom style and original-overlay switching remain available. Full translated chapters and other scripts were not verified end to end.
+
+Five bundled script recognizers and on-device translation are implemented. Actual OCR and English-to-Hindi translation have runtime coverage. Chapter processing preserves successful overlays while reporting failed page numbers; repairing a corrupt middle page and retrying retains the other pages. Reader Retry now chooses translation recovery when appropriate. Cancellation is not swallowed by translation-memory operations. Other scripts, long chapters, custom styles and overlay quality still need representative evaluation; initial language-model download requires internet.
 
 ## WEB / VERIFICATION
-Back/forward/reload/stop, URL/progress, Manga handoff and confirmed site-data clearing. Cookies follow each actual request host, including redirects. Login/CAPTCHA completion remains user-controlled; no automatic bypass. Protected-site session reuse was not exercised with user accounts.
+
+Back/forward/reload/stop, URL/progress, Manga handoff and site-data clearing are implemented. Cookies follow actual request hosts, including redirects. WebView policy and verification/routing fixtures have test coverage. Login/CAPTCHA completion is user-controlled; protected-site account/session reuse remains untested with user accounts.
 
 ## OREZ AI
-Optional local model plus public-web search, bounded extraction, correctly paired result snippets and clickable sources. Failed current-information retrieval is explicit. Chat history, prompt/generation size and JNI output encoding are bounded/hardened. Actual model generation and live-provider answer quality remain unverified.
+
+The pinned optional Qwen model loaded and generated an answer in the final emulator run. Search uses a public general provider with bounded extraction and linked sources. When it produces no usable results, official Wikipedia REST search supplies attributed background excerpts; those excerpts bypass model synthesis and explicitly cannot verify current news, prices or schedules. Direct HTTP checks observed a general-provider verification response and usable Wikipedia results; this is not a guarantee of live-provider reliability on phones.
+
+JSON/HTML reads and result counts are bounded, cancellation closes active HTTP requests, and model ownership prevents one feature from unloading another feature's model. Cleanup runs off the UI thread. Native decode remains non-cooperatively interruptible: cancelled coroutine results are suppressed, but ongoing native work can finish before release. Resource packs do not train or update model weights. Large-corpus generation/profiling was not run in this PR validation.
 
 ## DOWNLOADS / VIDEO
-Foreground data-sync types, durable partial files, validator-based resume, cancellation checks and secure content URLs. The download provider was tested and rejected unrelated private files. Video navigation, locking, error/retry display and background pause are implemented. Interrupted/adaptive transfers and physical-device playback remain unverified.
+
+Direct downloads retain durable partial files with validator-based resume, bounded transfers and cancellation checks. HTML media discovery now reads the actual bounded body rather than requiring exactly 8 MiB; short and chunked HTML fixtures pass. Adaptive listener updates are serialized and conditionally persisted, preventing pause/delete resurrection. Failed adaptive resume re-adds the Media3 request. Guard behavior has tests; full failed-network retry still needs runtime evaluation.
+
+Completed adaptive media uses `files/media_download_cache`, explicit removal and the same cache in the in-app player. HLS audio offline playback was verified with a test-only original fixture. Video navigation, locking, error/retry display and background pause are implemented. DASH, video renditions, long/background transfers, adverse networks and physical-device playback require broader checks. Protected/DRM media is unsupported.
 
 ## VISUAL
-Exact supplied neon lens logo in Home/launcher assets; crimson actions and dark surfaces follow the locked direction. Screenshot review corrected narrow headers, labels, system-bar contrast, reader controls and the model-download button. Final CI captured Home, Library, Reader, OREZ, Downloads and Settings. The execution workspace disconnected during export, so the final revised screenshots could not be inspected locally; they remain in the diagnostics artifact. No commercial characters, fake rankings or invented progress were shipped.
+
+The supplied neon lens logo, supplied artwork, crimson actions and dark surfaces are retained. All six final captures (Home, Library, Reader, OREZ, Downloads, Settings) were inspected locally. The selected Download Room chip now reads “Media” and fits at 320 dp. The Reader/Library screenshots use an intentionally plain QA chapter fixture; they do not establish full manga overlay quality or all-screen responsiveness. No fabricated rankings or reading progress are shipped.
 
 ## PERFORMANCE / MEMORY
-Bounded transfers/HTML/Web text, sampled OCR, serialized translation, bounded chat history and WorkManager observation. Prior run 37135950415 measured a 2,038 ms cold activity start and 124,159 KiB startup PSS (~121 MiB); final CI measured 2,719 ms startup. These are individual emulator samples, not phone benchmarks. Heavy-reader/model/corpus/device profiling remains outstanding.
+
+Final isolated emulator sample: cold activity start **2,921 ms**, startup PSS **125,042 KiB** (~122 MiB). Native model sample: **650,379,104-byte model**, first generation/load test interval **32,810 ms**, process PSS **926,192 KiB** (~904 MiB), output “Hello! 😊”. These are individual x86_64 emulator observations, not phone benchmarks or pure token throughput. Heavy-reader/corpus workloads and ARM64 memory/latency remain unprofiled.
 
 ## SECURITY / PRIVACY
-WebView file/content access disabled; mixed content blocked; safe URL validation; per-host cookies; backup disabled; unused microphone permission removed; restricted FileProvider paths; confirmation for chapter deletion and site-data clearing.
+
+WebView file/content access is disabled, mixed content is blocked, URLs are validated, cookies are scoped per host, backup is disabled and private-file sharing grants are restricted. Tests cover WebView policy and download-provider rejection of unrelated files. HLS fixture trust overrides exist only in instrumentation tests. No mandatory paid OCR/search/translation API is introduced. Debug signing is not a substitute for private production signing.
 
 ## CI
-[Final application workflow: success](https://github.com/RezoxNemesis/MangaLens/actions/runs/37137227604). Disk cleanup precedes emulator installation; Gradle and Kotlin memory are bounded separately; both ABI APK archives/signatures are checked. Screenshots survive test-app cleanup. This handoff is a documentation-only follow-up to the tested application commit.
+
+[Final application workflow: success](https://github.com/RezoxNemesis/MangaLens/actions/runs/37167299498); model-provenance workflow also passed. Validation includes JVM reports, lint, ABI builds, archive/signature checks, startup, instrumentation, screenshots and native-model evidence. Corpus jobs were deliberately skipped for the PR and are not counted as verified corpus builds. Previous green batch `37166450037` had 50 JVM/18 runtime tests; final totals above supersede it.
+
+- [ARM64 and x86_64 APK archive](https://github.com/RezoxNemesis/MangaLens/actions/runs/37167299498/artifacts/11290496965)
+- [Screenshots, test reports and runtime diagnostics](https://github.com/RezoxNemesis/MangaLens/actions/runs/37167299498/artifacts/11290541848)
+- CI artifacts expire on 11 October 2026; committed source and documentation persist.
+
+The downloaded artifact archive was checked against SHA-256 `0a1ea06dea1d68e61deb2e4182bb8a4a74395a77399e607f82bde29b7e8395d2`. The exported phone APK, `MangaLens-arm64-debug-a3faf607.apk`, was checked against its included checksum: `855d16a8469bd189c0c405cbf9823c72817d2405b01c8bf4f1135488e859d9f7`.
 
 ## REMAINING LIMITATIONS
-Physical ARM64/OEM checks, protected-site accounts, complete multilingual translation/overlay quality, local-model generation/live-provider reliability, adverse-network/adaptive video tests, per-series bookmarks/history and broader adapters, and large-corpus measurements. Older corpus PRs were reviewed, not blindly merged or represented as verified releases. Workspace disconnection blocked final local file export and revised-screenshot inspection.
+
+Physical ARM64/OEM tests; representative long chapters, multilingual/custom-style quality; protected-site sessions and wider source coverage; DASH/video/adverse-network/background-download behavior; complete failed adaptive retry; cooperative native cancellation; large-corpus generation/profiling; and private stable release signing remain outstanding. Tests establish the listed fixtures and workflows, not universal source/model quality. No physical device or release credentials were available in this workspace.
 
 ## RELEASE STATUS
-PR #6 remains open as a draft. Debug APKs only; stable private production signing and remaining end-to-end/device checks prevent a production-release claim. Debug signing keys can differ between environments; preserve existing data before replacing an installation signed with another key.
 
-- [Verified APK archive: ARM64 and x86_64](https://github.com/RezoxNemesis/MangaLens/actions/runs/37137227604/artifacts/11278986916). Phone build inside: `app-arm64-v8a-debug.apk`.
-- [Screenshots and runtime diagnostics](https://github.com/RezoxNemesis/MangaLens/actions/runs/37137227604/artifacts/11279685692).
-- CI artifacts expire on 10 October 2026; committed source and this handoff persist.
+PR #6 remains a draft; `main` is unchanged. The verified ARM64 debug APK is exported for installation/testing. It is not a signed production release. Debug signing keys can differ between build environments, so in-place upgrades across artifacts are not guaranteed. Preserve existing data before replacing an installation signed with a different key. Build/toolchain commands and operational details are in the root README.
 
-Next action: inspect the final screenshots, then test full translated chapters, model generation and interrupted downloads on a representative physical device before configuring a signed release.
+Next validation: install the ARM64 build on a representative physical device; evaluate full manga translation, native memory/latency and interrupted/background media; then configure private release signing.
