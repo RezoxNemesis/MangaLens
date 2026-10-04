@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -46,13 +47,14 @@ class MangaLensDownloadService : DownloadService(
     override fun getScheduler(): Scheduler? = null
 
     override fun getForegroundNotification(downloads: List<Download>, notMetRequirements: Int): Notification {
+        Holder.persistProgress(this, downloads)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "MangaLens media downloads", NotificationManager.IMPORTANCE_LOW)
             )
         }
-        val active = downloads.firstOrNull()
+        val active = downloads.firstOrNull { it.state == Download.STATE_DOWNLOADING } ?: downloads.firstOrNull()
         val percent = active?.percentDownloaded?.takeIf { it >= 0f }?.toInt() ?: 0
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -106,6 +108,29 @@ class MangaLensDownloadService : DownloadService(
         private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val callbackMutex = Mutex()
 
+        // DownloadService invokes this with live progress at its notification interval.
+        // Byte-only writes cannot undo pause/cancel/failure/completion or move progress backwards.
+        internal fun persistProgress(context: Context, downloads: List<Download>) = callbackScope.launch {
+            callbackMutex.withLock {
+                val dao = DownloadDatabase.get(context).downloads()
+                for (download in downloads) if (download.state == Download.STATE_DOWNLOADING) {
+                    dao.adaptiveProgressIfActive(download.request.id, download.bytesDownloaded, download.contentLength)
+                }
+            }
+        }
+
+        private suspend fun persistState(dao: DownloadDao, download: Download, message: String?) {
+            val state = when (download.state) {
+                Download.STATE_COMPLETED -> DownloadState.COMPLETED
+                Download.STATE_FAILED -> DownloadState.FAILED
+                Download.STATE_STOPPED -> DownloadState.PAUSED
+                Download.STATE_DOWNLOADING -> DownloadState.DOWNLOADING
+                else -> DownloadState.QUEUED
+            }
+            val total = if (state == DownloadState.COMPLETED && download.contentLength < 0) download.bytesDownloaded else download.contentLength
+            dao.adaptiveStateIfActive(download.request.id, download.bytesDownloaded, total, state, message)
+        }
+
         @Synchronized
         private fun storage(context: Context): Pair<StandaloneDatabaseProvider, SimpleCache> {
             val app = context.applicationContext
@@ -149,6 +174,22 @@ class MangaLensDownloadService : DownloadService(
 
             val dao = DownloadDatabase.get(app).downloads()
             created.addListener(object : DownloadManager.Listener {
+                override fun onInitialized(downloadManager: DownloadManager) {
+                    // Completed entries are absent from currentDownloads. Restore completion
+                    // and byte checkpoints without replaying stale queued/failed state over a retry.
+                    callbackScope.launch(start = CoroutineStart.UNDISPATCHED) { callbackMutex.withLock {
+                        withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownloads().use { cursor ->
+                            while (cursor.moveToNext()) {
+                                val download = cursor.download
+                                if (download.state == Download.STATE_COMPLETED || download.state == Download.STATE_STOPPED) {
+                                    persistState(dao, download, null)
+                                } else if (download.state == Download.STATE_DOWNLOADING || download.state == Download.STATE_QUEUED) {
+                                    dao.adaptiveProgressIfActive(download.request.id, download.bytesDownloaded, download.contentLength)
+                                }
+                            }
+                        } }
+                    } }
+                }
                 override fun onDownloadChanged(
                     downloadManager: DownloadManager,
                     download: Download,
@@ -156,20 +197,7 @@ class MangaLensDownloadService : DownloadService(
                 ) {
                     // Enter the fair mutex in listener order before dispatching suspended Room work.
                     callbackScope.launch(start = CoroutineStart.UNDISPATCHED) { callbackMutex.withLock {
-                        val state = when (download.state) {
-                            Download.STATE_COMPLETED -> DownloadState.COMPLETED
-                            Download.STATE_FAILED -> DownloadState.FAILED
-                            Download.STATE_STOPPED -> DownloadState.PAUSED
-                            Download.STATE_DOWNLOADING -> DownloadState.DOWNLOADING
-                            else -> DownloadState.QUEUED
-                        }
-                        dao.adaptiveStateIfActive(
-                            download.request.id,
-                            download.bytesDownloaded,
-                            download.contentLength,
-                            state,
-                            finalException?.message
-                        )
+                        persistState(dao, download, finalException?.message)
                     } }
                 }
             })

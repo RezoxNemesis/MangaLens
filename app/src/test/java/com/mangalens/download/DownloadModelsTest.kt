@@ -2,9 +2,16 @@ package com.mangalens.download
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DownloadModelsTest {
+    @Test fun completedStreamsReportFullProgressWithoutAnAnnouncedLength() {
+        val stream = DownloadEntity("done", "https://cdn.example/playlist.m3u8", "Stream", "application/x-mpegurl", bytesDownloaded = 100, totalBytes = -1, state = DownloadState.COMPLETED)
+        assertEquals(1f, stream.progress, 0f)
+        assertEquals(0f, stream.copy(state = DownloadState.DOWNLOADING).progress, 0f)
+        assertEquals(0.5f, stream.copy(state = DownloadState.DOWNLOADING, totalBytes = 200).progress, 0f)
+    }
     @Test
     fun adaptiveHlsAndDashSourcesAreClassifiedAsVideo() {
         val hls = DownloadEntity("hls", "https://cdn.example/video/master.m3u8?token=1", "HLS", "application/x-mpegURL")

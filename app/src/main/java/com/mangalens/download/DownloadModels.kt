@@ -29,7 +29,7 @@ data class DownloadEntity(
     val error: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 ) {
-    val progress: Float get() = if (totalBytes <= 0L) 0f else (bytesDownloaded.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
+    val progress: Float get() = if (state == DownloadState.COMPLETED) 1f else if (totalBytes <= 0L) 0f else (bytesDownloaded.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
     val isAdaptive: Boolean get() = isAdaptiveMediaSource(sourceUrl, mimeType)
     val isVideo: Boolean get() = mimeType.startsWith("video/") || isAdaptive
     val canPreview: Boolean get() = isVideo && bytesDownloaded >= 5L * 1024L * 1024L && (!destination.isNullOrBlank() || isAdaptive)
@@ -50,6 +50,8 @@ interface DownloadDao {
     suspend fun failIfActive(id: String, message: String): Int
     @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = :state, error = :message WHERE id = :id AND state != 'CANCELLED' AND (:state != 'PAUSED' OR state = 'PAUSED') AND (state NOT IN ('PAUSED', 'COMPLETED', 'FAILED') OR state = :state)")
     suspend fun adaptiveStateIfActive(id: String, done: Long, total: Long, state: DownloadState, message: String?): Int
+    @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING') AND bytesDownloaded <= :done")
+    suspend fun adaptiveProgressIfActive(id: String, done: Long, total: Long): Int
     @Query("UPDATE media_downloads SET state = :state, error = NULL WHERE id = :id AND state IN ('PAUSED', 'FAILED')")
     suspend fun resumeIfStopped(id: String, state: DownloadState): Int
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
