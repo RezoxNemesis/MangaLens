@@ -278,7 +278,14 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         if (region.textSize < 6f) return false
 
         val acceptedPunctuation = ".,!?…:;\"'‘’“”()[]-—、。！？「」~"
-        val readable = value.count { it.isLetterOrDigit() || it.isWhitespace() || it in acceptedPunctuation }
+        val readable = value.count {
+            it.isLetterOrDigit() ||
+                it.isWhitespace() ||
+                it in acceptedPunctuation ||
+                it.category == kotlin.text.CharCategory.NON_SPACING_MARK ||
+                it.category == kotlin.text.CharCategory.COMBINING_SPACING_MARK ||
+                it.category == kotlin.text.CharCategory.ENCLOSING_MARK
+        }
         if (readable < value.length * .70f) return false
 
         val singleToken = value.none(Char::isWhitespace)
