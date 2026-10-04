@@ -52,7 +52,7 @@ Test evidence covers bounded/resumable transfers, source/routing fixtures, real 
 
 ## Storage and model lifecycle
 
-Chapter images/manifests, bookmarks/progress, downloads and model resources are app-managed persistent data. Settings' temporary-cache cleanup retains these. Adaptive media uses `files/media_download_cache` with explicit removal rather than an evicting streaming cache.
+Chapter images/manifests, bookmarks/progress, downloads and model resources are app-managed persistent data. Settings' temporary-cache cleanup retains these. Adaptive media uses `files/media_download_cache` with explicit removal rather than an evicting streaming cache. Live byte checkpoints are persisted at foreground-notification updates with guards for paused/terminal rows; startup reconciles completed index entries and saved byte counts. Completed streams report full progress even when their source did not announce a length.
 
 OREZ features share one native model with feature ownership tracking. Closing an unused or separate feature does not release another feature's model; model cleanup runs off the UI thread. Cancellation is scoped to each generation request and aborts CPU decode through the pinned native library callback. Cancelled partial output is discarded; other model owners can continue generating. Initial model loading and some context allocation/cleanup remain synchronous background operations.
 
