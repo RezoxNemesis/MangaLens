@@ -3,6 +3,7 @@ set -euo pipefail
 mkdir -p app/build/diagnostics/screenshots
 collect_regression() {
   adb pull /sdcard/Download/mangalens-qa app/build/diagnostics/screenshots || true
+  adb pull /sdcard/Android/data/com.mangalens/files app/build/diagnostics/screenshots/lettering-fixtures || true
   adb logcat -d -v threadtime > app/build/diagnostics/regression-logcat.txt || true
   # Inline test-fixture images allow remote review when the execution workspace is offline.
   # These screens contain only generated QA data; source accounts are never used here.

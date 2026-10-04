@@ -452,7 +452,9 @@ jobs:
           gradle-version: "8.9"
           cache-disabled: true
       - name: Build, test, lint, and assemble debug APK
-        run: gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
+        run: |
+          bash .github/scripts/create-video-ocr-fixture.sh
+          gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Verify APK and generate checksum
         shell: bash
         run: |

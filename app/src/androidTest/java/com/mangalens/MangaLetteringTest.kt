@@ -95,6 +95,6 @@ class MangaLetteringTest {
 
     private fun save(name: String, image: Bitmap) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        File("/sdcard/Download/mangalens-qa", name).apply { parentFile?.mkdirs() }.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        File(context.getExternalFilesDir(null), name).outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 }
