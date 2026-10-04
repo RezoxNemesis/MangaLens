@@ -69,8 +69,11 @@ class VideoFrameCaptureTest {
             val regions = AdvancedTranslationEngine(app).recognize(frame!!)
             assertTrue("Captured decoded frame did not contain readable lettering: $regions",
                 regions.joinToString(" ") { it.source }.contains("MangaLens", true))
-            File(app.getExternalFilesDir(null), "video-captured-frame.png")
-                .outputStream().use { frame!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val capture = File(app.getExternalFilesDir(null), "video-captured-frame.png")
+            capture.outputStream().use { frame!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val device = androidx.test.uiautomator.UiDevice.getInstance(instrumentation)
+            device.executeShellCommand("mkdir -p /sdcard/Download/mangalens-qa")
+            device.executeShellCommand("cp '${capture.absolutePath}' /sdcard/Download/mangalens-qa/")
         } finally {
             instrumentation.runOnMainSync { playerView?.player = null; store.clear() }
             scenario.close(); frame?.recycle(); file.delete()

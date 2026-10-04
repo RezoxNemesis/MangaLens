@@ -95,6 +95,10 @@ class MangaLetteringTest {
 
     private fun save(name: String, image: Bitmap) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        File(context.getExternalFilesDir(null), name).outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val file = File(context.getExternalFilesDir(null), name)
+        file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val device = androidx.test.uiautomator.UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.executeShellCommand("mkdir -p /sdcard/Download/mangalens-qa")
+        device.executeShellCommand("cp '${file.absolutePath}' /sdcard/Download/mangalens-qa/")
     }
 }
