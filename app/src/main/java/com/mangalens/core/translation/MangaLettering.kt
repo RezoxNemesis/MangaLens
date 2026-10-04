@@ -91,12 +91,12 @@ object MangaLettering {
         var bottom = (bounds.bottom.toInt() + padding + 1).coerceAtMost(image.height)
 
         val maxHorizontal = min(
-            (bounds.width() * .46f).toInt().coerceAtLeast(padding * 2),
-            (image.width * .14f).toInt().coerceAtLeast(padding * 2)
+            (bounds.width() * .65f).toInt().coerceAtLeast(padding * 2),
+            (image.width * .20f).toInt().coerceAtLeast(padding * 2)
         )
         val maxVertical = min(
-            max((bounds.height() * .90f).toInt(), (lineHeight * 1.15f).toInt()),
-            (image.height * .12f).toInt().coerceAtLeast(padding * 2)
+            max((bounds.height() * 1.10f).toInt(), (lineHeight * 1.35f).toInt()),
+            (image.height * .16f).toInt().coerceAtLeast(padding * 2)
         )
         val step = max(2, min(8, (lineHeight * .16f).toInt().coerceAtLeast(2)))
 
@@ -163,7 +163,7 @@ object MangaLettering {
             }
         }
         if (samples == 0) return false
-        return compatible >= samples * .62f && distanceSum.toFloat() / samples <= 82f
+        return compatible >= samples * .66f && distanceSum.toFloat() / samples <= 78f
     }
 
     /**
@@ -449,8 +449,8 @@ object MangaLettering {
         height: Int,
         textScale: Float = 1f
     ): StaticLayout {
-        val contentWidth = max(1, (width * .92f).toInt())
-        val contentHeight = max(1, (height * .92f).toInt())
+        val contentWidth = max(1, (width * .95f).toInt())
+        val contentHeight = max(1, (height * .95f).toInt())
         val family = when {
             text.any { it in '\u0900'..'\u097f' } && style.family == "cursive" -> "sans-serif"
             else -> style.family
