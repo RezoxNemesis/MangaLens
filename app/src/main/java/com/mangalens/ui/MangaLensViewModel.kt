@@ -341,7 +341,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         fontSizePx = region.textSize,
                         maxWidthPx = region.bounds.width(),
                         imageWidthPx = bitmap.width,
-                        imageHeightPx = bitmap.height
+                        imageHeightPx = bitmap.height,
+                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE).getBoolean("preserve_style", true))
                     )
                 }
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -376,7 +377,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (failure: Exception) {
                         failedPages += page.index
-                        _state.value = _state.value.copy(translationError = true, error = "Page ${page.index} translation failed. Retry this page.")
+
                     }
                     _state.value = _state.value.copy(translationDone = index + 1)
                 }
@@ -405,9 +406,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         val bitmap = decodeForOcr(path) ?: error("Unable to decode page ${page.index}")
         try {
         val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
-        if (advancedRegions.isEmpty()) {
-            error("No readable text was detected on page ${page.index}")
-        }
+        if (advancedRegions.isEmpty()) return // Artwork-only slices are normal in continuous chapters.
         val style = currentTranslationStyle()
         val chapterContext = _state.value.overlays.values.flatten().takeLast(12)
             .joinToString("\n") { it.translatedText }
@@ -432,7 +431,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 fontSizePx = region.textSize,
                 maxWidthPx = region.bounds.width(),
                         imageWidthPx = bitmap.width,
-                        imageHeightPx = bitmap.height
+                        imageHeightPx = bitmap.height,
+                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE).getBoolean("preserve_style", true))
             )
         }
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -518,10 +518,12 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         BitmapFactory.decodeFile(path, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
-        while (bounds.outWidth / sample > maxDimension || bounds.outHeight / sample > maxDimension) sample *= 2
+        // Preserve narrow webtoon glyphs instead of shrinking the entire strip to 2400 px tall.
+        while (bounds.outWidth / sample > maxDimension ||
+            (bounds.outWidth.toLong() / sample) * (bounds.outHeight / sample) > 12_000_000L) sample *= 2
         val options = android.graphics.BitmapFactory.Options().apply {
             inSampleSize = sample
-            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
             inMutable = false
         }
         return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()

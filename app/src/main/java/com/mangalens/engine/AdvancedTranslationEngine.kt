@@ -29,7 +29,8 @@ data class TranslationRegion(
     val sourceLanguage: LocalSourceLanguage,
     val textColor: Int,
     val backgroundColor: Int,
-    val textSize: Float
+    val textSize: Float,
+    val lineBounds: List<RectF> = listOf(bounds)
 )
 
 class AdvancedTranslationEngine(private val context: Context? = null) {
@@ -49,20 +50,13 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                     if (!continuation.isActive) return@addOnSuccessListener
                     val regions = mutableListOf<TranslationRegion>()
                     result.textBlocks.forEach { block ->
-                        block.lines.forEach { line ->
-                            val box = line.boundingBox ?: return@forEach
-                            val source = line.text.trim()
-                            if (source.isNotBlank()) {
-                                regions += TranslationRegion(
-                                    source = source,
-                                    translated = source,
-                                    bounds = RectF(box),
-                                    sourceLanguage = detect(source),
-                                    textColor = contrastText(sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat())),
-                                    backgroundColor = sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat()),
-                                    textSize = maxOf(12f, box.height() * 0.72f)
-                                )
-                            }
+                        val box = block.boundingBox
+                        val source = block.text.trim()
+                        if (box != null && source.isNotBlank()) {
+                            regions += TranslationRegion(source, source, RectF(box), detect(source),
+                                Color.BLACK, Color.WHITE,
+                                block.lines.mapNotNull { it.boundingBox?.height()?.toFloat() }.average().toFloat().coerceAtLeast(12f),
+                                block.lines.mapNotNull { it.boundingBox?.let(::RectF) })
                         }
                     }
                     if (continuation.isActive) continuation.resume(regions)
@@ -82,6 +76,33 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     }
 
     suspend fun recognizeScriptAware(bitmap: Bitmap): List<TranslationRegion> {
+        // Long webtoon pages must keep glyph resolution; use overlapping vertical OCR tiles.
+        if (bitmap.height <= 2048) return recognizeTile(bitmap)
+        val output = mutableListOf<TranslationRegion>()
+        var y = 0
+        while (y < bitmap.height) {
+            val height = minOf(2048, bitmap.height - y)
+            val tile = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, height)
+            try {
+                recognizeTile(tile).forEach { region ->
+                    val shifted = region.copy(bounds = RectF(region.bounds).apply { offset(0f, y.toFloat()) },
+                        lineBounds = region.lineBounds.map { RectF(it).apply { offset(0f, y.toFloat()) } })
+                    val duplicate = output.indexOfFirst { previous ->
+                        val intersection = RectF(previous.bounds)
+                        intersection.intersect(shifted.bounds) && intersection.width() * intersection.height() >
+                            minOf(previous.bounds.width() * previous.bounds.height(), shifted.bounds.width() * shifted.bounds.height()) * .5f
+                    }
+                    if (duplicate < 0) output += shifted
+                    else if (shifted.source.length > output[duplicate].source.length) output[duplicate] = shifted
+                }
+            } finally { tile.recycle() }
+            if (y + height >= bitmap.height) break
+            y += 1792
+        }
+        return output.sortedBy { it.bounds.top }
+    }
+
+    private suspend fun recognizeTile(bitmap: Bitmap): List<TranslationRegion> {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
         val script = prefs?.getString("script", "AUTO") ?: "AUTO"
         val highAccuracy = prefs?.getBoolean("high_accuracy", true) ?: true
@@ -90,15 +111,18 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
         )
         return try {
+            val failures = mutableListOf<Throwable>()
             val results = candidates.map { recognizer ->
                 try {
                     recognizeWith(recognizer, bitmap)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Throwable) {
+                } catch (failure: Exception) {
+                    failures += failure
                     emptyList()
                 }
             }
+            if (failures.size == candidates.size) throw failures.first()
             results.maxByOrNull { it.sumOf { region -> region.source.length } } ?: emptyList()
         } finally {
             candidates.forEach { it.close() }
@@ -117,19 +141,9 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
         regions.forEach { region ->
-            val background = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = region.backgroundColor }
-            canvas.drawRoundRect(region.bounds, region.bounds.height() * .18f, region.bounds.height() * .18f, background)
-            val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = region.textColor
-                textSize = region.textSize
-                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
-            }
-            val lines = wrap(region.translated, text, region.bounds.width())
-            val lineHeight = text.fontMetrics.descent - text.fontMetrics.ascent
-            val startY = region.bounds.centerY() - (lines.size - 1) * lineHeight / 2f - (text.fontMetrics.ascent + text.fontMetrics.descent) / 2f
-            lines.forEachIndexed { index, value ->
-                canvas.drawText(value, region.bounds.centerX() - text.measureText(value) / 2f, startY + index * lineHeight, text)
-            }
+            val patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source)
+            try { com.mangalens.core.translation.MangaLettering.draw(canvas, patch, region.translated) }
+            finally { patch.background.recycle() }
         }
         return output
     }
@@ -146,31 +160,6 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             text.any(Char::isLetter) -> LocalSourceLanguage.ENGLISH
             else -> LocalSourceLanguage.UNKNOWN
         }
-    }
-
-    private fun contrastText(background: Int): Int {
-        val luminance = (0.2126f * Color.red(background) + 0.7152f * Color.green(background) + 0.0722f * Color.blue(background)) / 255f
-        return if (luminance > 0.55f) Color.BLACK else Color.WHITE
-    }
-
-    private fun sample(bitmap: Bitmap, x: Float, y: Float): Int {
-        val px = runCatching { bitmap.getPixel(x.toInt().coerceIn(0, bitmap.width - 1), y.toInt().coerceIn(0, bitmap.height - 1)) }.getOrDefault(Color.WHITE)
-        val luminance = (0.2126f * Color.red(px) + 0.7152f * Color.green(px) + 0.0722f * Color.blue(px)) / 255f
-        return if (luminance > .72f) Color.WHITE else Color.rgb((Color.red(px) + 255) / 2, (Color.green(px) + 255) / 2, (Color.blue(px) + 255) / 2)
-    }
-
-    private fun wrap(value: String, paint: Paint, width: Float): List<String> {
-        val lines = mutableListOf<String>()
-        var line = ""
-        value.split(Regex("\\s+")).forEach { word ->
-            val candidate = if (line.isEmpty()) word else "$line $word"
-            if (paint.measureText(candidate) > width && line.isNotEmpty()) {
-                lines += line
-                line = word
-            } else line = candidate
-        }
-        if (line.isNotEmpty()) lines += line
-        return lines
     }
 
     fun close() = Unit

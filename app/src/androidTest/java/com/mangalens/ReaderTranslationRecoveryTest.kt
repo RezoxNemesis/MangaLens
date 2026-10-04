@@ -35,7 +35,7 @@ class ReaderTranslationRecoveryTest {
         prefs.edit().putString("script", "LATIN").putBoolean("high_accuracy", false).commit()
         val id = ChapterLibrary.id("qa:reader-translation-recovery")
         val directory = File(app.filesDir, "chapters").apply { mkdirs() }
-        val files = (1..3).map { File(directory, "qa_translation_recovery_$it.png") }
+        val files = (1..4).map { File(directory, "qa_translation_recovery_$it.png") }
         val store = ViewModelStore()
         lateinit var viewModel: MangaLensViewModel
         val settings = app.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE)
@@ -44,6 +44,10 @@ class ReaderTranslationRecoveryTest {
         try {
             files.forEach { writeTextPage(it) }
             files[1].writeText("This is a damaged image")
+            val blank = Bitmap.createBitmap(1000, 300, Bitmap.Config.ARGB_8888)
+            blank.eraseColor(Color.WHITE)
+            files[3].outputStream().use { blank.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            blank.recycle()
             val pages = files.mapIndexed { index, file -> ChapterPage(index + 1, "local:qa:$index", file.absolutePath) }
             ChapterLibrary(app).save(SavedChapter(id, "Translation recovery fixture", "", pages))
             // A real stored translation avoids optional model/network dependence in this recovery test.
@@ -60,23 +64,23 @@ class ReaderTranslationRecoveryTest {
                 viewModel.openSavedChapter(id)
                 viewModel.setMangaTranslationEnabled(true)
             }
-            withTimeout(30_000) { viewModel.state.first { it.pages.size == 3 && it.activeChapter?.id == id } }
+            withTimeout(30_000) { viewModel.state.first { it.pages.size == 4 && it.activeChapter?.id == id } }
             instrumentation.runOnMainSync { viewModel.translateChapter("en") }
             val completed = withTimeout(120_000) {
-                viewModel.state.first { !it.translating && it.translationDone == 3 }
+                viewModel.state.first { !it.translating && it.translationDone == 4 }
             }
-            assertEquals(3, completed.translationTotal)
+            assertEquals(4, completed.translationTotal)
             assertTrue(completed.translationEnabled)
             assertTrue(completed.translationError)
             assertEquals(setOf(1, 3), completed.overlays.keys)
-            assertTrue(completed.error.orEmpty().contains("1 of 3"))
+            assertTrue(completed.error.orEmpty().contains("1 of 4"))
             assertTrue(completed.error.orEmpty().contains("Retry pages 2"))
             val firstPage = completed.overlays[1]
             val thirdPage = completed.overlays[3]
 
             instrumentation.runOnMainSync {
                 viewModel.pauseTranslation(true)
-                viewModel.translatePage(ChapterPage(4, "local:unavailable", null), "en")
+                viewModel.translatePage(ChapterPage(5, "local:unavailable", null), "en")
             }
             assertFalse(viewModel.state.value.translating)
             assertFalse(viewModel.state.value.translationPaused)
