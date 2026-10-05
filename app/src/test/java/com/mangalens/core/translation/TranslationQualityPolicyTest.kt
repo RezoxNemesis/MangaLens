@@ -71,4 +71,16 @@ class TranslationQualityPolicyTest {
     }
 
 
+    @Test
+    fun hindiRefinementWithHeavyEnglishLeakageFallsBackToHindiDraft() {
+        val chosen = TranslationQualityPolicy.choose(
+            source = "The Scientific Mindset",
+            draft = "वैज्ञानिक मानसिकता",
+            refined = "वैज्ञानिक Mindset Scientific सोच",
+            targetLanguage = "hi"
+        )
+        assertEquals("वैज्ञानिक मानसिकता", chosen)
+    }
+
+
 }
