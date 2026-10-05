@@ -49,7 +49,10 @@ class EnterpriseAdBlockEngine(
             'iframe[src*="doubleclick.net" i]','iframe[src*="googlesyndication.com" i]',
             'iframe[src*="exoclick" i]','iframe[src*="trafficjunky" i]',
             'iframe[src*="popads" i]','iframe[src*="clickadu" i]',
-            'iframe[src*="hilltopads" i]','iframe[src*="trafficstars" i]'
+            'iframe[src*="hilltopads" i]','iframe[src*="trafficstars" i]',
+            'ytd-display-ad-renderer','ytd-ad-slot-renderer',
+            'ytd-promoted-sparkles-web-renderer','ytm-promoted-sparkles-web-renderer',
+            '.ytp-ad-overlay-container','.ytp-ad-message-container'
           ];
           function remove(root) {
             if (!root || root.nodeType !== 1) return;
@@ -58,7 +61,18 @@ class EnterpriseAdBlockEngine(
             matched.concat(descendants).forEach(function(el) {
               if (el.tagName !== 'IMG' && el.tagName !== 'VIDEO') el.remove();
             });
-
+            try {
+              if (/(^|\.)instagram\.com$/i.test(location.hostname)) {
+                const candidates = root.matches && root.matches('article') ? [root] :
+                  (root.querySelectorAll ? Array.from(root.querySelectorAll('article')) : []);
+                candidates.forEach(function(article) {
+                  const sponsored = Array.from(article.querySelectorAll('span,a')).some(function(node) {
+                    return /^sponsored$/i.test((node.textContent || '').trim());
+                  });
+                  if (sponsored) article.remove();
+                });
+              }
+            } catch (_) {}
           }
           const nativeOpen = window.open;
           window.open = function(url, name, features) {
