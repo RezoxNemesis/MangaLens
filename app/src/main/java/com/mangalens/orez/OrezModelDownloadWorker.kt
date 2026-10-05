@@ -60,6 +60,8 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
         val announced = connection.contentLengthLong
         val total = if (announced > 0L) offset + announced else OrezModelManager.MODEL_BYTES
         var done = offset
+        var lastPublishBytes = done
+        var lastPublishAt = android.os.SystemClock.elapsedRealtime()
         setForeground(notification("OREZ local model", done, total))
         connection.inputStream.use { input ->
             java.io.FileOutputStream(part, offset > 0L).use { output ->
@@ -71,7 +73,16 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
                     check(done + n <= OrezModelManager.MODEL_BYTES) { "Model transfer exceeded expected size" }
                     output.write(buffer, 0, n)
                     done += n
-                    publish(done, total)
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (
+                        done - lastPublishBytes >= PROGRESS_BYTES ||
+                        now - lastPublishAt >= PROGRESS_INTERVAL_MS ||
+                        done >= total
+                    ) {
+                        publish(done, total)
+                        lastPublishBytes = done
+                        lastPublishAt = now
+                    }
                 }
             }
         }
@@ -116,5 +127,9 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
         return d.digest().joinToString("") { "%02x".format(it) }
     }
 
-    companion object { const val KEY_ID = "id" }
+    companion object {
+        const val KEY_ID = "id"
+        private const val PROGRESS_BYTES = 8L * 1024L * 1024L
+        private const val PROGRESS_INTERVAL_MS = 1_000L
+    }
 }
