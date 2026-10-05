@@ -95,27 +95,55 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
         item{Text("Appearance",fontWeight=FontWeight.Bold)}
         item{Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){ThemeMode.entries.forEach{mode->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(mode.name.lowercase().replaceFirstChar{it.uppercase()});RadioButton(selected=state.themeMode==mode,onClick={onThemeModeChanged(mode)})}}}}}
         item{
-            Text("Ad-block activity",fontWeight=FontWeight.Bold)
-            Card(Modifier.fillMaxWidth()){
-                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
-                        Column(Modifier.weight(1f)){
-                            Text("Block ads & trackers",fontWeight=FontWeight.SemiBold)
-                            Text("Disable this if blocking breaks a website. You can also toggle it temporarily inside Web mode.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+            Text("Protection Center",fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.secondary)
+            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()){
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
+                    Column(Modifier.weight(1f)){
+                        Text("Block ads & trackers",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.ExtraBold)
+                        Text("Network, popup, tracker and known ad transport protection. Normal first-party media remains allowed.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(state.adBlockEnabled,onAdBlockEnabledChanged)
+                }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                    Surface(
+                        Modifier.weight(1f),
+                        shape=RoundedCornerShape(16.dp),
+                        color=MaterialTheme.colorScheme.primary.copy(alpha=.08f),
+                        border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.primary.copy(alpha=.35f))
+                    ){
+                        Column(Modifier.padding(14.dp)){
+                            Text(state.adBlockStats.blockedRequests.toString(),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black)
+                            Text("requests blocked",color=MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(state.adBlockEnabled,onAdBlockEnabledChanged)
                     }
-                    Text(state.adBlockStats.blockedRequests.toString()+" requests blocked",style=MaterialTheme.typography.titleLarge)
-                    Text((state.adBlockStats.knownBytesSaved/1024).toString()+" KB saved",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row {
-                        TextButton({ showBlockEvents = !showBlockEvents }) { Text(if (showBlockEvents) "Hide activity" else "Inspect blocked requests") }
-                        TextButton(onClick=onResetAdBlockStats){Text("Reset")}
+                    Surface(
+                        Modifier.weight(1f),
+                        shape=RoundedCornerShape(16.dp),
+                        color=MaterialTheme.colorScheme.primary.copy(alpha=.06f),
+                        border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outline.copy(alpha=.55f))
+                    ){
+                        Column(Modifier.padding(14.dp)){
+                            Text((state.adBlockStats.knownBytesSaved/1024).toString()+" KB",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black)
+                            Text("known bytes saved",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                    if (showBlockEvents) {
-                        Text("Local log • latest 200 blocked requests • no cookies or URL queries", style = MaterialTheme.typography.bodySmall)
-                        state.adBlockStats.events.take(20).forEach { event ->
-                            Text(java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault()).format(java.util.Date(event.timestamp)) + " · " + event.host, style = MaterialTheme.typography.labelMedium)
-                            Text("${event.type} · ${event.rule} · ${if (event.thirdParty) "third party" else "same site / unknown"} · ${event.pageHost}", style = MaterialTheme.typography.bodySmall)
+                }
+                Row {
+                    TextButton({ showBlockEvents = !showBlockEvents }) { Text(if (showBlockEvents) "Hide activity" else "Inspect blocked requests") }
+                    TextButton(onClick=onResetAdBlockStats){Text("Reset")}
+                }
+                if (showBlockEvents) {
+                    Text("Local log • latest 200 blocked requests • no cookies or URL queries", style = MaterialTheme.typography.bodySmall)
+                    state.adBlockStats.events.take(20).forEach { event ->
+                        Surface(
+                            Modifier.fillMaxWidth(),
+                            shape=RoundedCornerShape(12.dp),
+                            color=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.34f)
+                        ){
+                            Column(Modifier.padding(horizontal=12.dp,vertical=9.dp)){
+                                Text(java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault()).format(java.util.Date(event.timestamp)) + " · " + event.host, style = MaterialTheme.typography.labelLarge,fontWeight=FontWeight.SemiBold)
+                                Text("${event.type} · ${event.rule} · ${if (event.thirdParty) "third party" else "same site / unknown"} · ${event.pageHost}", style = MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
