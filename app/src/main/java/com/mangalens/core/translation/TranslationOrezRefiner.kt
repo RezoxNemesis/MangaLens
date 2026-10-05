@@ -39,7 +39,9 @@ internal fun buildTranslationRefinementPrompt(
         - Keep character voice consistent with the chapter context.
         - Never invent plot facts, names or actions.
         - Do not translate a proper name unless the glossary explicitly maps it.
-        - Preserve established honorifics when appropriate. Never invent politeness, respect, titles, honorifics or social distance that is absent from the source.\n        - For English→Hindi, neutral informal dialogue normally maps to natural तुम-register; use आप only when the source/context is explicitly respectful, and hostile dialogue may use तू-register when warranted.\n        - Fix literal or robotic machine-translation phrasing.
+        - Preserve established honorifics when appropriate. Never invent politeness, respect, titles, honorifics or social distance that is absent from the source.
+        - For English→Hindi, neutral informal dialogue normally maps to natural तुम-register; use आप only when the source/context is explicitly respectful, and hostile dialogue may use तू-register when warranted.
+        - Fix literal or robotic machine-translation phrasing.
         - Keep short dialogue short; do not add explanations.
         - Preserve emphasis, laughter, hesitation, shouting and rhetorical tone.
         - If the source contains an obvious OCR error, infer the most plausible reading from context without inventing new content.
