@@ -69,7 +69,6 @@ fun AdBlockedWebScreen(
     val projectionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
-            speech.setEnabled(true)
             WebAudioCaptureService.windowSeconds = { speech.chunkSeconds }
             WebAudioCaptureService.clock = { speech.positionMs = it }
             WebAudioCaptureService.sink = { samples, start ->
@@ -85,7 +84,11 @@ fun AdBlockedWebScreen(
         if (granted) projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
     }
     LaunchedEffect(speech) { speech.loadInstalled() }
-    LaunchedEffect(captureActive) { if (!captureActive) speech.setEnabled(false) }
+    LaunchedEffect(captureActive) {
+        // Bind the subtitle engine to real Android playback capture, not merely to a UI toggle.
+        // This removes the old false "Active" state when permission is denied or capture fails.
+        speech.setEnabled(captureActive)
+    }
     LaunchedEffect(speechState.enabled) {
         if (!speechState.enabled && captureActive) context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
     }
@@ -230,8 +233,17 @@ fun AdBlockedWebScreen(
         Surface(shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                com.mangalens.ui.video.LiveAudioSubtitleSettings(speech)
+                com.mangalens.ui.video.LiveAudioSubtitleSettings(speech, showEnableControl = false)
                 if (captureStatus.isNotBlank()) Text(captureStatus)
+                if (captureActive) {
+                    Text(
+                        "Captured audio: " + "%.1f".format(speechState.capturedAudioMs / 1000f) +
+                            " s • processed windows: " + speechState.processedWindows,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (speechState.capturedAudioMs > 0) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error
+                    )
+                }
                 Text("Android asks for audio and capture permission. Site/device capture restrictions may require Open in Video. Only MangaLens playback is captured; audio stays on your device.", style = MaterialTheme.typography.bodySmall)
                 Button(onClick = {
                     if (captureActive) {
