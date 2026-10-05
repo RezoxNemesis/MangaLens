@@ -1,5 +1,14 @@
 package com.mangalens.core.translation
 
+import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.Translator
+import com.google.mlkit.nl.translate.TranslatorOptions
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
 internal fun normalizeEnglishDialogueForHindi(value: String): String {
     var text = value
     val replacements = listOf(
@@ -14,14 +23,6 @@ internal fun normalizeEnglishDialogueForHindi(value: String): String {
     return text
 }
 
-import com.google.mlkit.nl.languageid.LanguageIdentification
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.Translator
-import com.google.mlkit.nl.translate.TranslatorOptions
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class TranslationService {
     private val languageIdentifier = LanguageIdentification.getClient()
