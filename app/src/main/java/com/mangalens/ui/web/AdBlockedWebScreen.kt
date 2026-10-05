@@ -33,14 +33,19 @@ import com.mangalens.core.adblock.AdBlockEngine
 import com.mangalens.core.adblock.AdBlockWebViewClient
 import com.mangalens.core.translation.TranslationService
 import com.mangalens.core.translation.WebTranslationScript
+import com.mangalens.download.DownloadQuality
 import com.mangalens.download.MediaDownloadManager
+import com.mangalens.download.MediaLinkResolver
+import com.mangalens.download.YtDlpSiteMediaExtractor
 import com.mangalens.ui.video.SniffedMedia
 import com.mangalens.ui.video.VideoSourcePolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONTokener
@@ -112,6 +117,11 @@ fun AdBlockedWebScreen(
     }
     val engine = remember { AdBlockEngine(com.mangalens.core.adblock.AdBlockStatsStore.shared) }
     val translator = remember { TranslationService() }
+    val mediaResolver = remember {
+        MediaLinkResolver(
+            siteExtractor = YtDlpSiteMediaExtractor(context, allowSeparateStreams = true)
+        )
+    }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var currentUrl by remember { mutableStateOf(url) }
     var pageTitle by remember { mutableStateOf("") }
@@ -133,6 +143,87 @@ fun AdBlockedWebScreen(
     var siteAdBlockEnabled by remember { mutableStateOf(adBlockEnabled) }
     val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
     val latestSiteAdBlockEnabled by rememberUpdatedState(siteAdBlockEnabled)
+
+    fun enrichSniffedMedia(media: SniffedMedia): SniffedMedia {
+        val cookie = runCatching {
+            android.webkit.CookieManager.getInstance().getCookie(media.url)
+        }.getOrNull().orEmpty()
+        val headers = buildMap {
+            putAll(media.headers)
+            if (cookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", cookie)
+            if (keys.none { it.equals("Referer", true) }) put("Referer", currentUrl)
+            if (keys.none { it.equals("User-Agent", true) }) {
+                put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+            }
+            if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+        }
+        return media.copy(headers = headers)
+    }
+
+    fun openCurrentVideo() {
+        scope.launch {
+            translationStatus = "Resolving the best playable media source…"
+            val resolved = withContext(Dispatchers.IO) {
+                runCatching { mediaResolver.resolveCancellable(currentUrl, DownloadQuality.BEST) }.getOrNull()
+            }
+            if (resolved != null) {
+                val videoCookie = runCatching {
+                    android.webkit.CookieManager.getInstance().getCookie(resolved.url)
+                }.getOrNull().orEmpty()
+                val videoHeaders = buildMap {
+                    putAll(resolved.headers)
+                    if (videoCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", videoCookie)
+                    if (keys.none { it.equals("Referer", true) }) put("Referer", currentUrl)
+                    if (keys.none { it.equals("User-Agent", true) }) {
+                        put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+                    }
+                    if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+                }
+                val audioHeaders = resolved.audioUrl?.let { audio ->
+                    val audioCookie = runCatching {
+                        android.webkit.CookieManager.getInstance().getCookie(audio)
+                    }.getOrNull().orEmpty()
+                    buildMap {
+                        putAll(resolved.audioHeaders)
+                        if (audioCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", audioCookie)
+                        if (keys.none { it.equals("Referer", true) }) put("Referer", currentUrl)
+                        if (keys.none { it.equals("User-Agent", true) }) {
+                            put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+                        }
+                        if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+                    }
+                }.orEmpty()
+                onOpenVideo(
+                    SniffedMedia(
+                        url = resolved.url,
+                        headers = videoHeaders,
+                        kind = when (resolved.mimeType) {
+                            "application/x-mpegURL" -> "HLS"
+                            "application/dash+xml" -> "DASH"
+                            else -> "RESOLVED"
+                        },
+                        audioUrl = resolved.audioUrl,
+                        audioHeaders = audioHeaders,
+                        title = resolved.title ?: pageTitle.takeIf(String::isNotBlank),
+                        provider = resolved.provider
+                    ),
+                    currentUrl
+                )
+                translationStatus = null
+                return@launch
+            }
+
+            val fallback = detectedMedia?.let(::enrichSniffedMedia)
+            if (fallback != null && !isYoutubePage(currentUrl)) {
+                onOpenVideo(fallback, currentUrl)
+                translationStatus = null
+            } else {
+                translationStatus = if (isYoutubePage(currentUrl))
+                    "YouTube did not expose a fresh playable source. Reload the page and retry."
+                else "No concrete video request has been detected yet. Start the video, then retry."
+            }
+        }
+    }
 
     LaunchedEffect(translationEnabled) { translated = translationEnabled }
     LaunchedEffect(adBlockEnabled) { siteAdBlockEnabled = adBlockEnabled }
@@ -289,16 +380,27 @@ fun AdBlockedWebScreen(
                             request: WebResourceRequest?
                         ): android.webkit.WebResourceResponse? {
                             val mediaUrl = request?.url?.toString()
-                            if (mediaUrl != null && VideoSourcePolicy.isLikelyMediaRequest(mediaUrl)) {
-                                val allowed = setOf("accept", "cookie", "origin", "referer", "user-agent")
-                                val headers = request.requestHeaders
+                            if (mediaUrl != null && VideoSourcePolicy.isLikelyMediaRequest(mediaUrl, request?.requestHeaders.orEmpty())) {
+                                val allowed = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
+                                val headers = request?.requestHeaders.orEmpty()
                                     .filter { (name, value) -> name.lowercase() in allowed && value.length <= 16_384 }
-                                val candidate = SniffedMedia(mediaUrl, headers, "WEB")
+                                val candidate = SniffedMedia(
+                                    mediaUrl,
+                                    headers,
+                                    when {
+                                        ".m3u8" in mediaUrl.lowercase() -> "HLS"
+                                        ".mpd" in mediaUrl.lowercase() -> "DASH"
+                                        else -> "WEB"
+                                    },
+                                    title = pageTitle.takeIf(String::isNotBlank),
+                                    provider = runCatching { java.net.URI(mediaUrl).host?.removePrefix("www.") }.getOrNull()
+                                )
                                 view?.post {
                                     val current = detectedMedia
                                     if (
                                         current == null ||
-                                        VideoSourcePolicy.mediaScore(candidate.url) >= VideoSourcePolicy.mediaScore(current.url)
+                                        VideoSourcePolicy.mediaScore(candidate.url, candidate.headers) >=
+                                            VideoSourcePolicy.mediaScore(current.url, current.headers)
                                     ) {
                                         detectedMedia = candidate
                                     }
@@ -366,18 +468,9 @@ fun AdBlockedWebScreen(
                     onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() },
                     contentPadding = PaddingValues(horizontal = 7.dp)
                 ) { Text(if (loadProgress < 100) "■" else "↻") }
-                if (detectedMedia != null) {
+                if (detectedMedia != null || VideoSourcePolicy.isSourcePage(currentUrl)) {
                     TextButton(
-                        onClick = {
-                            val media = detectedMedia ?: return@TextButton
-                            val cookie = android.webkit.CookieManager.getInstance().getCookie(media.url).orEmpty()
-                            val enrichedHeaders = buildMap {
-                                putAll(media.headers)
-                                if (cookie.isNotBlank()) put("Cookie", cookie)
-                                if (keys.none { it.equals("Referer", ignoreCase = true) }) put("Referer", currentUrl)
-                            }
-                            onOpenVideo(media.copy(headers = enrichedHeaders), currentUrl)
-                        },
+                        onClick = { openCurrentVideo() },
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) { Text("Video") }
                 }
@@ -418,6 +511,16 @@ fun AdBlockedWebScreen(
                             }
                         )
                         com.mangalens.ui.video.VideoDockAction(
+                            label = "Open in Video",
+                            status = when {
+                                detectedMedia != null -> "Media detected"
+                                VideoSourcePolicy.isSourcePage(currentUrl) -> "Resolve best source"
+                                else -> "Native player"
+                            },
+                            enabled = pageReady,
+                            onClick = { openCurrentVideo() }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
                             label = "Download",
                             status = "Resolve best media",
                             onClick = {
@@ -442,19 +545,27 @@ fun AdBlockedWebScreen(
                                                 (pageFailure.message ?: "unable to resolve media")
                                         } else {
                                             translationStatus = "Page extractor unavailable • using detected video stream…"
-                                            runCatching {
-                                                manager.enqueue(
-                                                    media.url,
-                                                    title = pageTitle.takeIf(String::isNotBlank),
-                                                    quality = com.mangalens.download.DownloadQuality.BEST,
-                                                    sourcePageUrl = currentUrl,
-                                                    headers = media.headers
-                                                )
-                                            }.onSuccess {
-                                                translationStatus = "Detected media queued for download."
-                                            }.onFailure {
-                                                translationStatus = "Download failed after page + stream fallback: " +
-                                                    (it.message ?: pageFailure.message ?: "unavailable media")
+                                            if (isYoutubePage(currentUrl)) {
+                                                translationStatus =
+                                                    "YouTube source refresh failed. Reload the video page, play it briefly, then retry."
+                                            } else {
+                                                val enriched = enrichSniffedMedia(media)
+                                                runCatching {
+                                                    manager.enqueueResolvedMedia(
+                                                        url = enriched.url,
+                                                        title = pageTitle.takeIf(String::isNotBlank),
+                                                        mimeType = sniffedMime(enriched),
+                                                        quality = DownloadQuality.BEST,
+                                                        sourcePageUrl = currentUrl,
+                                                        headers = enriched.headers,
+                                                        provider = enriched.provider ?: "web-sniff"
+                                                    )
+                                                }.onSuccess {
+                                                    translationStatus = "Detected media queued with the current website session."
+                                                }.onFailure {
+                                                    translationStatus = "Download failed after page + stream fallback: " +
+                                                        (it.message ?: pageFailure.message ?: "unavailable media")
+                                                }
                                             }
                                         }
                                     }
@@ -514,6 +625,19 @@ private fun parseJavascriptStringArray(raw: String?): List<String> {
         val array = JSONArray(payload)
         (0 until array.length()).mapNotNull { index -> array.optString(index).takeIf { it.isNotBlank() } }
     }.getOrDefault(emptyList())
+}
+
+
+private fun isYoutubePage(value: String): Boolean = runCatching {
+    val host = java.net.URI(value).host.orEmpty().lowercase()
+    host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com")
+}.getOrDefault(false)
+
+private fun sniffedMime(media: SniffedMedia): String = when (media.kind.uppercase()) {
+    "HLS" -> "application/x-mpegURL"
+    "DASH" -> "application/dash+xml"
+    "MPEG-TS" -> "video/mp2t"
+    else -> "video/mp4"
 }
 
 private const val MAX_WEB_TEXT_NODES = 160
