@@ -49,14 +49,20 @@ class OrezLiveSearchConnector(
                 }
             }.awaitAll()
         }
-        val summary = if (enriched.isEmpty()) {
+        val usable = enriched
+            .map { it.copy(snippet = cleanEvidence(it.snippet)) }
+            .filter { it.snippet.length >= 30 && !isBoilerplate(it.snippet) }
+            .distinctBy { runCatching { java.net.URI(it.url).host.orEmpty().lowercase() }.getOrDefault(it.url) }
+            .take(limit.coerceIn(1, 6))
+
+        val summary = if (usable.isEmpty()) {
             "Live web search did not return readable public results. Try a more specific query."
         } else {
             buildString {
                 append("Research question: ").append(query).append("\n\n")
                 if (provider == "wikipedia") append("Wikipedia encyclopedia fallback; this does not verify current news, prices or schedules. Wikipedia excerpts are CC BY-SA 4.0, with original page links below.\n\n")
                 append("Findings from public web pages:\n")
-                enriched.forEachIndexed { index, result ->
+                usable.forEachIndexed { index, result ->
                     append(index + 1).append(". ").append(result.title).append("\n")
                     append(result.snippet.ifBlank { "The page was found, but its text could not be extracted." })
                     append("\nSource: ").append(result.url).append("\n\n")
@@ -64,7 +70,7 @@ class OrezLiveSearchConnector(
                 append("Treat these as source excerpts, not as a complete answer; check dates and context where relevant.")
             }
         }
-        LiveSearchAnswer(query, enriched, summary, provider)
+        LiveSearchAnswer(query, usable, summary, provider)
     }
 
     suspend fun fetch(url: String, maxChars: Int = 12000): String = withContext(Dispatchers.IO) {
@@ -143,10 +149,14 @@ class OrezLiveSearchConnector(
         val markers = listOf(
             "jump to content", "main menu", "navigation", "create account", "log in",
             "privacy policy", "terms of use", "cookie policy", "subscribe", "sign up",
-            "upload file", "community portal", "recent changes"
+            "upload file", "community portal", "recent changes",
+            "google images", "advertising business solutions", "about google",
+            "google account", "use your google account", "continue on web",
+            "accept all cookies", "reject all cookies"
         )
+        val words = value.split(' ').filter(String::isNotBlank)
         return markers.count(lower::contains) >= 1 ||
-            value.split(' ').distinct().size < value.split(' ').size * .45
+            (words.size >= 12 && words.distinct().size < words.size * .45)
     }
 
     companion object { private const val MAX_HTML_BYTES = 1_500_000 }
