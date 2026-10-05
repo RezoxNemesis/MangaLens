@@ -51,7 +51,7 @@ fun NativeVideoPlayer(
     var playbackError by remember { mutableStateOf<String?>(null) }
     var hudVisible by remember { mutableStateOf(true) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    var downloadQuality by remember { mutableStateOf(com.mangalens.download.DownloadQuality.P1080) }
+    var downloadQuality by remember { mutableStateOf(com.mangalens.download.DownloadQuality.BEST) }
     var downloadStatus by remember { mutableStateOf<String?>(null) }
     var liveTranslationEnabled by remember { mutableStateOf(false) }
     var showSpeechSettings by remember { mutableStateOf(false) }
@@ -352,11 +352,12 @@ fun NativeVideoPlayer(
                             status = downloadQuality.label,
                             onClick = {
                                 downloadQuality = when (downloadQuality) {
-                                    com.mangalens.download.DownloadQuality.P480 -> com.mangalens.download.DownloadQuality.P720
-                                    com.mangalens.download.DownloadQuality.P720 -> com.mangalens.download.DownloadQuality.P1080
-                                    com.mangalens.download.DownloadQuality.P1080 -> com.mangalens.download.DownloadQuality.P1440
-                                    com.mangalens.download.DownloadQuality.P1440 -> com.mangalens.download.DownloadQuality.P2160
-                                    com.mangalens.download.DownloadQuality.P2160 -> com.mangalens.download.DownloadQuality.P480
+                                    com.mangalens.download.DownloadQuality.BEST -> com.mangalens.download.DownloadQuality.P2160
+                                    com.mangalens.download.DownloadQuality.P2160 -> com.mangalens.download.DownloadQuality.P1440
+                                    com.mangalens.download.DownloadQuality.P1440 -> com.mangalens.download.DownloadQuality.P1080
+                                    com.mangalens.download.DownloadQuality.P1080 -> com.mangalens.download.DownloadQuality.P720
+                                    com.mangalens.download.DownloadQuality.P720 -> com.mangalens.download.DownloadQuality.P480
+                                    com.mangalens.download.DownloadQuality.P480 -> com.mangalens.download.DownloadQuality.BEST
                                 }
                             }
                         )
