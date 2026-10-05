@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 enum class DownloadQuality(val height: Int, val label: String) {
+    BEST(10_000, "Best available"),
     P480(480, "480p"),
     P720(720, "720p"),
     P1080(1080, "1080p"),
@@ -38,10 +39,10 @@ class MediaLinkResolver(
     private val siteExtractor: SiteMediaExtractor? = null
 ) {
 
-    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.P2160): ResolvedMediaLink? =
+    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? =
         runInterruptible(Dispatchers.IO) { resolve(input, quality) }
 
-    fun resolve(input: String, quality: DownloadQuality = DownloadQuality.P2160): ResolvedMediaLink? {
+    fun resolve(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? {
         val clean = input.trim()
         val inputUri = runCatching { URI(clean) }.getOrNull()
         require(inputUri?.scheme in setOf("http", "https") && !inputUri?.host.isNullOrBlank() && inputUri?.userInfo == null) {
