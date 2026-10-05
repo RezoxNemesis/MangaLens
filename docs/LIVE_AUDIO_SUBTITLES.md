@@ -23,3 +23,31 @@ The supplied 23.5-second video was decoded with FFmpeg to 16 kHz mono PCM and pr
 The optional sample test also checks a caption in the production Compose player and saves a screenshot. Its second test exercises terminal shutdown while real model reloads are queued. `WebPlaybackCaptureTest` accepts the same model argument, routes Android-consented WebView PCM through the production speech engine and writes `filesDir/sample-Web-English.srt` if inference succeeds. Without the private fixtures these tests are skipped; ordinary green CI does not establish their acceptance.
 
 `SpeechAudioProcessorTest` verifies Media3 empty drain buffers, exact PCM passthrough and end-of-stream/reset without requiring a model. It passed in CI run 37200648168 after fixing the empty-buffer self-copy crash. See CORE_MEDIA_TRANSLATION_HANDOFF.md for the exact verified artifact and pending sample status.
+
+
+## Approved player/subtitle upgrade — 5 October 2026
+
+The player now exposes the approved two-path subtitle design rather than treating real-time
+recognition as the only usable path.
+
+1. **Live English Audio CC** continues to use decoded playback PCM and the installed multilingual
+   Whisper model. Visual OCR remains independent and cannot contaminate spoken captions.
+2. **Generate Full English Subtitles** decodes the video's audio with Android MediaExtractor /
+   MediaCodec, downsamples it to mono 16 kHz, processes bounded overlapping windows through the
+   same Whisper backend, translates multilingual speech to English, de-duplicates timed cues,
+   writes an SRT cache keyed to the source, previews the result, and can attach the generated cues
+   to playback or export the SRT. Reopening the same source reuses a valid cached SRT.
+3. Local and native online players share the new cinematic subtitle tools/dock. The controls expose
+   live CC state, full generation, separate visual OCR, output/export, fit mode and model readiness.
+
+Native online playback was hardened at the same time. Source-page extraction now preserves
+yt-dlp/HTML resolver request headers, Cookies and Referer, supports split video+audio by merging
+Media3 sources, understands KVS-style direct MP4 download variants (including 4K filename hints),
+and automatically re-resolves the source page when a signed/CDN stream is rejected or expires.
+A rendered background discovery fallback remains available without forcing the user into the Web
+screen. Accessible HTTP(S) MP4/HLS/DASH sources are the target; DRM, inaccessible login-only media,
+or servers that intentionally prohibit third-party playback are not claimed as universally playable.
+
+Ad blocking now blocks known ad-network media as well as scripts, expands adult-site ad/popunder
+network coverage, suppresses known ad navigations and dynamic popup/window.open patterns, while
+leaving ordinary first-party video/image media untouched.
