@@ -100,4 +100,20 @@ class MediaLinkResolverTest {
     }
 
 
+    @Test fun bestAvailableIsTheDefaultExtractorQuality() {
+        val server = MockWebServer().apply { start() }
+        var requested: DownloadQuality? = null
+        val extractor = SiteMediaExtractor { url, quality ->
+            requested = quality
+            ResolvedMediaLink("https://cdn.example/highest.mp4", "video/mp4", detectedHeight = 2160, sourcePageUrl = url)
+        }
+        try {
+            val resolver = MediaLinkResolver(siteExtractor = extractor)
+            val result = resolver.resolve(server.url("/watch").toString())!!
+            assertEquals(DownloadQuality.BEST, requested)
+            assertEquals(2160, result.detectedHeight)
+        } finally { server.shutdown() }
+    }
+
+
 }
