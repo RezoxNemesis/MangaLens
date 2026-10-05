@@ -59,6 +59,7 @@ fun NativeVideoPlayer(
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
     val playerVm: LocalVideoPlayerViewModel = viewModel()
     val player = playerVm.player
+    val speechState by playerVm.speech.state.collectAsState()
     var playing by remember { mutableStateOf(player.isPlaying) }
     var playbackHeight by remember { mutableIntStateOf(player.videoSize.height) }
     val scope = rememberCoroutineScope()
@@ -275,6 +276,15 @@ fun NativeVideoPlayer(
         if (refreshingStream) {
             LinearProgressIndicator(Modifier.align(Alignment.TopCenter).fillMaxWidth(.34f).padding(top = 64.dp))
         }
+        if (speechState.ready && hudVisible) {
+            VideoStatusChip(
+                if (speechState.generated) "Generated English subtitles • offline"
+                else if (speechState.enabled) "English audio captions active"
+                else "Whisper ready • offline",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 96.dp),
+                active = speechState.enabled || speechState.generated
+            )
+        }
         downloadStatus?.let { Text(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp), color = MaterialTheme.colorScheme.onSurface) }
         if (controlsLocked) TextButton(onClick = { controlsLocked = false; hudVisible = true }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock controls") }
         if (hudVisible && !controlsLocked) {
@@ -293,26 +303,88 @@ fun NativeVideoPlayer(
                         }
                         TextButton(onClick = { player.seekForward() }) { Text("10s ►►") }
                     }
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { downloadQuality = when (downloadQuality) { com.mangalens.download.DownloadQuality.P480 -> com.mangalens.download.DownloadQuality.P720; com.mangalens.download.DownloadQuality.P720 -> com.mangalens.download.DownloadQuality.P1080; com.mangalens.download.DownloadQuality.P1080 -> com.mangalens.download.DownloadQuality.P1440; com.mangalens.download.DownloadQuality.P1440 -> com.mangalens.download.DownloadQuality.P2160; com.mangalens.download.DownloadQuality.P2160 -> com.mangalens.download.DownloadQuality.P480 } }) { Text("Download quality") }
-                        TextButton(onClick = { controlsLocked = true; hudVisible = false }) { Text("Lock controls") }
-                        TextButton(onClick = { showSpeechSettings = true }) { Text("English audio CC") }
-                        TextButton(onClick = { showSpeechSettings = true }) { Text("Generate full subtitles") }
-                        TextButton(onClick = { liveTranslationEnabled = !liveTranslationEnabled }) { Text(if (liveTranslationEnabled) "Live OCR on" else "Live OCR off") }
-                        TextButton(onClick = {
-                            scope.launch {
-                                runCatching { MediaDownloadManager(context).enqueue(sourcePageUrl ?: url, "MangaLens video", quality = downloadQuality, sourcePageUrl = sourcePageUrl, headers = requestHeaders) }
-                                    .onSuccess { downloadStatus = "Download queued at " + downloadQuality.label }
-                                    .onFailure { downloadStatus = it.message ?: "Download failed" }
+                    CinematicVideoDock(Modifier.fillMaxWidth()) {
+                        VideoDockAction(
+                            label = "English Audio CC",
+                            status = when {
+                                speechState.generated -> "Generated track active"
+                                speechState.enabled -> "Live captions active"
+                                speechState.ready -> "Whisper ready • offline"
+                                else -> "Model required"
+                            },
+                            selected = speechState.enabled || speechState.generated,
+                            onClick = { showSpeechSettings = true }
+                        )
+                        VideoDockAction(
+                            label = "Generate Full Subtitles",
+                            status = "English SRT",
+                            onClick = { showSpeechSettings = true }
+                        )
+                        VideoDockAction(
+                            label = "Live OCR",
+                            status = if (liveTranslationEnabled) "On" else "Off",
+                            selected = liveTranslationEnabled,
+                            onClick = { liveTranslationEnabled = !liveTranslationEnabled }
+                        )
+                        VideoDockAction(
+                            label = "Download ${downloadQuality.label}",
+                            status = "Quality ceiling",
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        MediaDownloadManager(context).enqueue(
+                                            sourcePageUrl ?: activeUrl,
+                                            "MangaLens video",
+                                            quality = downloadQuality,
+                                            sourcePageUrl = sourcePageUrl,
+                                            headers = activeHeaders
+                                        )
+                                    }.onSuccess {
+                                        downloadStatus = "Download queued at " + downloadQuality.label
+                                    }.onFailure {
+                                        downloadStatus = it.message ?: "Download failed"
+                                    }
+                                }
                             }
-                        }) { Text("Download " + downloadQuality.label) }
-                        TextButton(onClick = {
-                            resizeMode = when (resizeMode) {
-                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        )
+                        VideoDockAction(
+                            label = "Quality",
+                            status = downloadQuality.label,
+                            onClick = {
+                                downloadQuality = when (downloadQuality) {
+                                    com.mangalens.download.DownloadQuality.P480 -> com.mangalens.download.DownloadQuality.P720
+                                    com.mangalens.download.DownloadQuality.P720 -> com.mangalens.download.DownloadQuality.P1080
+                                    com.mangalens.download.DownloadQuality.P1080 -> com.mangalens.download.DownloadQuality.P1440
+                                    com.mangalens.download.DownloadQuality.P1440 -> com.mangalens.download.DownloadQuality.P2160
+                                    com.mangalens.download.DownloadQuality.P2160 -> com.mangalens.download.DownloadQuality.P480
+                                }
                             }
-                        }) { Text("⛶ Fullscreen") }
+                        )
+                        VideoDockAction(
+                            label = "Lock",
+                            status = "Controls",
+                            onClick = { controlsLocked = true; hudVisible = false }
+                        )
+                        VideoDockAction(
+                            label = "Fit",
+                            status = when (resizeMode) {
+                                AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
+                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Crop"
+                                else -> "Fit"
+                            },
+                            onClick = {
+                                resizeMode = when (resizeMode) {
+                                    AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                    AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                }
+                            }
+                        )
+                        VideoDockAction(
+                            label = "Fullscreen",
+                            status = playbackHeight.takeIf { it > 0 }?.let { "${it}p" } ?: "Auto",
+                            onClick = { hudVisible = false }
+                        )
                     }
                 }
             }
