@@ -133,3 +133,158 @@ fun LiveAudioSubtitleSettings(engine: VideoSpeechEngine) {
         exportStatus?.let { Text(it) }
     }
 }
+
+
+@Composable
+fun SubtitleToolsPanel(
+    engine: VideoSpeechEngine,
+    generator: FullVideoSubtitleGenerator,
+    source: SubtitleMediaSource?,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Subtitle Tools", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Live speech captions and complete-video generation use the same offline multilingual Whisper model. Visual OCR remains a separate feature.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        LiveAudioSubtitleSettings(engine)
+        HorizontalDivider()
+        FullSubtitleGeneratorCard(generator, source)
+    }
+}
+
+@Composable
+fun FullSubtitleGeneratorCard(
+    generator: FullVideoSubtitleGenerator,
+    source: SubtitleMediaSource?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val state by generator.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var attachToPlayer by remember { mutableStateOf(true) }
+    var exportStatus by remember { mutableStateOf<String?>(null) }
+    val export = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/x-subrip")
+    ) { uri ->
+        if (uri != null && state.srt.isNotBlank()) scope.launch {
+            exportStatus = runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use {
+                        it.write(state.srt.toByteArray())
+                    } ?: error("Cannot write subtitle file")
+                }
+                "English SRT exported"
+            }.getOrElse { it.message ?: "Export failed" }
+        }
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
+        tonalElevation = 1.dp
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Generate Full English Subtitles", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Analyse the complete video audio, transcribe speech, translate non-English speech to English, build a timed SRT, cache it, and attach it to the player.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = attachToPlayer,
+                    onCheckedChange = { attachToPlayer = it }
+                )
+            }
+            Text(
+                if (attachToPlayer) "Attach to player: Yes (recommended)" else "Attach to player: No",
+                style = MaterialTheme.typography.labelMedium
+            )
+
+            if (state.running) {
+                LinearProgressIndicator(progress = state.progress, modifier = Modifier.fillMaxWidth())
+                Text(
+                    "${(state.progress * 100).toInt()}% • ${state.stage}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                Text(
+                    state.stage + if (state.cached) " • cached for this video" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (state.cues.isNotEmpty()) {
+                Surface(
+                    Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Black.copy(alpha = .28f)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Subtitle Preview (English)", style = MaterialTheme.typography.labelLarge)
+                        state.cues.takeLast(3).forEach { cue ->
+                            Text(
+                                "${previewTime(cue.startMs)}  ${cue.text}",
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (state.running) {
+                    Button(onClick = generator::cancel, modifier = Modifier.weight(1f)) {
+                        Text("Cancel")
+                    }
+                } else {
+                    Button(
+                        enabled = source != null,
+                        onClick = { source?.let { generator.generate(it, attachToPlayer = attachToPlayer, force = state.cues.isNotEmpty()) } },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (state.cues.isEmpty()) "Generate now" else "Regenerate")
+                    }
+                }
+                OutlinedButton(
+                    enabled = state.cues.isNotEmpty(),
+                    onClick = generator::applyToPlayer,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Apply to player") }
+                OutlinedButton(
+                    enabled = state.srt.isNotBlank(),
+                    onClick = { export.launch("MangaLens-English.srt") },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Export SRT") }
+            }
+            if (source == null) {
+                Text("Open a local or online video first.", style = MaterialTheme.typography.bodySmall)
+            }
+            exportStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+private fun previewTime(ms: Long): String {
+    val t = ms.coerceAtLeast(0L)
+    return "%02d:%02d:%02d".format(t / 3_600_000, t / 60_000 % 60, t / 1_000 % 60)
+}
