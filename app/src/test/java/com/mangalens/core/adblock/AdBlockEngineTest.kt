@@ -86,4 +86,21 @@ class AdBlockEngineTest {
     }
 
 
+    @Test
+    fun testAdditionalProgrammaticAdNetworkIsBlocked() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://ads.example.rubiconproject.com/a/api/fastlane.json"
+        )
+        assertNotNull("Known programmatic ad network should be blocked", response)
+    }
+
+    @Test
+    fun testOrdinaryFirstPartyVideoWithAdWordInTitleStillPasses() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://media.example.com/video/road-adventure-4k.mp4?token=abc"
+        )
+        assertNull("Normal first-party video titles must not be overblocked", response)
+    }
+
+
 }
