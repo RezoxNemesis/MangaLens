@@ -18,6 +18,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.coroutineContext
 
 data class SubtitleMediaSource(
@@ -95,7 +96,9 @@ class FullVideoSubtitleGenerator(
                         progress = (.03f + mediaProgress * .88f).coerceIn(.03f, .91f),
                         stage = "Transcribing segment $segmentIndex • ${formatClock(startMs)}"
                     )
-                    val cues = engine.inferEnglishChunk(audio, startMs)
+                    val cues = withTimeout(120_000L) {
+                        engine.inferEnglishChunk(audio, startMs)
+                    }
                     mutable.value = mutable.value.copy(
                         progress = (.04f + mediaProgress * .88f).coerceIn(.04f, .92f),
                         stage = if (cues.isEmpty()) "Segment $segmentIndex scanned • no clear speech"
@@ -133,6 +136,12 @@ class FullVideoSubtitleGenerator(
             } catch (cancelled: CancellationException) {
                 mutable.value = mutable.value.copy(running = false, stage = "Subtitle generation cancelled")
                 throw cancelled
+            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                mutable.value = mutable.value.copy(
+                    running = false,
+                    stage = "Subtitle generation stopped",
+                    error = "A speech segment exceeded the 2-minute processing budget. Try the tiny/base Whisper model or generate subtitles again."
+                )
             } catch (failure: Throwable) {
                 mutable.value = mutable.value.copy(
                     running = false,
