@@ -41,12 +41,15 @@ class EnterpriseAdBlockEngine(
         (function() {
           if (window.__mangalensEnterpriseAdGuard) return;
           window.__mangalensEnterpriseAdGuard = true;
-          const deny = /(batery|battery|esbal|casino|slot|gambl|popup|popunder|interstitial|advert|sponsor)/i;
+          const deny = /(casino|slot|gambl|popup|popunder|clickunder|interstitial|advert|sponsor|doubleclick|googlesyndication|exoclick|trafficjunky|popads|popcash|clickadu|hilltopads|admaven|trafficstars|juicyads)/i;
           const selectors = [
             '[id="ad" i]','[id^="ad-" i]','[class~="ad" i]','[class~="ads" i]','[class*="ad-banner" i]',
             '[class*="popup" i]','[class*="popunder" i]',
             '[class*="interstitial" i]','[class*="overlay-ad" i]',
-            'iframe[src*="doubleclick.net" i]','iframe[src*="googlesyndication.com" i]'
+            'iframe[src*="doubleclick.net" i]','iframe[src*="googlesyndication.com" i]',
+            'iframe[src*="exoclick" i]','iframe[src*="trafficjunky" i]',
+            'iframe[src*="popads" i]','iframe[src*="clickadu" i]',
+            'iframe[src*="hilltopads" i]','iframe[src*="trafficstars" i]'
           ];
           function remove(root) {
             if (!root || root.nodeType !== 1) return;
@@ -57,6 +60,14 @@ class EnterpriseAdBlockEngine(
             });
 
           }
+          const nativeOpen = window.open;
+          window.open = function(url, name, features) {
+            try {
+              const absolute = new URL(String(url || ''), location.href).href;
+              if (deny.test(absolute)) return null;
+            } catch (_) {}
+            return nativeOpen.call(window, url, name, features);
+          };
           remove(document.documentElement);
           const observer = new MutationObserver(function(mutations) {
             mutations.forEach(function(m) {
@@ -68,7 +79,7 @@ class EnterpriseAdBlockEngine(
             const target = e.target && e.target.closest ? e.target.closest('a') : null;
             if (!target) return;
             const href = target.href || '';
-            if (/popunder|clickunder|redirect.*ad|casino|bet|gambl/i.test(href)) {
+            if (/popunder|clickunder|redirect.*ad|casino|bet|gambl|exoclick|trafficjunky|popads|clickadu|hilltopads|trafficstars/i.test(href)) {
               e.preventDefault();
               e.stopImmediatePropagation();
             }
