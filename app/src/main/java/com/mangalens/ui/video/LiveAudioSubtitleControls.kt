@@ -75,7 +75,10 @@ fun LiveAudioSubtitleOverlay(engine: VideoSpeechEngine, modifier: Modifier = Mod
 }
 
 @Composable
-fun LiveAudioSubtitleSettings(engine: VideoSpeechEngine) {
+fun LiveAudioSubtitleSettings(
+    engine: VideoSpeechEngine,
+    showEnableControl: Boolean = true
+) {
     val context = LocalContext.current
     val state by engine.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -101,9 +104,18 @@ fun LiveAudioSubtitleSettings(engine: VideoSpeechEngine) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Live English audio subtitles", style = MaterialTheme.typography.titleMedium)
         Text("Translates the video's decoded speech locally. Supports Whisper languages, with a short processing delay. Accuracy and speed depend on language, audio and your device.", style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Switch(checked = state.enabled, enabled = state.ready && !state.busy, onCheckedChange = engine::setEnabled)
-            Text(if (state.enabled) "Listening to video" else "Off")
+        if (showEnableControl) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Switch(checked = state.enabled, enabled = state.ready && !state.busy, onCheckedChange = engine::setEnabled)
+                Text(if (state.enabled) "Listening to video" else "Off")
+            }
+        } else {
+            Text(
+                "Web subtitles start only after Android confirms playback capture below. " +
+                    "The speech engine no longer reports Active before audio capture is actually running.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         Text(state.status, style = MaterialTheme.typography.bodySmall)
         if (state.enabled) {
