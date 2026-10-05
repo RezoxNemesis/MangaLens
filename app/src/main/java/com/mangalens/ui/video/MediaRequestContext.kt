@@ -26,8 +26,9 @@ class MediaRequestContext(
         )
         if (page != null && !(page.scheme.equals("https", true) && target.scheme.equals("http", true))) {
             result["Referer"] = page.toASCIIString()
-            result["Origin"] = captured["origin"]
-                ?: "${page.scheme.lowercase(Locale.ROOT)}://${page.rawAuthority}"
+            // Derive Origin from the trusted source-page URL instead of forwarding an
+            // extractor-provided Origin that could point at an unrelated host.
+            result["Origin"] = "${page.scheme.lowercase(Locale.ROOT)}://${page.rawAuthority}"
         }
         val cookie = browserCookie?.takeIf { it.isNotBlank() && safeValue(it) }
             ?: captured["cookie"]?.takeIf { requestUrl == mediaUrl }
