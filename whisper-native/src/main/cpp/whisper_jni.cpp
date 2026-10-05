@@ -46,5 +46,12 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_com_mangalens_whisper_WhisperNati
     }
     return output;
 }
+extern "C" JNIEXPORT jstring JNICALL Java_com_mangalens_whisper_WhisperNative_detectedLanguage(JNIEnv *env, jobject, jlong handle) {
+    auto * session = reinterpret_cast<Session *>(handle);
+    if (!session || !session->ctx) return env->NewStringUTF("auto");
+    const int id = whisper_full_lang_id(session->ctx);
+    const char * value = id >= 0 ? whisper_lang_str(id) : "auto";
+    return env->NewStringUTF(value ? value : "auto");
+}
 extern "C" JNIEXPORT void JNICALL Java_com_mangalens_whisper_WhisperNative_cancel(JNIEnv *, jobject, jlong h) { reinterpret_cast<Session *>(h)->cancelled.store(true); }
 extern "C" JNIEXPORT void JNICALL Java_com_mangalens_whisper_WhisperNative_free(JNIEnv *, jobject, jlong h) { auto * s = reinterpret_cast<Session *>(h); whisper_free(s->ctx); delete s; }
