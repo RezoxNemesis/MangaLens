@@ -30,13 +30,15 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             addOption("--retries", "3")
             addOption("--extractor-retries", "2")
             addOption("--user-agent", "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36")
+            addOption("--extractor-args", "youtube:player_client=android_vr,android,web")
             // Prefer the requested ceiling, but always retain a no-height fallback. Some supported
             // sites (notably KVS-style pages) temporarily expose valid MP4 formats with unknown
             // resolution metadata; filtering only by [height<=N] made those pages appear unplayable.
             addOption("-f", if (allowSeparateStreams) {
-                "bestvideo[height<=${quality.height}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/" +
+                "bestvideo[height<=${quality.height}][ext=mp4]+bestaudio[ext=m4a]/" +
+                    "bestvideo[height<=${quality.height}]+bestaudio/" +
                     "best[height<=${quality.height}]/" +
-                    "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best"
+                    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
             } else {
                 "best[height<=${quality.height}]/best"
             })
