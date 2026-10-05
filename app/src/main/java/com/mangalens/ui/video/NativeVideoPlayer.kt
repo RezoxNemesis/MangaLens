@@ -89,7 +89,12 @@ fun NativeVideoPlayer(
         if (refreshingStream) return false
         refreshingStream = true
         return try {
-            val resolved = runCatching { resolver.resolveCancellable(page, downloadQuality) }.getOrNull() ?: return false
+            val playbackQuality = if (refreshAttempts <= 1)
+                com.mangalens.download.DownloadQuality.BEST
+            else com.mangalens.download.DownloadQuality.P1080
+            val resolved = kotlinx.coroutines.withTimeoutOrNull(45_000L) {
+                runCatching { resolver.resolveCancellable(page, playbackQuality) }.getOrNull()
+            } ?: return false
             val pageRef = resolved.sourcePageUrl ?: page
             val videoCookie = runCatching { CookieManager.getInstance().getCookie(resolved.url) }.getOrNull().orEmpty()
             activeUrl = resolved.url
@@ -164,7 +169,7 @@ fun NativeVideoPlayer(
                     playbackError = "Refreshing the playable stream…"
                     scope.launch {
                         if (!refreshFromSource()) {
-                            playbackError = "The stream expired or was rejected. MangaLens re-extraction could not refresh it automatically."
+                            playbackError = "Automatic stream refresh did not produce a playable source within 45 seconds. Retry once or open the source page."
                         }
                     }
                 } else {
@@ -278,7 +283,45 @@ fun NativeVideoPlayer(
                 }
             }
         }
-        if (playbackError != null) Surface(Modifier.align(Alignment.Center).padding(24.dp)) { Column(Modifier.padding(16.dp)) { Text(playbackError!!); TextButton(onClick = { scope.launch { if (!refreshFromSource()) { playbackError = null; player.prepare(); player.play() } } }) { Text("Retry / refresh stream") }; TextButton(onClick = onOpenWeb) { Text("Open source page") } } }
+        if (refreshingStream) {
+            Surface(
+                Modifier.align(Alignment.Center).padding(24.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = .96f)
+            ) {
+                Column(
+                    Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text("Refreshing playable stream…", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (refreshAttempts <= 1) "Trying the best accessible source"
+                        else "Trying a compatibility fallback up to 1080p",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(onClick = onOpenWeb) { Text("Open source page") }
+                }
+            }
+        } else if (playbackError != null) {
+            Surface(Modifier.align(Alignment.Center).padding(24.dp)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(playbackError!!)
+                    TextButton(onClick = {
+                        scope.launch {
+                            if (!refreshFromSource()) {
+                                playbackError = null
+                                player.prepare()
+                                player.play()
+                            }
+                        }
+                    }) { Text("Retry / refresh stream") }
+                    TextButton(onClick = onOpenWeb) { Text("Open source page") }
+                }
+            }
+        }
         if (refreshingStream) {
             LinearProgressIndicator(Modifier.align(Alignment.TopCenter).fillMaxWidth(.34f).padding(top = 64.dp))
         }
