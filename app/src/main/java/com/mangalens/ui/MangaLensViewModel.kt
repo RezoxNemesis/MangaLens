@@ -291,19 +291,28 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                     resolved.mimeType == "application/dash+xml"
                             }
 
-                            val resolvedUrl = staticResolved?.url ?: run {
+                            val renderedUrl = if (staticResolved == null) {
                                 val existingCookie = CookieManager.getInstance().getCookie(target)
                                 val rendered = acquirer.discoverWithCookie(target, 12_000L, existingCookie)
                                 VideoSourcePolicy.preferredMediaUrl(rendered.videoStreamUrls)
-                            }
+                            } else null
+                            val resolvedUrl = staticResolved?.url ?: renderedUrl
 
                             if (resolvedUrl != null) {
                                 val cookie = CookieManager.getInstance().getCookie(resolvedUrl).orEmpty()
+                                val pageUrl = staticResolved?.sourcePageUrl ?: target
+                                val playbackHeaders = buildMap {
+                                    staticResolved?.headers?.forEach { (name, value) -> put(name, value) }
+                                    if (cookie.isNotBlank()) put("Cookie", cookie)
+                                    if (keys.none { it.equals("Referer", true) }) put("Referer", pageUrl)
+                                    if (keys.none { it.equals("User-Agent", true) }) put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+                                    if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+                                }
                                 _state.value = _state.value.copy(
                                     mode = ContentType.VIDEO_STREAM,
                                     videoUrl = resolvedUrl,
-                                    videoPageUrl = target,
-                                    videoHeaders = if (cookie.isBlank()) emptyMap() else mapOf("Cookie" to cookie),
+                                    videoPageUrl = pageUrl,
+                                    videoHeaders = playbackHeaders,
                                     loading = false,
                                     error = null
                                 )
