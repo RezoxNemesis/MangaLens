@@ -24,7 +24,8 @@ import okhttp3.Request
  data class SpeechCue(val startMs: Long, val endMs: Long, val text: String)
  data class SpeechState(val enabled: Boolean = false, val ready: Boolean = false, val busy: Boolean = false,
     val status: String = "Install a multilingual speech model to generate English subtitles from video audio.",
-    val inferenceMs: Long = 0, val cues: List<SpeechCue> = emptyList(), val latestText: String = "", val revision: Long = 0)
+    val inferenceMs: Long = 0, val cues: List<SpeechCue> = emptyList(), val latestText: String = "",
+    val revision: Long = 0, val generated: Boolean = false)
 
 /** Transcribes decoded media audio only; never opens the microphone. */
 @OptIn(UnstableApi::class)
@@ -77,7 +78,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     fun setEnabled(value: Boolean) {
         synchronized(handleGuard) { enabled = value && !closed && handle != 0L }
         invalidate()
-        mutable.value = mutable.value.copy(enabled = enabled, latestText = "", status =
+        mutable.value = mutable.value.copy(enabled = enabled, generated = false, latestText = "", status =
             if (enabled) "Listening to video audio…" else if (handle == 0L) "Install or import a multilingual Whisper model first." else "Live audio subtitles off")
     }
     fun invalidate(clear: Boolean = false) {
@@ -86,7 +87,11 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             if (handle != 0L) native.cancel(handle)
         }
         while (chunks.tryReceive().isSuccess) { }
-        mutable.value = mutable.value.copy(cues = if (clear) emptyList() else mutable.value.cues, latestText = "")
+        mutable.value = mutable.value.copy(
+            cues = if (clear) emptyList() else mutable.value.cues,
+            generated = if (clear) false else mutable.value.generated,
+            latestText = ""
+        )
     }
     /** Accepts Web playback-capture audio already resampled to mono 16 kHz. */
     fun submitPcm16k(samples: FloatArray, startMs: Long) {
@@ -188,6 +193,63 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         catch (e: Exception) { mutable.value = mutable.value.copy(status = e.message ?: "Model installation failed") }
         finally { temp.delete(); mutable.value = mutable.value.copy(busy = false) }
     }
+    /**
+     * Offline/full-video generation uses the same verified multilingual Whisper model but is not
+     * tied to real-time playback. Chunks are decoded by FullVideoSubtitleGenerator and translated
+     * directly to English here, so slow devices can still produce a complete timed subtitle file.
+     */
+    suspend fun inferEnglishChunk(
+        samples: FloatArray,
+        startMs: Long,
+        sourceLanguage: String = language
+    ): List<SpeechCue> = withContext(Dispatchers.Default) {
+        require(samples.isNotEmpty() && samples.size <= 16000 * 30) { "Speech chunks must be 30 seconds or shorter." }
+        val started = android.os.SystemClock.elapsedRealtime()
+        val segments = lock.withLock {
+            check(!closed && handle != 0L) { "Install or import a multilingual Whisper model first." }
+            native.infer(
+                handle,
+                samples,
+                sourceLanguage,
+                Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+            )
+        }
+        val duration = samples.size * 1000L / 16000
+        val cues = segments.mapNotNull { line ->
+            val parts = line.split('\t', limit = 3)
+            val text = parts.getOrNull(2)?.trim().orEmpty()
+            if (text.isBlank()) null else {
+                val localStart = (parts[0].toLongOrNull() ?: 0L).coerceIn(0L, duration)
+                val localEnd = (parts[1].toLongOrNull() ?: duration).coerceIn(localStart, duration)
+                SpeechCue(startMs + localStart, startMs + localEnd, text)
+            }
+        }
+        mutable.value = mutable.value.copy(
+            inferenceMs = android.os.SystemClock.elapsedRealtime() - started,
+            status = "Generating complete English subtitles…"
+        )
+        cues
+    }
+
+    /** Display a finished generated track without continuing live transcription in the background. */
+    fun applyGeneratedCues(cues: List<SpeechCue>) {
+        synchronized(handleGuard) {
+            enabled = false
+            generation++
+            if (handle != 0L) native.cancel(handle)
+        }
+        while (chunks.tryReceive().isSuccess) { }
+        val cleaned = SpeechWindowPolicy.append(emptyList(), cues)
+        mutable.value = mutable.value.copy(
+            enabled = false,
+            generated = true,
+            cues = cleaned,
+            latestText = "",
+            revision = mutable.value.revision + 1,
+            status = "Generated English subtitles active • offline"
+        )
+    }
+
     suspend fun close() {
         synchronized(handleGuard) {
             if (closed) return
@@ -197,7 +259,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             if (handle != 0L) native.cancel(handle)
         }
         chunks.close()
-        mutable.value = mutable.value.copy(enabled = false, ready = false, latestText = "")
+        mutable.value = mutable.value.copy(enabled = false, generated = false, ready = false, latestText = "")
         lock.withLock {
             synchronized(handleGuard) {
                 if (handle != 0L) native.free(handle)
