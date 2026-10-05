@@ -9,13 +9,16 @@ import android.webkit.WebResourceError
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -299,8 +302,14 @@ fun AdBlockedWebScreen(
             update = { view -> if (webView !== view) webView = view }
         )
 
-        Surface(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding()) {
-            Column(Modifier.padding(horizontal = 8.dp)) {
+        Surface(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = Color(0xEE0C1018),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .42f)),
+            shadowElevation = 10.dp
+        ) {
+            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                 Text(pageTitle.ifBlank { "Web" }, maxLines = 1, style = MaterialTheme.typography.titleSmall)
                 Text(currentUrl, maxLines = 1, style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -340,25 +349,48 @@ fun AdBlockedWebScreen(
         if (hudVisible || translating || captureActive) {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
-                tonalElevation = 6.dp,
-                shape = MaterialTheme.shapes.large
+                tonalElevation = 2.dp,
+                shadowElevation = 14.dp,
+                color = Color(0xF00C1018),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .58f)),
+                shape = RoundedCornerShape(22.dp)
             ) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = {
-                            translated = !translated
-                            hudVisible = true
-                        }, enabled = pageReady) { Text(if (translating) "Translating…" else if (translated) "Translated ✓" else "Translate") }
-                        Button(onClick = {
-                            scope.launch {
-                                runCatching { MediaDownloadManager(context).enqueue(
-                                    detectedMedia?.url ?: currentUrl, "MangaLens web page",
-                                    sourcePageUrl = currentUrl, headers = detectedMedia?.headers.orEmpty()) }
-                                    .onFailure { translationStatus = "Download failed: " + (it.message ?: "unknown error") }
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = if (translating) "Translating…" else if (translated) "Translated" else "Translate",
+                            status = if (translated) targetLanguage.uppercase() else "OCR / text",
+                            selected = translated,
+                            enabled = pageReady,
+                            onClick = {
+                                translated = !translated
+                                hudVisible = true
                             }
-                        }) { Text("Download") }
-                        Button(onClick = { speechSettings = true }) { Text("English subtitles") }
-                        Button(onClick = { autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause" else "Scroll") }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "Download",
+                            status = if (detectedMedia != null) "Detected media" else "Page / media",
+                            onClick = {
+                                scope.launch {
+                                    runCatching { MediaDownloadManager(context).enqueue(
+                                        detectedMedia?.url ?: currentUrl, "MangaLens web page",
+                                        sourcePageUrl = currentUrl, headers = detectedMedia?.headers.orEmpty()) }
+                                        .onFailure { translationStatus = "Download failed: " + (it.message ?: "unknown error") }
+                                }
+                            }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "English CC",
+                            status = if (captureActive) "Live audio" else "Speech",
+                            selected = captureActive,
+                            onClick = { speechSettings = true }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = if (autoScroll) "Pause scroll" else "Auto scroll",
+                            status = if (autoScroll) "${speed.toInt()}x" else null,
+                            selected = autoScroll,
+                            onClick = { autoScroll = !autoScroll }
+                        )
                         if (autoScroll) Slider(value = speed, onValueChange = { speed = it }, valueRange = 1f..5f, steps = 3, modifier = Modifier.width(90.dp))
                     }
                     translationStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
