@@ -106,7 +106,7 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
                     Column {
-                        Text("Meet Orez 2.0", style = MaterialTheme.typography.titleMedium)
+                        Text("Meet Orez 2.1", style = MaterialTheme.typography.titleMedium)
                         Text("Hybrid story assistant, OCR helper and web-backed companion.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
