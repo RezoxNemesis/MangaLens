@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -58,22 +60,18 @@ class OrezAiViewModel @JvmOverloads constructor(
 
     init {
         modelManager.refresh()
+        // Do not pin the 650 MB model in RAM when the user merely opens Orez.
+        // It loads on demand for an answer and is released again after a short idle period.
+        thinkingStage = if (modelManager.state.value.installed)
+            "Local model installed • loads on demand"
+        else "Ready"
         viewModelScope.launch {
             androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow("orez-model").collect {
                 val before = modelManager.state.value.installed
                 modelManager.refresh()
                 if (!before && modelManager.state.value.installed) {
-                    thinkingStage = "Optimizing local model…"
-                    brain.warmLocalModel()
-                    thinkingStage = "Local model ready"
+                    thinkingStage = "Local model installed • loads on demand"
                 }
-            }
-        }
-        if (modelManager.state.value.installed) {
-            viewModelScope.launch {
-                thinkingStage = "Warming local model…"
-                brain.warmLocalModel()
-                thinkingStage = "Local model ready"
             }
         }
         viewModelScope.launch {
@@ -157,6 +155,24 @@ class OrezAiViewModel @JvmOverloads constructor(
     fun downloadLocalModel() = modelManager.enqueue()
     fun refreshLocalModel() = modelManager.refresh()
 
+    fun deleteMessage(id: Long) = viewModelScope.launch {
+        dao.deleteMessage(id)
+    }
+
+    fun deleteExchange(message: OrezMessageEntity) = viewModelScope.launch {
+        if (message.role != "YOU") {
+            dao.deleteMessage(message.id)
+            return@launch
+        }
+        val until = dao.nextUserMessageId(message.id) ?: Long.MAX_VALUE
+        dao.deleteRange(message.id, until)
+    }
+
+    fun clearConversation() = viewModelScope.launch {
+        stopReply()
+        dao.clear()
+    }
+
     private fun readMode(): OrezEngineMode = runCatching {
         OrezEngineMode.valueOf(enginePrefs.getString("mode", OrezEngineMode.HYBRID_AUTO.name) ?: OrezEngineMode.HYBRID_AUTO.name)
     }.getOrDefault(OrezEngineMode.HYBRID_AUTO)
@@ -168,6 +184,7 @@ class OrezAiViewModel @JvmOverloads constructor(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OrezAiScreen(
     vm: OrezAiViewModel = viewModel(),
@@ -182,6 +199,8 @@ fun OrezAiScreen(
     val engineMode by vm.engineMode.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
     var showEngine by rememberSaveable { mutableStateOf(true) }
+    var selectedMessage by remember { mutableStateOf<OrezMessageEntity?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
     val list = rememberLazyListState()
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
@@ -189,6 +208,42 @@ fun OrezAiScreen(
 
     LaunchedEffect(messages.size) {
         if (messages.size > 1) list.animateScrollToItem(messages.size + 3)
+    }
+
+    selectedMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { selectedMessage = null },
+            title = { Text(if (message.role == "YOU") "Message options" else "OREZ message") },
+            text = { Text("Long-press actions keep the chat clean without placing delete buttons on every message.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteExchange(message)
+                    selectedMessage = null
+                }) { Text(if (message.role == "YOU") "Delete exchange" else "Delete message") }
+            },
+            dismissButton = {
+                Row {
+                    if (message.role == "YOU") {
+                        TextButton(onClick = {
+                            vm.deleteMessage(message.id)
+                            selectedMessage = null
+                        }) { Text("Delete only this") }
+                    }
+                    TextButton(onClick = { selectedMessage = null }) { Text("Cancel") }
+                }
+            }
+        )
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Clear Orez conversation?") },
+            text = { Text("This removes the visible chat history on this device. Orez model files and translation memory stay installed.") },
+            confirmButton = {
+                TextButton(onClick = { vm.clearConversation(); confirmClear = false }) { Text("Clear chat") }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } }
+        )
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 16.dp)) {
@@ -285,10 +340,11 @@ fun OrezAiScreen(
                         }
 
                         Text(
-                            "The 650 MB model now has a strict response budget. If it is slow or memory-constrained, Orez falls back instead of freezing the chat.",
+                            "The local model loads only when an answer needs it and releases memory after idle. If it is slow or memory-constrained, Orez falls back instead of freezing scrolling or navigation.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        TextButton(onClick = { confirmClear = true }) { Text("Clear conversation") }
 
                         if (!modelState.installed && !modelState.downloading) {
                             Button(vm::downloadLocalModel, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
@@ -304,7 +360,10 @@ fun OrezAiScreen(
             items(messages, key = { it.id }) { message ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.role == "YOU") Arrangement.End else Arrangement.Start) {
                     Card(
-                        Modifier.widthIn(max = 360.dp),
+                        Modifier.widthIn(max = 360.dp).combinedClickable(
+                            onClick = {},
+                            onLongClick = { selectedMessage = message }
+                        ),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (message.role == "YOU") MaterialTheme.colorScheme.primaryContainer.copy(alpha = .82f)
