@@ -48,9 +48,15 @@ class MediaLinkResolver(
             "Only HTTP(S) links without embedded credentials are supported."
         }
         val lower = clean.substringBefore("?").lowercase()
-        // Dedicated extractors know player API signatures and site formats that HTML scraping cannot.
+        // Video/watch pages are sent through yt-dlp before generic HTML scraping. This prevents a
+        // poster, preview clip or advertising MP4 from winning merely because it appears first in
+        // the markup. Generic scraping remains the bounded fallback when an extractor is stale.
         var extractorFailure: Exception? = null
-        val dedicated = !isDirect(lower) && providerFor(clean) != "generic" && siteExtractor != null
+        val provider = providerFor(clean)
+        val pathLooksLikeVideo = inputUri.path.orEmpty().split('/').any {
+            it.lowercase() in setOf("video", "videos", "watch", "reel", "reels", "embed", "player")
+        }
+        val dedicated = !isDirect(lower) && siteExtractor != null && (provider != "generic" || pathLooksLikeVideo)
         if (dedicated) {
             try { siteExtractor?.extract(clean, quality)?.let { return it } }
             catch (failure: Exception) {
@@ -178,6 +184,9 @@ class MediaLinkResolver(
             matchesHost(host, "facebook.com") || matchesHost(host, "fb.watch") -> "facebook"
             matchesHost(host, "twitter.com") || matchesHost(host, "x.com") -> "x"
             matchesHost(host, "tiktok.com") -> "tiktok"
+            matchesHost(host, "rule34video.com") -> "rule34video"
+            matchesHost(host, "spankbang.com") -> "spankbang"
+            matchesHost(host, "vimeo.com") -> "vimeo"
             else -> "generic"
         }
     }
