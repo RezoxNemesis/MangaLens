@@ -133,15 +133,15 @@ class FullVideoSubtitleGenerator(
                     cached = false
                 )
                 if (attachToPlayer) engine.applyGeneratedCues(cleaned)
-            } catch (cancelled: CancellationException) {
-                mutable.value = mutable.value.copy(running = false, stage = "Subtitle generation cancelled")
-                throw cancelled
             } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
                 mutable.value = mutable.value.copy(
                     running = false,
                     stage = "Subtitle generation stopped",
                     error = "A speech segment exceeded the 2-minute processing budget. Try the tiny/base Whisper model or generate subtitles again."
                 )
+            } catch (cancelled: CancellationException) {
+                mutable.value = mutable.value.copy(running = false, stage = "Subtitle generation cancelled")
+                throw cancelled
             } catch (failure: Throwable) {
                 mutable.value = mutable.value.copy(
                     running = false,
