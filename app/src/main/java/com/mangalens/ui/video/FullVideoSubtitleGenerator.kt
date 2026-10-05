@@ -109,7 +109,9 @@ class FullVideoSubtitleGenerator(
                 val text = toSrt(cleaned)
                 target.parentFile?.mkdirs()
                 val temp = File(target.parentFile, target.name + ".part")
+                temp.delete()
                 temp.writeText(text)
+                if (target.exists()) target.delete()
                 check(temp.renameTo(target)) { "Could not save generated subtitle file." }
 
                 mutable.value = FullSubtitleState(
