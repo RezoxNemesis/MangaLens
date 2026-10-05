@@ -55,11 +55,19 @@ class AdBlockEngineTest {
     }
 
     @Test
-    fun testMediaOnBlockedHostIsAlwaysAllowed() {
+    fun testMediaOnKnownAdHostIsBlocked() {
         val response = adBlockEngine.shouldBlockRequest(
-            "https://cdn.doubleclick.net/manga/page01.jpg?token=abc123"
+            "https://cdn.doubleclick.net/preroll/ad-video.mp4?token=abc123"
         )
-        assertNull("Valid media must always pass through", response)
+        assertNotNull("Known ad-network media must be blocked too", response)
+    }
+
+    @Test
+    fun testOrdinaryFirstPartyMediaStillPasses() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://video.example.com/media/movie.mp4?token=abc123"
+        )
+        assertNull("First-party media must keep playing", response)
     }
 
     @Test
