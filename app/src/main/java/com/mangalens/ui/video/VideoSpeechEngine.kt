@@ -14,6 +14,8 @@ import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -22,10 +24,20 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
  data class SpeechCue(val startMs: Long, val endMs: Long, val text: String)
- data class SpeechState(val enabled: Boolean = false, val ready: Boolean = false, val busy: Boolean = false,
+ data class SpeechState(
+    val enabled: Boolean = false,
+    val ready: Boolean = false,
+    val busy: Boolean = false,
     val status: String = "Install a multilingual speech model to generate English subtitles from video audio.",
-    val inferenceMs: Long = 0, val cues: List<SpeechCue> = emptyList(), val latestText: String = "",
-    val revision: Long = 0, val generated: Boolean = false)
+    val inferenceMs: Long = 0,
+    val cues: List<SpeechCue> = emptyList(),
+    val latestText: String = "",
+    val revision: Long = 0,
+    val generated: Boolean = false,
+    val capturedAudioMs: Long = 0L,
+    val processedWindows: Int = 0,
+    val lastAudioAtMs: Long = 0L
+)
 
 /** Transcribes decoded media audio only; never opens the microphone. */
 @OptIn(UnstableApi::class)
@@ -43,7 +55,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     @Volatile var language = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getString("source", "auto") ?: "auto"
     @Volatile var chunkSeconds = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getInt("chunk_seconds", 6).coerceIn(3, 12)
     private data class Chunk(val audio: FloatArray, val startMs: Long, val generation: Long)
-    private val chunks = Channel<Chunk>(capacity = 2)
+    private val chunks = Channel<Chunk>(capacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val model = File(context.filesDir, "speech/whisper.bin")
     private val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     val processor = SpeechAudioProcessor()
@@ -68,9 +80,18 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                             SpeechCue(chunk.startMs + start, chunk.startMs + end, text)
                         }
                     }
-                    mutable.value = mutable.value.copy(cues = SpeechWindowPolicy.append(mutable.value.cues, cues),
-                        inferenceMs = android.os.SystemClock.elapsedRealtime() - started, latestText = cues.lastOrNull()?.text.orEmpty(), revision = mutable.value.revision + 1,
-                        status = if (cues.isEmpty()) "Listening to video audio…" else "English subtitles • offline • short processing delay")
+                    mutable.update { current ->
+                        current.copy(
+                            cues = SpeechWindowPolicy.append(current.cues, cues),
+                            inferenceMs = android.os.SystemClock.elapsedRealtime() - started,
+                            latestText = cues.lastOrNull()?.text.orEmpty(),
+                            revision = current.revision + 1,
+                            processedWindows = current.processedWindows + 1,
+                            status = if (cues.isEmpty())
+                                "Audio captured • no clear speech in the latest window"
+                            else "English subtitles • offline • synced to playback"
+                        )
+                    }
                 } catch (e: Exception) { mutable.value = mutable.value.copy(status = e.message ?: "Speech inference failed") }
             }
         }
@@ -84,7 +105,10 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             generated = false,
             cues = if (replacingGeneratedTrack) emptyList() else mutable.value.cues,
             latestText = "",
-            status = if (enabled) "Listening to video audio…"
+            capturedAudioMs = if (enabled) 0L else mutable.value.capturedAudioMs,
+            processedWindows = if (enabled) 0 else mutable.value.processedWindows,
+            lastAudioAtMs = if (enabled) 0L else mutable.value.lastAudioAtMs,
+            status = if (enabled) "Waiting for decoded video audio…"
                 else if (handle == 0L) "Install or import a multilingual Whisper model first."
                 else "Live audio subtitles off"
         )
@@ -101,10 +125,31 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             latestText = ""
         )
     }
+    private fun markAudio(sampleCount16k: Int) {
+        if (!enabled || sampleCount16k <= 0) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        mutable.update { current ->
+            val nextMs = current.capturedAudioMs + sampleCount16k * 1000L / 16000L
+            current.copy(
+                capturedAudioMs = nextMs,
+                lastAudioAtMs = now,
+                status = when {
+                    current.latestText.isNotBlank() -> current.status
+                    current.processedWindows > 0 -> "Capturing audio • waiting for the next speech segment"
+                    nextMs >= chunkSeconds * 1000L -> "Processing the first subtitle window…"
+                    else -> "Capturing decoded video audio…"
+                }
+            )
+        }
+    }
+
     /** Accepts Web playback-capture audio already resampled to mono 16 kHz. */
     fun submitPcm16k(samples: FloatArray, startMs: Long) {
-        if (enabled && samples.size <= 16000 * 12 && SpeechWindowPolicy.hasActivity(samples)) {
-            chunks.trySend(Chunk(samples.copyOf(), startMs, generation))
+        if (enabled && samples.size <= 16000 * 12) {
+            markAudio(samples.size)
+            if (SpeechWindowPolicy.hasActivity(samples)) {
+                chunks.trySend(Chunk(samples.copyOf(), startMs, generation))
+            }
         }
     }
     suspend fun loadInstalled() = withContext(Dispatchers.IO) {
@@ -314,6 +359,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                     while (phase >= rate) {
                         phase -= rate
                         samples[used++] = if (accumulatedFrames > 0) accumulated / accumulatedFrames else mono
+                        markAudio(1)
                         accumulated = 0f; accumulatedFrames = 0
                         if (used >= 16000 * chunkSeconds.coerceIn(3, 12)) sendChunk()
                     }
@@ -323,8 +369,10 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         }
         private fun sendChunk(overlap: Boolean = true) {
             if (SpeechWindowPolicy.hasActivity(samples.copyOf(used))) {
-                if (chunks.trySend(Chunk(samples.copyOf(used), start, epoch)).isFailure)
-                    mutable.value = mutable.value.copy(status = "Speech engine is behind playback. Use a smaller model or longer chunks.")
+                val result = chunks.trySend(Chunk(samples.copyOf(used), start, epoch))
+                if (result.isFailure) mutable.update {
+                    it.copy(status = "Speech queue is saturated • try Balanced mode or a smaller model")
+                }
             }
             // Keep roughly one second of real speech context between windows.
             // 500 ms was too easy to cut words at boundaries; a full second is still
