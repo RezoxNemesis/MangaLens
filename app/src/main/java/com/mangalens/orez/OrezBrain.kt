@@ -219,10 +219,10 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         val parts = mutableListOf<String>()
         if (local != null) parts += "Conversation example: ${local.prompt}\nAssistant response: ${local.response}"
         if (heavy != null) parts += "Knowledge reference: ${heavy.prompt}\nReference response: ${heavy.response}"
-        return parts.joinToString("\n\n").take(9000)
+        return parts.joinToString("\n\n").take(3600)
     }
     private fun buildContextualQuery(input:String,context:OrezContext):String{
-        val recent=context.recentMessages.takeLast(4).joinToString(" "){it.text}
+        val recent=context.recentMessages.takeLast(2).joinToString(" "){it.text.take(900)}
         return if(recent.isBlank()) input else "$recent $input"
     }
 
