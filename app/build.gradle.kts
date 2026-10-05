@@ -12,8 +12,8 @@ android {
         applicationId = "com.mangalens"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Ship ABI-specific APKs so phone users don't download the emulator's native libraries.
