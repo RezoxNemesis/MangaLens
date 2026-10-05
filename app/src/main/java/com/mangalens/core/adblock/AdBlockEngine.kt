@@ -57,15 +57,20 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
         // Known ad/tracker hosts are denied even when they serve MP4/HLS assets. The old ordering
         // exempted any media-looking URL first, which let video pre-rolls from ad networks through.
         val blockedHost = isBlockedHost(host)
-        if (!blockedHost && mediaExtensions.any(path::endsWith)) return null
-
-        val blocked = blockedHost ||
-            blockedPathMarkers.any(path::contains) ||
+        val blockedPathOrQuery = blockedPathMarkers.any(path::contains) ||
             blockedQueryMarkers.any(query::contains)
+        // Ordinary first-party media remains exempt, but a first-party /preroll/, /vast or other
+        // explicit ad path must not become invisible to the blocker merely because it ends in MP4.
+        if (!blockedHost && !blockedPathOrQuery && mediaExtensions.any(path::endsWith)) return null
 
-        if (!blocked) return null
+        if (!blockedHost && !blockedPathOrQuery) return null
 
-        statsStore.recordBlocked(host, pageHost = pageHost, type = type, rule = if (blockedHost) "Local ad/tracker domain" else "Local ad/tracker path or query")
+        statsStore.recordBlocked(
+            host,
+            pageHost = pageHost,
+            type = type,
+            rule = if (blockedHost) "Local ad/tracker domain" else "Local ad/tracker path or query"
+        )
         return WebResourceResponse(
             "text/plain",
             StandardCharsets.UTF_8.name(),
