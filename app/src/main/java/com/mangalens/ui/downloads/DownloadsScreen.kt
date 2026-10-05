@@ -44,13 +44,13 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
     val context = LocalContext.current
     val items by vm.items.collectAsState()
     var url by remember { mutableStateOf("") }
-    var quality by remember { mutableStateOf(DownloadQuality.P2160) }
+    var quality by remember { mutableStateOf(DownloadQuality.BEST) }
 
     var tab by remember { mutableStateOf("Downloads") }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImport(it) }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Download Room", style = MaterialTheme.typography.headlineMedium)
+            com.mangalens.ui.components.BrandHeader("Download Room", "BEST AVAILABLE QUALITY • RESUMABLE")
             TextButton(onClick = onBack) { Text("Back") }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
