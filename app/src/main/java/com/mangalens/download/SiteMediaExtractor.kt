@@ -19,6 +19,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
 
     override fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink? {
         YoutubeDL.init(app)
+        refreshExtractorIfUseful(url)
         val request = YoutubeDLRequest(url).apply {
             addOption("--ignore-config")
             addOption("--no-playlist")
@@ -51,12 +52,32 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         } catch (failure: Exception) {
             if (failure is InterruptedException) throw failure
             throw IllegalArgumentException(
-                "The site extractor could not find an accessible combined video and audio stream. " +
-                    "Try opening the page in Web and using Open in Video; protected or login-only media may be unavailable.",
+                "The site extractor could not find accessible video/audio streams. " +
+                    "MangaLens refreshed its extractor when appropriate; protected, private or login-only media may still be unavailable.",
                 failure
             )
         } finally {
             timeout.cancel(false)
+        }
+    }
+
+    /**
+     * YouTube changes its player signatures frequently. youtubedl-android intentionally supports
+     * in-app yt-dlp updates, so refresh the stable extractor periodically instead of leaving users
+     * stuck on the binary bundled with the APK. A failed update never prevents extraction.
+     */
+    private fun refreshExtractorIfUseful(url: String) {
+        val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
+        if (host != "youtube.com" && !host.endsWith(".youtube.com") && host != "youtu.be") return
+        val prefs = app.getSharedPreferences("mangalens_ytdlp", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastAttempt = prefs.getLong("stable_update_attempt", 0L)
+        if (now - lastAttempt < 24L * 60L * 60L * 1000L) return
+        prefs.edit().putLong("stable_update_attempt", now).apply()
+        runCatching {
+            YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel._STABLE)
+        }.onSuccess {
+            prefs.edit().putLong("stable_update_success", now).apply()
         }
     }
 
