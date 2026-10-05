@@ -77,4 +77,13 @@ class AdBlockEngineTest {
         )
         assertNull("Unrelated navigation should be allowed", response)
     }
+    @Test
+    fun testFirstPartyPrerollMediaIsBlocked() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://video.example.com/ads/preroll/ad-01.mp4"
+        )
+        assertNotNull("Explicit first-party preroll paths must be blocked", response)
+    }
+
+
 }
