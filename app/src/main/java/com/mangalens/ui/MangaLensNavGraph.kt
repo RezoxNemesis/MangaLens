@@ -2,6 +2,7 @@ package com.mangalens.ui
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -69,10 +70,26 @@ fun MangaLensNavGraph(
             navController = navController,
             startDestination = "home",
             modifier = Modifier.fillMaxSize().padding(innerPadding),
-            enterTransition = { fadeIn(tween(300)) + slideInHorizontally(tween(300)) { it / 8 } },
-            exitTransition = { fadeOut(tween(300)) + slideOutHorizontally(tween(300)) { -it / 8 } },
-            popEnterTransition = { fadeIn(tween(300)) + slideInHorizontally(tween(300)) { -it / 8 } },
-            popExitTransition = { fadeOut(tween(300)) + slideOutHorizontally(tween(300)) { it / 8 } }
+            enterTransition = {
+                fadeIn(tween(360, easing = FastOutSlowInEasing)) +
+                    slideInHorizontally(tween(380, easing = FastOutSlowInEasing)) { it / 10 } +
+                    scaleIn(tween(360, easing = FastOutSlowInEasing), initialScale = .985f)
+            },
+            exitTransition = {
+                fadeOut(tween(240)) +
+                    slideOutHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 14 } +
+                    scaleOut(tween(260), targetScale = .992f)
+            },
+            popEnterTransition = {
+                fadeIn(tween(340, easing = FastOutSlowInEasing)) +
+                    slideInHorizontally(tween(360, easing = FastOutSlowInEasing)) { -it / 10 } +
+                    scaleIn(tween(340, easing = FastOutSlowInEasing), initialScale = .985f)
+            },
+            popExitTransition = {
+                fadeOut(tween(230)) +
+                    slideOutHorizontally(tween(290, easing = FastOutSlowInEasing)) { it / 14 } +
+                    scaleOut(tween(250), targetScale = .992f)
+            }
         ) {
             composable("home") {
                 HomeScreen(
