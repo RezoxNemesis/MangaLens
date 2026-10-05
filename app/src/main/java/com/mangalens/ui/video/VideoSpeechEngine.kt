@@ -51,6 +51,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     @Volatile private var handle = 0L
     @Volatile private var enabled = false
     @Volatile private var generation = 0L
+    @Volatile private var detectedSourceLanguage: String? = null
     @Volatile var positionMs = 0L
     @Volatile var language = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getString("source", "auto") ?: "auto"
     @Volatile var chunkSeconds = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getInt("chunk_seconds", 4).coerceIn(3, 12)
@@ -67,7 +68,15 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                     val started = android.os.SystemClock.elapsedRealtime()
                     val segments = lock.withLock {
                         if (!enabled || chunk.generation != generation || handle == 0L) emptyArray()
-                        else native.infer(handle, chunk.audio, language, Runtime.getRuntime().availableProcessors().coerceIn(1, 4))
+                        else {
+                            val requestedLanguage = if (language == "auto") detectedSourceLanguage ?: "auto" else language
+                            native.infer(handle, chunk.audio, requestedLanguage, Runtime.getRuntime().availableProcessors().coerceIn(1, 4)).also {
+                                if (language == "auto" && detectedSourceLanguage == null && handle != 0L) {
+                                    detectedSourceLanguage = runCatching { native.detectedLanguage(handle) }
+                                        .getOrNull()?.takeIf { detected -> detected.isNotBlank() && detected != "auto" }
+                                }
+                            }
+                        }
                     }
                     if (closed || !enabled || chunk.generation != generation) continue
                     val cues = segments.mapNotNull { line ->
@@ -98,6 +107,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     }
     fun setEnabled(value: Boolean) {
         val replacingGeneratedTrack = value && mutable.value.generated
+        if (value) detectedSourceLanguage = null
         synchronized(handleGuard) { enabled = value && !closed && handle != 0L }
         invalidate()
         mutable.value = mutable.value.copy(
@@ -116,6 +126,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     fun invalidate(clear: Boolean = false) {
         synchronized(handleGuard) {
             generation++
+            if (clear) detectedSourceLanguage = null
             if (handle != 0L) native.cancel(handle)
         }
         while (chunks.tryReceive().isSuccess) { }
@@ -260,12 +271,18 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         val started = android.os.SystemClock.elapsedRealtime()
         val segments = lock.withLock {
             check(!closed && handle != 0L) { "Install or import a multilingual Whisper model first." }
+            val requestedLanguage = if (sourceLanguage == "auto") detectedSourceLanguage ?: "auto" else sourceLanguage
             native.infer(
                 handle,
                 samples,
-                sourceLanguage,
+                requestedLanguage,
                 Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
-            )
+            ).also {
+                if (sourceLanguage == "auto" && detectedSourceLanguage == null && handle != 0L) {
+                    detectedSourceLanguage = runCatching { native.detectedLanguage(handle) }
+                        .getOrNull()?.takeIf { detected -> detected.isNotBlank() && detected != "auto" }
+                }
+            }
         }
         val duration = samples.size * 1000L / 16000
         val cues = segments.mapNotNull { line ->
