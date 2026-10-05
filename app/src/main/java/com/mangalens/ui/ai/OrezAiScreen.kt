@@ -91,7 +91,12 @@ class OrezAiViewModel @JvmOverloads constructor(
         }
     }
 
-    fun sendMessage(query: String, onRoute: (String, OrezRoute) -> Unit = { _, _ -> }) {
+    fun sendMessage(
+        query: String,
+        libraryContext: String = "",
+        chapterText: String = "",
+        onRoute: (String, OrezRoute) -> Unit = { _, _ -> }
+    ) {
         val input = query.trim()
         if (input.isBlank() || typing) return
         typing = true
@@ -119,7 +124,15 @@ class OrezAiViewModel @JvmOverloads constructor(
                 }
 
                 val answer = kotlinx.coroutines.withTimeoutOrNull(32_000L) {
-                    (answerRequest ?: brain::answer)(input, OrezContext(recentMessages = recent, targetLanguage = targetLanguage))
+                    (answerRequest ?: brain::answer)(
+                        input,
+                        OrezContext(
+                            recentMessages = recent,
+                            targetLanguage = targetLanguage,
+                            libraryContext = libraryContext,
+                            chapterText = chapterText.takeIf(String::isNotBlank)
+                        )
+                    )
                 } ?: OrezBrainResponse(
                     "That request exceeded the response budget. I kept the app responsive instead of letting the local model lock the chat. Try again or switch Engine Mode.",
                     OrezIntent.GENERAL
@@ -203,6 +216,18 @@ fun OrezAiScreen(
     var confirmClear by remember { mutableStateOf(false) }
     val expandedMessages = remember { mutableStateMapOf<Long, Boolean>() }
     val list = rememberLazyListState()
+    val libraryContext = remember(library) {
+        library.take(30).joinToString("\n") { chapter ->
+            buildString {
+                append(chapter.title)
+                append(" • status=").append(chapter.readingStatus.label)
+                append(" • progress=")
+                    .append((chapter.position + 1).coerceAtMost(chapter.pages.size.coerceAtLeast(1)))
+                    .append("/").append(chapter.pages.size.coerceAtLeast(1))
+                if (chapter.bookmarked) append(" • bookmarked")
+            }
+        }
+    }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
     ) { if (it.isNotEmpty()) onImport(it) }
@@ -482,7 +507,7 @@ fun OrezAiScreen(
                     onClick = {
                         val query = input
                         input = ""
-                        vm.sendMessage(query, onRoute)
+                        vm.sendMessage(query, libraryContext, chapterText, onRoute)
                     },
                     enabled = input.isNotBlank(),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
