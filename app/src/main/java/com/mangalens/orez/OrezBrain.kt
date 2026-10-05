@@ -169,7 +169,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         val explicitOnline = shouldUseLiveSearch(clean)
         val preferEvidenceBackedAnswer =
             engineMode == OrezEngineMode.HYBRID_AUTO &&
-                intent in setOf(OrezIntent.QUESTION, OrezIntent.TROUBLESHOOTING, OrezIntent.WEB_SEARCH)
+                (explicitOnline || intent == OrezIntent.WEB_SEARCH)
         if(intent!=OrezIntent.WEB_SEARCH && !explicitOnline && !preferEvidenceBackedAnswer){
             val modelPrompt=if(evidence.isBlank()) clean else "Use the following local OREZ knowledge as evidence. Do not copy it blindly; answer naturally and directly.\n\nLOCAL KNOWLEDGE:\n$evidence\n\nUSER REQUEST:\n$clean"
             val modelAnswer = if (engineMode != OrezEngineMode.WEB_ASSIST) {
@@ -320,7 +320,11 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             .filter { it.length >= 20 }
             .filterNot { value ->
                 val lower = value.lowercase(Locale.ROOT)
-                listOf("jump to content", "main menu", "navigation", "create account", "log in", "donate").any(lower::contains)
+                listOf(
+                    "jump to content", "main menu", "navigation", "create account", "log in",
+                    "sign in", "donate", "google images", "advertising business solutions",
+                    "google account", "privacy terms", "continue on web"
+                ).any(lower::contains)
             }
             .distinct()
             .take(3)
