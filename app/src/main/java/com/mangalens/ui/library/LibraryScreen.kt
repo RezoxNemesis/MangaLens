@@ -1,13 +1,19 @@
 package com.mangalens.ui.library
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import com.mangalens.core.reader.*
 import com.mangalens.ui.MangaLensUiState
@@ -30,11 +36,32 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
             confirmButton = { TextButton({ onDeleteChapter(chapter.id); pendingDelete = null }) { Text("Delete") } },
             dismissButton = { TextButton({ pendingDelete = null }) { Text("Cancel") } })
     }
-    LazyVerticalGrid(GridCells.Adaptive(100.dp), Modifier.fillMaxSize().statusBarsPadding(),
+    LazyVerticalGrid(
+        GridCells.Adaptive(100.dp),
+        Modifier.fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = .045f),
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .statusBarsPadding(),
         contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item(span = { GridItemSpan(maxLineSpan) }) { BrandHeader("My Library", "YOUR STORIES, YOUR PACE") }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search your library") }, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            OutlinedTextField(
+                query,
+                { query = it },
+                Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                trailingIcon = { Icon(Icons.Outlined.Tune, null) },
+                placeholder = { Text("Search your library") },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+            )
         }
         state.library.firstOrNull { it.readingStatus == ReadingStatus.READING }?.let { chapter ->
             item(span = { GridItemSpan(maxLineSpan) }) { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -57,10 +84,18 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
                 }
             }
         }
-        if (chapters.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Panel {
-            Text(if (state.library.isEmpty()) "Your library starts here" else "No matching chapters", style = MaterialTheme.typography.titleMedium)
-            Text("Import a chapter or open a manga link from Home. Bookmarks and reading lists are saved on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } }
+        if (chapters.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+            Panel {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Outlined.MenuBook, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(42.dp))
+                    Column {
+                        Text(if (state.library.isEmpty()) "Your library starts here" else "No matching chapters", style = MaterialTheme.typography.titleLarge)
+                        Text("YOUR STORIES, YOUR PACE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                    }
+                }
+                Text("Import a chapter or open a manga link from Home. Bookmarks and reading lists are saved on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         items(chapters, key = { it.id }) { chapter ->
             var menu by remember { mutableStateOf(false) }
             ChapterCover(chapter, { onOpenSavedChapter(chapter.id) }, menu = {
@@ -72,10 +107,18 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
                 }
             })
         }
-        item(span = { GridItemSpan(maxLineSpan) }) { Panel {
-            Text("Local Media Player", style = MaterialTheme.typography.titleMedium)
-            Text("Play videos from your device or document provider.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onOpenLocalVideo) { Text("Browse videos →") }
-        } }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Panel {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Outlined.PlayCircle, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(42.dp))
+                    Column {
+                        Text("Local Media Player", style = MaterialTheme.typography.titleLarge)
+                        Text("LOCAL MEDIA", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                    }
+                }
+                Text("Play videos from your device or document provider.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onOpenLocalVideo, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) { Text("Browse videos →") }
+            }
+        }
     }
 }
