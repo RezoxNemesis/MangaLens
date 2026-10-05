@@ -69,7 +69,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
         } }) { Text("Clear cache") } }, dismissButton = { TextButton({ clearCache = false }) { Text("Cancel") } })
     LazyColumn(Modifier.fillMaxWidth().statusBarsPadding().imePadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
-            Text("Tools & Settings",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,modifier=Modifier.padding(top=16.dp))
+            com.mangalens.ui.components.BrandHeader("MangaLens 2.0", "TOOLS • AI • PROTECTION")
             Text("Appearance, translation modules, OREZ data and network protection.",color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
@@ -114,7 +114,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                     if (showBlockEvents) {
                         Text("Local log • latest 200 blocked requests • no cookies or URL queries", style = MaterialTheme.typography.bodySmall)
                         state.adBlockStats.events.take(20).forEach { event ->
-                            Text(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(event.timestamp)) + " · " + event.host, style = MaterialTheme.typography.labelMedium)
+                            Text(java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault()).format(java.util.Date(event.timestamp)) + " · " + event.host, style = MaterialTheme.typography.labelMedium)
                             Text("${event.type} · ${event.rule} · ${if (event.thirdParty) "third party" else "same site / unknown"} · ${event.pageHost}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
