@@ -53,6 +53,7 @@ fun LocalVideoPlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val speechState by vm.speech.state.collectAsState()
     var locked by rememberSaveable { mutableStateOf(false) }
     var playbackSpeed by rememberSaveable { mutableFloatStateOf(1f) }
     var controls by rememberSaveable { mutableStateOf(true) }
@@ -201,26 +202,72 @@ fun LocalVideoPlayerScreen(
             exit = fadeOut(tween(350)),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            Surface(
-                Modifier.fillMaxWidth().padding(12.dp),
-                shape = MaterialTheme.shapes.large,
-                color = Color.Black.copy(alpha = .62f),
-                tonalElevation = 0.dp
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = { picker.launch(arrayOf("video/*")); interact() }) { Text("Open") }
-                    TextButton(onClick = { showTools = true; interact() }) { Text("Tools") }
-                    TextButton(onClick = { showTools = true; interact() }) { Text("Subtitles") }
-                    TextButton(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT; zoom = 1f; interact() }) { Text("Fit") }
-                    TextButton(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom = 1.15f; interact() }) { Text("Crop") }
-                    TextButton(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL; zoom = 1f; interact() }) { Text("Stretch") }
-                    TextButton(onClick = { immersive(!fullscreen); interact() }) { Text(if (fullscreen) "Exit" else "Full") }
-                }
+            CinematicVideoDock(Modifier.fillMaxWidth().padding(12.dp)) {
+                VideoDockAction(
+                    label = "Open",
+                    status = "Local video",
+                    onClick = { picker.launch(arrayOf("video/*")); interact() }
+                )
+                VideoDockAction(
+                    label = "Tools",
+                    status = "Player settings",
+                    onClick = { showTools = true; interact() }
+                )
+                VideoDockAction(
+                    label = "English Audio CC",
+                    status = when {
+                        speechState.generated -> "Generated track active"
+                        speechState.enabled -> "Live captions active"
+                        speechState.ready -> "Whisper ready • offline"
+                        else -> "Model required"
+                    },
+                    selected = speechState.enabled || speechState.generated,
+                    onClick = { showTools = true; interact() }
+                )
+                VideoDockAction(
+                    label = "Live OCR",
+                    status = if (liveTranslationEnabled) "On" else "Off",
+                    selected = liveTranslationEnabled,
+                    onClick = { liveTranslationEnabled = !liveTranslationEnabled; interact() }
+                )
+                VideoDockAction(
+                    label = "Generate Full Subtitles",
+                    status = "English SRT",
+                    onClick = { showTools = true; interact() }
+                )
+                VideoDockAction(
+                    label = "Fit",
+                    status = when (resizeMode) {
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Crop"
+                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
+                        else -> "Fit"
+                    },
+                    onClick = {
+                        resizeMode = when (resizeMode) {
+                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                        zoom = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) 1.15f else 1f
+                        interact()
+                    }
+                )
+                VideoDockAction(
+                    label = if (fullscreen) "Exit" else "Fullscreen",
+                    status = "Immersive",
+                    onClick = { immersive(!fullscreen); interact() }
+                )
             }
+        }
+
+        if (speechState.ready && controls) {
+            VideoStatusChip(
+                if (speechState.generated) "Generated English subtitles • offline"
+                else if (speechState.enabled) "English audio captions active"
+                else "Whisper ready • offline",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 92.dp),
+                active = speechState.enabled || speechState.generated
+            )
         }
 
         if (locked) {
