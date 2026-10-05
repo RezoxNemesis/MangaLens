@@ -168,9 +168,10 @@ class FullVideoSubtitleGenerator(
             } else 1L
 
             extractor.selectTrack(audioTrack)
-            codec = MediaCodec.createDecoderByType(mime)
-            codec.configure(inputFormat, null, null, 0)
-            codec.start()
+            val decoder = MediaCodec.createDecoderByType(mime)
+            codec = decoder
+            decoder.configure(inputFormat, null, null, 0)
+            decoder.start()
 
             val info = MediaCodec.BufferInfo()
             val chunker = Pcm16kChunker()
@@ -184,26 +185,26 @@ class FullVideoSubtitleGenerator(
             while (!outputDone) {
                 coroutineContext.ensureActive()
                 if (!inputDone) {
-                    val inputIndex = codec.dequeueInputBuffer(10_000)
+                    val inputIndex = decoder.dequeueInputBuffer(10_000)
                     if (inputIndex >= 0) {
-                        val input = codec.getInputBuffer(inputIndex) ?: error("Audio decoder input buffer unavailable.")
+                        val input = decoder.getInputBuffer(inputIndex) ?: error("Audio decoder input buffer unavailable.")
                         input.clear()
                         val size = extractor.readSampleData(input, 0)
                         if (size < 0) {
-                            codec.queueInputBuffer(inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            decoder.queueInputBuffer(inputIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
                         } else {
                             val pts = extractor.sampleTime.coerceAtLeast(0L)
-                            codec.queueInputBuffer(inputIndex, 0, size, pts, 0)
+                            decoder.queueInputBuffer(inputIndex, 0, size, pts, 0)
                             extractor.advance()
                         }
                     }
                 }
 
-                when (val outputIndex = codec.dequeueOutputBuffer(info, 10_000)) {
+                when (val outputIndex = decoder.dequeueOutputBuffer(info, 10_000)) {
                     MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                     MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        val format = codec.outputFormat
+                        val format = decoder.outputFormat
                         sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
                         channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
                         pcmEncoding = if (format.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
@@ -212,7 +213,7 @@ class FullVideoSubtitleGenerator(
                     }
                     else -> if (outputIndex >= 0) {
                         if (info.size > 0) {
-                            val output = codec.getOutputBuffer(outputIndex)
+                            val output = decoder.getOutputBuffer(outputIndex)
                                 ?: error("Audio decoder output buffer unavailable.")
                             val view = output.duplicate().order(ByteOrder.LITTLE_ENDIAN)
                             view.position(info.offset)
@@ -229,7 +230,7 @@ class FullVideoSubtitleGenerator(
                             for (chunk in chunks) onChunk(chunk.samples, chunk.startMs, progress)
                         }
                         outputDone = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                        codec.releaseOutputBuffer(outputIndex, false)
+                        decoder.releaseOutputBuffer(outputIndex, false)
                     }
                 }
             }
