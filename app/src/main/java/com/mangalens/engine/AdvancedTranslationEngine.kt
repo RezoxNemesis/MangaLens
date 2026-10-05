@@ -89,23 +89,26 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             val minText = minOf(a.textSize, b.textSize).coerceAtLeast(1f)
             if (minText / maxText < .62f) return false
 
+            val fragment = minOf(a.source.trim().length, b.source.trim().length) <= 18 ||
+                minOf(a.lineBounds.size, b.lineBounds.size) <= 1
             val gap = b.bounds.top - a.bounds.bottom
-            if (gap < -maxText * .30f || gap > maxText * .95f) return false
+            val maxGap = maxText * if (fragment) 1.45f else .95f
+            if (gap < -maxText * .30f || gap > maxGap) return false
 
             val minWidth = minOf(a.bounds.width(), b.bounds.width()).coerceAtLeast(1f)
             val centreDistance = kotlin.math.abs(a.bounds.centerX() - b.bounds.centerX())
             val overlap = minOf(a.bounds.right, b.bounds.right) - maxOf(a.bounds.left, b.bounds.left)
-            val aligned = centreDistance <= minWidth * .34f + maxText * .35f
-            val overlapping = overlap >= minWidth * .40f
+            val aligned = centreDistance <= minWidth * (if (fragment) .44f else .34f) + maxText * .35f
+            val overlapping = overlap >= minWidth * (if (fragment) .28f else .40f)
             if (!aligned || !overlapping) return false
 
             val lineCount = a.lineBounds.size + b.lineBounds.size
-            if (lineCount > 7) return false
+            if (lineCount > if (fragment) 9 else 7) return false
 
             val unionTop = minOf(a.bounds.top, b.bounds.top)
             val unionBottom = maxOf(a.bounds.bottom, b.bounds.bottom)
             val tallest = maxOf(a.bounds.height(), b.bounds.height()).coerceAtLeast(1f)
-            return unionBottom - unionTop <= tallest * 2.75f + maxText
+            return unionBottom - unionTop <= tallest * (if (fragment) 3.4f else 2.75f) + maxText
         }
 
         fun combine(a: TranslationRegion, b: TranslationRegion): TranslationRegion {
