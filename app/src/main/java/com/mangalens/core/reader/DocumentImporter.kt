@@ -53,9 +53,17 @@ object DocumentImporter {
                             val image = File(directory, "pdf_${index}.png")
                             renderer.openPage(index).use { page ->
                                 require(page.width > 0 && page.height > 0) { "Invalid PDF page" }
-                                val factor = minOf(2.5f, 2400f / maxOf(page.width, page.height))
-                                val bitmap = Bitmap.createBitmap((page.width * factor).toInt().coerceAtLeast(1), (page.height * factor).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
-                                try { bitmap.eraseColor(Color.WHITE); page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY); image.outputStream().use { require(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+                                val factor = minOf(3.25f, 3000f / maxOf(page.width, page.height))
+                                val bitmap = Bitmap.createBitmap(
+                                    (page.width * factor).toInt().coerceAtLeast(1),
+                                    (page.height * factor).toInt().coerceAtLeast(1),
+                                    Bitmap.Config.ARGB_8888
+                                )
+                                try {
+                                    bitmap.eraseColor(Color.WHITE)
+                                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                                    image.outputStream().use { require(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                                }
                                 finally { bitmap.recycle() }
                             }
                             renderedBytes += image.length(); require(renderedBytes <= 512L * 1024 * 1024) { "Rendered PDF exceeds chapter limit" }
