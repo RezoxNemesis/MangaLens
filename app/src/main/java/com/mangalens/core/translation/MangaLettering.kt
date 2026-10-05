@@ -188,7 +188,7 @@ object MangaLettering {
             val localBackground = borderColor(source, line, padding)
             val localInk = inkColor(source, line, localBackground)
             val contrast = distance(localInk, localBackground)
-            val threshold = (contrast * .30f).toInt().coerceIn(42, 132)
+            val threshold = (contrast * .23f).toInt().coerceIn(30, 112)
             val expand = max(1, (line.height() * .09f).toInt())
             val l = (line.left.toInt() - expand).coerceIn(destinationBounds.left, destinationBounds.right - 1)
             val t = (line.top.toInt() - expand).coerceIn(destinationBounds.top, destinationBounds.bottom - 1)
@@ -207,7 +207,7 @@ object MangaLettering {
             }
         }
 
-        val dilation = max(1, min(3, padding / 2))
+        val dilation = max(2, min(4, padding / 2 + 1))
         repeat(dilation) {
             val grown = masked.clone()
             for (y in 1 until height - 1) {
@@ -251,12 +251,20 @@ object MangaLettering {
                 var right: Int? = null
                 var up: Int? = null
                 var down: Int? = null
+                var upLeft: Int? = null
+                var upRight: Int? = null
+                var downLeft: Int? = null
+                var downRight: Int? = null
                 for (d in 1..search) {
                     if (left == null) left = cleanIndex(x - d, y)
                     if (right == null) right = cleanIndex(x + d, y)
                     if (up == null) up = cleanIndex(x, y - d)
                     if (down == null) down = cleanIndex(x, y + d)
-                    if (left != null && right != null && up != null && down != null) break
+                    if (upLeft == null) upLeft = cleanIndex(x - d, y - d)
+                    if (upRight == null) upRight = cleanIndex(x + d, y - d)
+                    if (downLeft == null) downLeft = cleanIndex(x - d, y + d)
+                    if (downRight == null) downRight = cleanIndex(x + d, y + d)
+                    if (listOf(left,right,up,down,upLeft,upRight,downLeft,downRight).count { it != null } >= 6) break
                 }
 
                 val horizontal = if (left != null && right != null) {
@@ -266,12 +274,25 @@ object MangaLettering {
                     mix(original[up], original[down], .5f)
                 } else up?.let { original[it] } ?: down?.let { original[it] }
 
+                val diagonalValues = listOfNotNull(upLeft, upRight, downLeft, downRight).map { original[it] }
+                val diagonal = diagonalValues.takeIf { it.isNotEmpty() }?.let { values ->
+                    Color.rgb(
+                        values.sumOf { Color.red(it) } / values.size,
+                        values.sumOf { Color.green(it) } / values.size,
+                        values.sumOf { Color.blue(it) } / values.size
+                    )
+                }
                 result[index] = when {
+                    horizontal != null && vertical != null && diagonal != null ->
+                        mix(mix(horizontal, vertical, .5f), diagonal, .34f)
                     horizontal != null && vertical != null ->
                         if (distance(horizontal, vertical) <= 90) mix(horizontal, vertical, .5f)
                         else if (distance(horizontal, fallback) <= distance(vertical, fallback)) horizontal else vertical
+                    horizontal != null && diagonal != null -> mix(horizontal, diagonal, .35f)
+                    vertical != null && diagonal != null -> mix(vertical, diagonal, .35f)
                     horizontal != null -> horizontal
                     vertical != null -> vertical
+                    diagonal != null -> diagonal
                     else -> fallback
                 }
             }
