@@ -86,4 +86,18 @@ class MediaLinkResolverTest {
         server.enqueue(MockResponse().setChunkedBody("x".repeat(8 * 1024 * 1024 + 1), 64 * 1024))
         assertNull(resolver.resolve(server.url("/huge-page").toString()))
     }
+    @Test fun kvsDownloadAnchorResolvesPlayable4kVariant() = fixture { server, resolver ->
+        server.enqueue(MockResponse().setBody("""
+            <html><body>
+              <a href="/get_file/1/clip_720p.mp4/?download=true">MP4 720p</a>
+              <a href="/get_file/1/clip_4k60fps.mp4/?download=true">MP4 2160p</a>
+            </body></html>
+        """.trimIndent()))
+        val result = resolver.resolve(server.url("/video/4642490/example/").toString(), DownloadQuality.P2160)!!
+        assertEquals(server.url("/get_file/1/clip_4k60fps.mp4/?download=true").toString(), result.url)
+        assertEquals(2160, result.detectedHeight)
+        assertEquals("video/mp4", result.mimeType)
+    }
+
+
 }
