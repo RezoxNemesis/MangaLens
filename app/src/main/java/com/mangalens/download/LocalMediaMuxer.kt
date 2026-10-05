@@ -20,7 +20,11 @@ internal object LocalMediaMuxer {
             val ai = (0 until audioInput.trackCount).firstOrNull { audioInput.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
                 ?: error("Audio track is missing")
             val vf = videoInput.getTrackFormat(vi); val af = audioInput.getTrackFormat(ai)
-            check(vf.getString(MediaFormat.KEY_MIME) == "video/avc" && af.getString(MediaFormat.KEY_MIME) == "audio/mp4a-latm") { "Local muxing requires AVC video and AAC audio." }
+            val videoMime = vf.getString(MediaFormat.KEY_MIME).orEmpty()
+            val audioMime = af.getString(MediaFormat.KEY_MIME).orEmpty()
+            check(videoMime.startsWith("video/") && audioMime == "audio/mp4a-latm") {
+                "Local MP4 muxing requires a supported video track and AAC audio."
+            }
             videoInput.selectTrack(vi); audioInput.selectTrack(ai)
             muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val vt = muxer.addTrack(vf); val at = muxer.addTrack(af)
