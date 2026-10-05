@@ -38,7 +38,9 @@ fun NativeVideoPlayer(
     onBack: () -> Unit = {},
     onOpenWeb: () -> Unit = {},
     sourcePageUrl: String? = null,
-    requestHeaders: Map<String, String> = emptyMap()
+    requestHeaders: Map<String, String> = emptyMap(),
+    audioUrl: String? = null,
+    audioHeaders: Map<String, String> = emptyMap()
 ) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -52,20 +54,20 @@ fun NativeVideoPlayer(
     var showSpeechSettings by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
-    if (VideoSourcePolicy.isSourcePage(url)) {
-        com.mangalens.ui.web.AdBlockedWebScreen(url, translationEnabled = false,
-            adBlockEnabled = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getBoolean("ad_block_enabled", true),
-            modifier = modifier, onClose = onBack)
-        return
-    }
     val playerVm: LocalVideoPlayerViewModel = viewModel()
     val player = playerVm.player
     var playing by remember { mutableStateOf(player.isPlaying) }
     var playbackHeight by remember { mutableIntStateOf(player.videoSize.height) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(url, sourcePageUrl, requestHeaders) {
+    LaunchedEffect(url, sourcePageUrl, requestHeaders, audioUrl, audioHeaders) {
         playbackError = null
-        playerVm.openHttp(url, referer = sourcePageUrl, headers = requestHeaders)
+        playerVm.openHttp(
+            url,
+            referer = sourcePageUrl,
+            headers = requestHeaders,
+            audioUrl = audioUrl,
+            audioHeaders = audioHeaders
+        )
     }
     LaunchedEffect(translationEnabled) { if (!translationEnabled) liveTranslationEnabled = false }
 
@@ -226,7 +228,7 @@ fun NativeVideoPlayer(
                         TextButton(onClick = { liveTranslationEnabled = !liveTranslationEnabled }) { Text(if (liveTranslationEnabled) "Live OCR on" else "Live OCR off") }
                         TextButton(onClick = {
                             scope.launch {
-                                runCatching { MediaDownloadManager(context).enqueue(url, "MangaLens video", quality = downloadQuality, sourcePageUrl = sourcePageUrl, headers = requestHeaders) }
+                                runCatching { MediaDownloadManager(context).enqueue(sourcePageUrl ?: url, "MangaLens video", quality = downloadQuality, sourcePageUrl = sourcePageUrl, headers = requestHeaders) }
                                     .onSuccess { downloadStatus = "Download queued at " + downloadQuality.label }
                                     .onFailure { downloadStatus = it.message ?: "Download failed" }
                             }
