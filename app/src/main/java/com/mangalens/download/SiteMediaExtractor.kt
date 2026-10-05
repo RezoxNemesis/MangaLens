@@ -20,64 +20,80 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
     override fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink? {
         YoutubeDL.init(app)
         refreshExtractorIfUseful(url)
+        val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
+        val youtube = host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com")
+        // Do not mix YouTube clients in one request. Mixed client URLs can be signed for a
+        // different player and later fail with HTTP 403. Try the current yt-dlp default first
+        // for full quality, then bounded single-client fallbacks.
+        val clients: List<String?> = if (youtube) listOf(null, "web_embedded", "android") else listOf(null)
+        var lastFailure: Exception? = null
+        clients.forEach { client ->
+            try {
+                execute(url, quality, client)?.let { return it.copy(requestedHeight = quality.height) }
+            } catch (failure: Exception) {
+                if (failure is InterruptedException) throw failure
+                lastFailure = failure
+            }
+        }
+        throw IllegalArgumentException(
+            "The site extractor could not find an accessible video/audio source. MangaLens tried fresh extractor data and safe site-specific fallbacks; protected, private or login-only media may still be unavailable.",
+            lastFailure
+        )
+    }
+
+    private fun execute(url: String, quality: DownloadQuality, youtubeClient: String?): ResolvedMediaLink? {
+        val heightFilter = if (quality == DownloadQuality.BEST) "" else "[height<=${quality.height}]"
+        val format = if (allowSeparateStreams) {
+            "bestvideo$heightFilter[ext=mp4]+bestaudio[ext=m4a]/" +
+                "bestvideo$heightFilter+bestaudio/" +
+                "best$heightFilter/" +
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+        } else {
+            "best$heightFilter/best"
+        }
         val request = YoutubeDLRequest(url).apply {
             addOption("--ignore-config")
             addOption("--no-playlist")
             addOption("--skip-download")
-            // Restrict stdout to selected-stream metadata rather than every format/thumbnail/subtitle.
             addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,title,extractor_key,http_headers,has_drm,_type,requested_formats})j")
             addOption("--no-warnings")
             addOption("--socket-timeout", "30")
             addOption("--retries", "3")
-            addOption("--extractor-retries", "2")
+            addOption("--extractor-retries", "3")
+            addOption("--fragment-retries", "3")
             addOption("--user-agent", "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36")
-            addOption("--extractor-args", "youtube:player_client=android_vr,android,web")
-            // Prefer the requested ceiling, but always retain a no-height fallback. Some supported
-            // sites (notably KVS-style pages) temporarily expose valid MP4 formats with unknown
-            // resolution metadata; filtering only by [height<=N] made those pages appear unplayable.
-            addOption("-f", if (allowSeparateStreams) {
-                "bestvideo[height<=${quality.height}][ext=mp4]+bestaudio[ext=m4a]/" +
-                    "bestvideo[height<=${quality.height}]+bestaudio/" +
-                    "best[height<=${quality.height}]/" +
-                    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
-            } else {
-                "best[height<=${quality.height}]/best"
-            })
+            if (!youtubeClient.isNullOrBlank()) {
+                addOption("--extractor-args", "youtube:player_client=$youtubeClient")
+            }
+            addOption("-f", format)
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
         val timeout = timer.schedule({ YoutubeDL.destroyProcessById(processId) }, 90, TimeUnit.SECONDS)
         return try {
             val response = YoutubeDL.execute(request, processId = processId, callback = null)
-            SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)?.copy(requestedHeight = quality.height)
-        } catch (failure: Exception) {
-            if (failure is InterruptedException) throw failure
-            throw IllegalArgumentException(
-                "The site extractor could not find accessible video/audio streams. " +
-                    "MangaLens refreshed its extractor when appropriate; protected, private or login-only media may still be unavailable.",
-                failure
-            )
+            SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)
         } finally {
             timeout.cancel(false)
+            YoutubeDL.destroyProcessById(processId)
         }
     }
 
     /**
-     * YouTube changes its player signatures frequently. youtubedl-android intentionally supports
-     * in-app yt-dlp updates, so refresh the stable extractor periodically instead of leaving users
-     * stuck on the binary bundled with the APK. A failed update never prevents extraction.
+     * YouTube changes signatures frequently. Prefer the current yt-dlp nightly on Android because
+     * extractor fixes often land before the next stable release. A failed update is non-fatal.
      */
     private fun refreshExtractorIfUseful(url: String) {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
         if (host != "youtube.com" && !host.endsWith(".youtube.com") && host != "youtu.be") return
         val prefs = app.getSharedPreferences("mangalens_ytdlp", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        val lastAttempt = prefs.getLong("stable_update_attempt", 0L)
-        if (now - lastAttempt < 24L * 60L * 60L * 1000L) return
-        prefs.edit().putLong("stable_update_attempt", now).apply()
+        val lastAttempt = prefs.getLong("nightly_update_attempt", 0L)
+        if (now - lastAttempt < 12L * 60L * 60L * 1000L) return
+        prefs.edit().putLong("nightly_update_attempt", now).apply()
         runCatching {
-            YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel._STABLE)
+            YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel._NIGHTLY)
         }.onSuccess {
-            prefs.edit().putLong("stable_update_success", now).apply()
+            prefs.edit().putLong("nightly_update_success", now).apply()
         }
     }
 
@@ -145,7 +161,7 @@ internal object SiteMediaInfoParser {
         info.optJSONObject("http_headers")?.let { values ->
             values.keys().forEach { key ->
                 val value = values.optString(key)
-                if (key.lowercase() in setOf("user-agent", "referer", "accept", "cookie") &&
+                if (key.lowercase() in setOf("user-agent", "referer", "origin", "accept", "accept-language", "cookie") &&
                     value.length <= 16_384 && value.none { it < ' ' || it == '\u007f' }) headers[key] = value
             }
         }
