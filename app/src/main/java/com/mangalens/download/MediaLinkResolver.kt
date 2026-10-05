@@ -111,6 +111,11 @@ class MediaLinkResolver(
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
             Regex("""(?is)<(?:video|source|img)[^>]+(?:src|data-src|data-original|poster)=["']([^"']+)""")
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
+            // KVS-style sites such as Rule34Video expose the actual MP4 variants as download
+            // anchors rather than <source> nodes. Keep these as playable candidates and preserve
+            // the page Referer when Media3 requests them.
+            Regex("""(?is)<a[^>]+href=["']([^"']+(?:download=true|\.mp4(?:\?|/))[^"']*)["'][^>]*>""")
+                .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
             Regex("""(?is)srcset=["']([^"']+)["']""")
                 .findAll(html).forEach { match ->
                     match.groupValues[1].split(',').forEach { entry ->
@@ -195,6 +200,7 @@ class MediaLinkResolver(
 
     private fun detectHeight(url: String): Int? {
         val normalized = url.replace("%2F", "/").replace("%3A", ":")
+        if (Regex("""(?i)(?:^|[/_.-])4k(?:60fps|30fps|p)?(?:$|[/_.?&#-])""").containsMatchIn(normalized)) return 2160
         val match = Regex("""(?i)(?:height|quality|resolution|res|size)[=_:-]?(2160|1440|1080|720|480)(?:p)?""").find(normalized)
             ?: Regex("""(?i)(2160|1440|1080|720|480)p""").find(normalized)
         return match?.groupValues?.getOrNull(1)?.toIntOrNull()
