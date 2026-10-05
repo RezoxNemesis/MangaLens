@@ -201,6 +201,7 @@ fun OrezAiScreen(
     var showEngine by rememberSaveable { mutableStateOf(true) }
     var selectedMessage by remember { mutableStateOf<OrezMessageEntity?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    val expandedMessages = remember { mutableStateMapOf<Long, Boolean>() }
     val list = rememberLazyListState()
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
@@ -247,7 +248,7 @@ fun OrezAiScreen(
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 16.dp)) {
-        BrandHeader("OREZ AI 2.0", "YOUR READING COMPANION") {
+        BrandHeader("OREZ AI 2.1", "YOUR READING COMPANION") {
             IconButton({ showEngine = !showEngine }) { Icon(Icons.Outlined.Tune, "OREZ engine") }
         }
 
@@ -259,7 +260,7 @@ fun OrezAiScreen(
         ) {
             item {
                 ArtworkHero(
-                    "Orez 2.0 is ready",
+                    "Orez 2.1 is ready",
                     "Hybrid reasoning, OCR repair, chapter help and subtitle assistance in one place.",
                     com.mangalens.R.drawable.orez_portrait,
                     "Translate a chapter"
@@ -378,7 +379,7 @@ fun OrezAiScreen(
                         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(
-                                    if (message.role == "YOU") "YOU" else "OREZ AI 2.0",
+                                    if (message.role == "YOU") "YOU" else "OREZ AI 2.1",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.Bold
@@ -395,7 +396,16 @@ fun OrezAiScreen(
                                     )
                                 }
                             }
-                            Text(message.text.substringBefore("\n\nSources:").substringBefore(OrezVideoResultCodec.MARKER))
+                            val answerBody = message.text
+                                .substringBefore("\n\nSources:")
+                                .substringBefore(OrezVideoResultCodec.MARKER)
+                            val expanded = expandedMessages[message.id] == true
+                            Text(if (expanded || answerBody.length <= 1800) answerBody else answerBody.take(1800).trimEnd() + "…")
+                            if (answerBody.length > 1800) {
+                                TextButton(onClick = { expandedMessages[message.id] = !expanded }) {
+                                    Text(if (expanded) "Show less" else "Show full answer")
+                                }
+                            }
 
                             OrezVideoResultCodec.fromMessage(message.text).forEach { video ->
                                 video.thumbnail?.let {
@@ -415,7 +425,7 @@ fun OrezAiScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Row {
-                                    TextButton({ onRoute(video.url, OrezRoute.WEB_VIEW) }) { Text("Open") }
+                                    TextButton({ onRoute(video.url, OrezRoute.WEB_VIEW) }) { Text("Web") }
                                     TextButton({ onRoute(video.url, OrezRoute.VIDEO_PLAYER) }) { Text("Play") }
                                 }
                             }
