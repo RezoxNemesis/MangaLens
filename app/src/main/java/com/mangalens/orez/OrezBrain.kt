@@ -115,6 +115,8 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         OrezBrainResponse(if (explicitOnline) "Live search is unavailable or returned no usable sources. I cannot verify current information. Try again when connected." else fallback(intent),intent)
     }
 
+    suspend fun warmLocalModel(): Boolean = localModel.warmUp()
+
     private fun extractTranslationText(input:String):String {
         var text = input.trim()
         text = text.replace(
