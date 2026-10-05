@@ -53,7 +53,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     @Volatile private var generation = 0L
     @Volatile var positionMs = 0L
     @Volatile var language = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getString("source", "auto") ?: "auto"
-    @Volatile var chunkSeconds = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getInt("chunk_seconds", 6).coerceIn(3, 12)
+    @Volatile var chunkSeconds = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getInt("chunk_seconds", 4).coerceIn(3, 12)
     private data class Chunk(val audio: FloatArray, val startMs: Long, val generation: Long)
     private val chunks = Channel<Chunk>(capacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val model = File(context.filesDir, "speech/whisper.bin")
