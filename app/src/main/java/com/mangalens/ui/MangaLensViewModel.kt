@@ -50,6 +50,8 @@ data class MangaLensUiState(
     val videoUrl: String? = null,
     val videoPageUrl: String? = null,
     val videoHeaders: Map<String, String> = emptyMap(),
+    val videoAudioUrl: String? = null,
+    val videoAudioHeaders: Map<String, String> = emptyMap(),
     val loading: Boolean = false,
     val translating: Boolean = false,
     val translationPaused: Boolean = false,
@@ -94,7 +96,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val chapterScraper = MangaChapterScraper(application)
     private val staticAcquirer = com.mangalens.core.acquisition.StaticChapterAcquirer()
     private val chapterCatalog = MangaChapterCatalogScraper(application)
-    private val mediaLinkResolver = MediaLinkResolver(siteExtractor = com.mangalens.download.YtDlpSiteMediaExtractor(application))
+    private val mediaLinkResolver = MediaLinkResolver(siteExtractor = com.mangalens.download.YtDlpSiteMediaExtractor(application, allowSeparateStreams = true))
     private val translator = TranslationService()
     val captchaBridge = CaptchaBridge()
 
@@ -139,7 +141,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             mode = if (normalized.isBlank()) ContentType.GENERIC_WEB else router.classifyUrl(normalized),
             videoUrl = if (changed) null else _state.value.videoUrl,
             videoPageUrl = if (changed) null else _state.value.videoPageUrl,
-            videoHeaders = if (changed) emptyMap() else _state.value.videoHeaders
+            videoHeaders = if (changed) emptyMap() else _state.value.videoHeaders,
+            videoAudioUrl = if (changed) null else _state.value.videoAudioUrl,
+            videoAudioHeaders = if (changed) emptyMap() else _state.value.videoAudioHeaders
         )
     }
     fun setMode(mode: ContentType) { _state.value = _state.value.copy(mode = mode) }
@@ -208,6 +212,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             videoUrl = url,
             videoPageUrl = safePageUrl,
             videoHeaders = safeHeaders,
+            videoAudioUrl = null,
+            videoAudioHeaders = emptyMap(),
             loading = false,
             error = null
         )
@@ -278,6 +284,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                 videoUrl = target,
                                 videoPageUrl = null,
                                 videoHeaders = emptyMap(),
+                                videoAudioUrl = null,
+                                videoAudioHeaders = emptyMap(),
                                 loading = false
                             )
                         } else {
@@ -291,28 +299,52 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                     resolved.mimeType == "application/dash+xml"
                             }
 
-                            val renderedUrl = if (staticResolved == null) {
+                            val resolved = staticResolved ?: run {
                                 val existingCookie = CookieManager.getInstance().getCookie(target)
                                 val rendered = acquirer.discoverWithCookie(target, 12_000L, existingCookie)
-                                VideoSourcePolicy.preferredMediaUrl(rendered.videoStreamUrls)
-                            } else null
-                            val resolvedUrl = staticResolved?.url ?: renderedUrl
+                                VideoSourcePolicy.preferredMediaUrl(rendered.videoStreamUrls)?.let { mediaUrl ->
+                                    com.mangalens.download.ResolvedMediaLink(
+                                        url = mediaUrl,
+                                        mimeType = null,
+                                        provider = "web-sniff",
+                                        sourcePageUrl = target,
+                                        headers = buildMap {
+                                            if (!existingCookie.isNullOrBlank()) put("Cookie", existingCookie)
+                                            put("Referer", target)
+                                            put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+                                            put("Accept", "*/*")
+                                        }
+                                    )
+                                }
+                            }
 
-                            if (resolvedUrl != null) {
-                                val cookie = CookieManager.getInstance().getCookie(resolvedUrl).orEmpty()
-                                val pageUrl = staticResolved?.sourcePageUrl ?: target
+                            if (resolved != null) {
+                                val pageUrl = resolved.sourcePageUrl ?: target
+                                val videoCookie = CookieManager.getInstance().getCookie(resolved.url).orEmpty()
                                 val playbackHeaders = buildMap {
-                                    staticResolved?.headers?.forEach { (name, value) -> put(name, value) }
-                                    if (cookie.isNotBlank()) put("Cookie", cookie)
+                                    putAll(resolved.headers)
+                                    if (videoCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", videoCookie)
                                     if (keys.none { it.equals("Referer", true) }) put("Referer", pageUrl)
                                     if (keys.none { it.equals("User-Agent", true) }) put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
                                     if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
                                 }
+                                val audioHeaders = resolved.audioUrl?.let { audioUrl ->
+                                    val audioCookie = CookieManager.getInstance().getCookie(audioUrl).orEmpty()
+                                    buildMap {
+                                        putAll(resolved.audioHeaders)
+                                        if (audioCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", audioCookie)
+                                        if (keys.none { it.equals("Referer", true) }) put("Referer", pageUrl)
+                                        if (keys.none { it.equals("User-Agent", true) }) put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+                                        if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+                                    }
+                                }.orEmpty()
                                 _state.value = _state.value.copy(
                                     mode = ContentType.VIDEO_STREAM,
-                                    videoUrl = resolvedUrl,
+                                    videoUrl = resolved.url,
                                     videoPageUrl = pageUrl,
                                     videoHeaders = playbackHeaders,
+                                    videoAudioUrl = resolved.audioUrl,
+                                    videoAudioHeaders = audioHeaders,
                                     loading = false,
                                     error = null
                                 )
@@ -322,8 +354,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                     videoUrl = null,
                                     videoPageUrl = target,
                                     videoHeaders = emptyMap(),
+                                    videoAudioUrl = null,
+                                    videoAudioHeaders = emptyMap(),
                                     loading = false,
-                                    error = "No direct playable stream was detected yet. Open the source page, start the video, then use Open in Video when MangaLens detects the media request."
+                                    error = "No accessible media stream was resolved. MangaLens tried direct extraction and rendered request discovery; protected/DRM media still requires the source site."
                                 )
                             }
                         }
