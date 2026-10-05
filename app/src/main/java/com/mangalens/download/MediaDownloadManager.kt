@@ -49,9 +49,14 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
             ?: throw IllegalArgumentException("The page did not expose an accessible media source.")
         val mediaUrl = resolved.url
         val id = UUID.randomUUID().toString()
-        val finalTitle = resolved.title?.takeIf(String::isNotBlank)
-            ?: title?.takeIf(String::isNotBlank)
-            ?: mediaUrl.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
+        val explicitTitle = title?.takeIf(String::isNotBlank)
+        val resolvedTitle = resolved.title?.takeIf(String::isNotBlank)
+        val finalTitle = when {
+            explicitTitle != null && resolved.provider.lowercase() in setOf("direct", "generic", "web-sniff") -> explicitTitle
+            resolvedTitle != null -> resolvedTitle
+            explicitTitle != null -> explicitTitle
+            else -> mediaUrl.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
+        }
         val mime = mimeType ?: resolved.mimeType ?: "application/octet-stream"
         contexts.write(id, resolved.copy(
             sourcePageUrl = sourcePageUrl ?: resolved.sourcePageUrl,
