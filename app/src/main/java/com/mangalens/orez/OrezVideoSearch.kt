@@ -28,7 +28,7 @@ class OrezVideoSearch(private val context: Context) {
     }
     companion object {
         private val timer = Executors.newSingleThreadScheduledExecutor { Thread(it, "orez-video-timeout").apply { isDaemon = true } }
-        fun isDiscovery(query: String) = Regex("(?i)youtube|recap\\s+videos?|find.*videos?|search.*videos?").containsMatchIn(query)
+        fun isDiscovery(query: String) = Regex("(?i)youtube|recap\\s+videos?|find.*videos?|search.*videos?|watch.*videos?|video\\s+results?|adult\\s+videos?").containsMatchIn(query)
     }
 }
 
@@ -47,8 +47,9 @@ object OrezVideoResultCodec {
     private fun decode(array: JSONArray): List<OrezVideoResult> = (0 until minOf(array.length(), 5)).mapNotNull { i ->
         val row = array.optJSONObject(i) ?: return@mapNotNull null
         val id = row.optString("id")
-        val url = row.optString("webpage_url").takeIf { it.startsWith("https://www.youtube.com/") }
-            ?: row.optString("url").takeIf { it.startsWith("https://www.youtube.com/") }
+        val direct = row.optString("webpage_url").takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)
+            ?: row.optString("url").takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)
+        val url = direct
             ?: if (id.matches(Regex("[a-zA-Z0-9_-]{11}"))) "https://www.youtube.com/watch?v=$id" else return@mapNotNull null
         if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) return@mapNotNull null
         val thumbnail = row.optString("thumbnail").takeIf { it.startsWith("https://") && com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(it) }
