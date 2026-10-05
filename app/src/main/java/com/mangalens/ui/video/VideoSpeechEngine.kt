@@ -335,6 +335,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         private var phase = 0L
         private var accumulated = 0f
         private var accumulatedFrames = 0
+        private var meterSamples = 0
         private var start = 0L
         private var epoch = -1L
         override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat {
@@ -359,7 +360,11 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                     while (phase >= rate) {
                         phase -= rate
                         samples[used++] = if (accumulatedFrames > 0) accumulated / accumulatedFrames else mono
-                        markAudio(1)
+                        meterSamples++
+                        if (meterSamples >= 8000) {
+                            markAudio(meterSamples)
+                            meterSamples = 0
+                        }
                         accumulated = 0f; accumulatedFrames = 0
                         if (used >= 16000 * chunkSeconds.coerceIn(3, 12)) sendChunk()
                     }
@@ -383,8 +388,11 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             if (retained > 0) samples.copyInto(samples, 0, used - retained, used)
             used = retained
         }
-        override fun onQueueEndOfStream() { if (enabled && used > 8000) sendChunk(overlap = false) }
-        override fun onFlush() { used = 0; phase = 0; accumulated = 0f; accumulatedFrames = 0; epoch = -1 }
+        override fun onQueueEndOfStream() {
+            if (meterSamples > 0) { markAudio(meterSamples); meterSamples = 0 }
+            if (enabled && used > 8000) sendChunk(overlap = false)
+        }
+        override fun onFlush() { used = 0; phase = 0; accumulated = 0f; accumulatedFrames = 0; meterSamples = 0; epoch = -1 }
         override fun onReset() { onFlush() }
     }
 }
