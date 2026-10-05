@@ -51,7 +51,7 @@ fun MangaLensNavGraph(
     onTranslationPaused: (Boolean) -> Unit,
     onTranslationCancelled: () -> Unit,
     onImportImages: (List<android.net.Uri>) -> Unit,
-    onResolvedVideo: (String, Map<String, String>, String) -> Unit
+    onResolvedVideo: (String, Map<String, String>, String, String?, Map<String, String>) -> Unit
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route?.substringBefore('?')
@@ -215,7 +215,13 @@ fun MangaLensNavGraph(
                         navController.navigate("reader")
                     },
                     onOpenVideo = { media, sourcePage ->
-                        onResolvedVideo(media.url, media.headers, sourcePage)
+                        onResolvedVideo(
+                            media.url,
+                            media.headers,
+                            sourcePage,
+                            media.audioUrl,
+                            media.audioHeaders
+                        )
                         navController.navigate("video")
                     }
                 )
