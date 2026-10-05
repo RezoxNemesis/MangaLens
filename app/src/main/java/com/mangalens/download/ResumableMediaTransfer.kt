@@ -20,6 +20,7 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
         url: String,
         temp: File,
         validatorFile: File,
+        expectedMime: String? = null,
         onProgress: suspend (Long, Long) -> Unit = { _, _ -> }
     ) = withContext(Dispatchers.IO) {
         temp.parentFile?.mkdirs()
@@ -54,6 +55,14 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
                         throw IOException("The server rejected the saved range; retrying from the start.")
                     }
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                    val contentType = response.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+                    if (expectsMedia(expectedMime) && (
+                            contentType.startsWith("text/html") ||
+                                contentType.startsWith("application/xhtml") ||
+                                contentType.startsWith("application/json")
+                            )) {
+                        throw IOException("Media source returned ${contentType.ifBlank { "a web page" }} instead of media.")
+                    }
                     val body = response.body ?: throw IOException("Empty response")
                     val announced = body.contentLength()
                     val range = if (response.code == 206) parseRange(response.header("Content-Range")) else null
@@ -94,6 +103,10 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
                     if (done == 0L || (total >= 0L && done != total)) {
                         throw IOException("The download ended before the complete file was received.")
                     }
+                    if (expectsMedia(expectedMime) && looksLikeHtml(temp)) {
+                        reset(temp, validatorFile)
+                        throw IOException("The resolved media URL returned HTML instead of the requested media.")
+                    }
                 }
             } catch (failure: IOException) {
                 currentCoroutineContext().ensureActive()
@@ -103,6 +116,19 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
             }
         }
     }
+
+    private fun expectsMedia(expectedMime: String?): Boolean =
+        expectedMime?.let { it.startsWith("video/") || it.startsWith("audio/") || it.startsWith("image/") || it == "audio/" } == true
+
+    private fun looksLikeHtml(file: File): Boolean = runCatching {
+        if (!file.isFile || file.length() == 0L) return@runCatching false
+        val bytes = file.inputStream().use { input ->
+            ByteArray(minOf(1024L, file.length()).toInt()).also { input.read(it) }
+        }
+        val text = bytes.toString(Charsets.UTF_8).trimStart().lowercase()
+        text.startsWith("<!doctype html") || text.startsWith("<html") || text.startsWith("<head") ||
+            text.startsWith("<script") || text.contains("<body")
+    }.getOrDefault(false)
 
     private fun reset(temp: File, validator: File) {
         if (temp.exists() && !temp.delete()) throw IOException("Unable to reset the saved download.")
