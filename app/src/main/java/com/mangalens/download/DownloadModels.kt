@@ -29,7 +29,10 @@ data class DownloadEntity(
     val error: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val actualHeight: Int? = null,
-    val stage: String? = null
+    val stage: String? = null,
+    val provider: String = "generic",
+    val sourcePageUrl: String? = null,
+    val requestedHeight: Int? = null
 ) {
     val progress: Float get() = if (state == DownloadState.COMPLETED) 1f else if (totalBytes <= 0L) 0f else (bytesDownloaded.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
     val isAdaptive: Boolean get() = isAdaptiveMediaSource(sourceUrl, mimeType)
@@ -56,8 +59,8 @@ interface DownloadDao {
     suspend fun adaptiveProgressIfActive(id: String, done: Long, total: Long): Int
     @Query("UPDATE media_downloads SET state = :state, error = NULL WHERE id = :id AND state IN ('PAUSED', 'FAILED')")
     suspend fun resumeIfStopped(id: String, state: DownloadState): Int
-    @Query("UPDATE media_downloads SET sourceUrl = :url, mimeType = :mime WHERE id = :id AND state = 'FAILED'")
-    suspend fun refreshFailedSource(id: String, url: String, mime: String): Int
+    @Query("UPDATE media_downloads SET sourceUrl = :url, mimeType = :mime, title = :title, provider = :provider, sourcePageUrl = :pageUrl, requestedHeight = :requestedHeight, error = NULL, stage = :stage WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED', 'PAUSED')")
+    suspend fun refreshSource(id: String, url: String, mime: String, title: String, provider: String, pageUrl: String?, requestedHeight: Int?, stage: String): Int
     @Query("UPDATE media_downloads SET stage = :stage WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING')")
     suspend fun stageIfActive(id: String, stage: String): Int
     @Query("UPDATE media_downloads SET actualHeight = :height, stage = :stage WHERE id = :id AND state = 'COMPLETED'")
@@ -65,7 +68,7 @@ interface DownloadDao {
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 
-@Database(entities = [DownloadEntity::class], version = 2, exportSchema = false)
+@Database(entities = [DownloadEntity::class], version = 3, exportSchema = false)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloads(): DownloadDao
     companion object {
@@ -73,12 +76,21 @@ abstract class DownloadDatabase : RoomDatabase() {
         fun get(context: android.content.Context): DownloadDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(context.applicationContext, DownloadDatabase::class.java, "mangalens_downloads.db")
-                    .addMigrations(object : androidx.room.migration.Migration(1, 2) {
-                        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
-                            db.execSQL("ALTER TABLE media_downloads ADD COLUMN actualHeight INTEGER")
-                            db.execSQL("ALTER TABLE media_downloads ADD COLUMN stage TEXT")
+                    .addMigrations(
+                        object : androidx.room.migration.Migration(1, 2) {
+                            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                                db.execSQL("ALTER TABLE media_downloads ADD COLUMN actualHeight INTEGER")
+                                db.execSQL("ALTER TABLE media_downloads ADD COLUMN stage TEXT")
+                            }
+                        },
+                        object : androidx.room.migration.Migration(2, 3) {
+                            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                                db.execSQL("ALTER TABLE media_downloads ADD COLUMN provider TEXT NOT NULL DEFAULT 'generic'")
+                                db.execSQL("ALTER TABLE media_downloads ADD COLUMN sourcePageUrl TEXT")
+                                db.execSQL("ALTER TABLE media_downloads ADD COLUMN requestedHeight INTEGER")
+                            }
                         }
-                    })
+                    )
                     .build()
                     .also { instance = it }
             }
