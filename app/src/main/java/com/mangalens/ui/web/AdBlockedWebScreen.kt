@@ -369,6 +369,19 @@ fun AdBlockedWebScreen(
                     webChromeClient = object : WebChromeClient() {
                         override fun onProgressChanged(view: WebView?, progress: Int) { loadProgress = progress }
                         override fun onReceivedTitle(view: WebView?, title: String?) { pageTitle = title.orEmpty() }
+
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: android.os.Message?
+                        ): Boolean {
+                            if (latestAdBlockEnabled && latestSiteAdBlockEnabled) {
+                                translationStatus = "Blocked a popup window."
+                                return false
+                            }
+                            return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+                        }
                     }
                     setOnTouchListener { _, event ->
                         if (event.actionMasked == MotionEvent.ACTION_UP) hudVisible = true
