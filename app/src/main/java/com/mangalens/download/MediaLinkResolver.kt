@@ -127,7 +127,12 @@ class MediaLinkResolver(
                         provider,
                         detectHeight(it),
                         title,
-                        sourcePageUrl = response.request.url.toString()
+                        sourcePageUrl = response.request.url.toString(),
+                        headers = mapOf(
+                            "User-Agent" to USER_AGENT,
+                            "Referer" to response.request.url.toString(),
+                            "Accept" to "*/*"
+                        )
                     )
                 }
                 .toList()
