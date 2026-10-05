@@ -217,28 +217,33 @@ class MediaLinkResolver(
             .getOrNull()
             ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
 
-    private fun isDirect(value: String): Boolean =
-        value.endsWith(".m3u8") || value.endsWith(".mpd") || value.endsWith(".mp4") ||
-            value.endsWith(".webm") || value.endsWith(".mkv") || value.endsWith(".mov") ||
-            value.endsWith(".jpg") || value.endsWith(".jpeg") || value.endsWith(".png") ||
-            value.endsWith(".webp") || value.endsWith(".avif") || value.endsWith(".gif") ||
-            value.endsWith(".bmp") || value.endsWith(".heic")
+    private fun isDirect(value: String): Boolean {
+        val clean = value.trimEnd('/')
+        return clean.endsWith(".m3u8") || clean.endsWith(".mpd") || clean.endsWith(".mp4") ||
+            clean.endsWith(".webm") || clean.endsWith(".mkv") || clean.endsWith(".mov") ||
+            clean.endsWith(".jpg") || clean.endsWith(".jpeg") || clean.endsWith(".png") ||
+            clean.endsWith(".webp") || clean.endsWith(".avif") || clean.endsWith(".gif") ||
+            clean.endsWith(".bmp") || clean.endsWith(".heic")
+    }
 
-    private fun guessMime(value: String): String? = when {
-        value.endsWith(".m3u8") -> "application/x-mpegURL"
-        value.endsWith(".mpd") -> "application/dash+xml"
-        value.endsWith(".mp4") -> "video/mp4"
-        value.endsWith(".webm") -> "video/webm"
-        value.endsWith(".mkv") -> "video/x-matroska"
-        value.endsWith(".mov") -> "video/quicktime"
-        value.endsWith(".jpg") || value.endsWith(".jpeg") -> "image/jpeg"
-        value.endsWith(".png") -> "image/png"
-        value.endsWith(".webp") -> "image/webp"
-        value.endsWith(".avif") -> "image/avif"
-        value.endsWith(".gif") -> "image/gif"
-        value.endsWith(".bmp") -> "image/bmp"
-        value.endsWith(".heic") -> "image/heic"
-        else -> null
+    private fun guessMime(value: String): String? {
+        val clean = value.trimEnd('/')
+        return when {
+            clean.endsWith(".m3u8") -> "application/x-mpegURL"
+            clean.endsWith(".mpd") -> "application/dash+xml"
+            clean.endsWith(".mp4") -> "video/mp4"
+            clean.endsWith(".webm") -> "video/webm"
+            clean.endsWith(".mkv") -> "video/x-matroska"
+            clean.endsWith(".mov") -> "video/quicktime"
+            clean.endsWith(".jpg") || clean.endsWith(".jpeg") -> "image/jpeg"
+            clean.endsWith(".png") -> "image/png"
+            clean.endsWith(".webp") -> "image/webp"
+            clean.endsWith(".avif") -> "image/avif"
+            clean.endsWith(".gif") -> "image/gif"
+            clean.endsWith(".bmp") -> "image/bmp"
+            clean.endsWith(".heic") -> "image/heic"
+            else -> null
+        }
     }
 
     companion object {
