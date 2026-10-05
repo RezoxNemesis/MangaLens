@@ -106,6 +106,20 @@ fun LiveAudioSubtitleSettings(engine: VideoSpeechEngine) {
             Text(if (state.enabled) "Listening to video" else "Off")
         }
         Text(state.status, style = MaterialTheme.typography.bodySmall)
+        if (state.enabled) {
+            Text(
+                "Decoded audio: ${"%.1f".format(state.capturedAudioMs / 1000f)} s • processed windows: ${state.processedWindows}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.capturedAudioMs > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            )
+            if (state.capturedAudioMs == 0L) {
+                Text(
+                    "If this stays at 0.0 s while the video is playing, use Generate Full Subtitles. That path reads the media audio track directly.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         if (state.inferenceMs > 0) Text("Last audio processing: ${state.inferenceMs} ms", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(enabled = !state.busy, onClick = { scope.launch { engine.installTiny() } }) { Text("Download model (74 MiB)") }
@@ -121,7 +135,7 @@ fun LiveAudioSubtitleSettings(engine: VideoSpeechEngine) {
             }) { Text("Change") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Low latency" to 3, "Balanced" to 6, "Quality" to 12).forEach { (label, seconds) ->
+            listOf("Low latency" to 3, "Balanced" to 4, "Quality" to 8).forEach { (label, seconds) ->
                 FilterChip(selected = chunk.toInt() == seconds, onClick = {
                     chunk = seconds.toFloat(); engine.chunkSeconds = seconds; engine.invalidate()
                     prefs.edit().putInt("chunk_seconds", seconds).apply()
