@@ -25,7 +25,12 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         // Do not mix YouTube clients in one request. Mixed client URLs can be signed for a
         // different player and later fail with HTTP 403. Try the current yt-dlp default first
         // for full quality, then bounded single-client fallbacks.
-        val clients: List<String?> = if (youtube) listOf(null, "web_embedded", "android") else listOf(null)
+        val clients: List<String?> = if (youtube) {
+            // Current yt-dlp gives the default client first. Then try clients that can expose
+            // ordinary HTTPS/DASH/HLS media without intentionally capping quality. Keep Android
+            // last because YouTube periodically applies stricter token checks to that client.
+            listOf(null, "tv", "web_embedded", "ios", "android")
+        } else listOf(null)
         var lastFailure: Exception? = null
         clients.forEach { client ->
             try {
@@ -122,7 +127,16 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
      */
     private fun refreshExtractorIfUseful(url: String) {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
-        if (host != "youtube.com" && !host.endsWith(".youtube.com") && host != "youtu.be") return
+        val dynamicSite = host == "youtu.be" ||
+            host == "youtube.com" || host.endsWith(".youtube.com") ||
+            host == "instagram.com" || host.endsWith(".instagram.com") ||
+            host == "x.com" || host.endsWith(".x.com") ||
+            host == "twitter.com" || host.endsWith(".twitter.com") ||
+            host == "tiktok.com" || host.endsWith(".tiktok.com") ||
+            host == "facebook.com" || host.endsWith(".facebook.com") ||
+            host == "rule34video.com" || host.endsWith(".rule34video.com") ||
+            host == "spankbang.com" || host.endsWith(".spankbang.com")
+        if (!dynamicSite) return
         val prefs = app.getSharedPreferences("mangalens_ytdlp", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         val lastAttempt = prefs.getLong("nightly_update_attempt", 0L)
