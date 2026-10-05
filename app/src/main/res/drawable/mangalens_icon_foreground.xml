@@ -1,1 +1,16 @@
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/mangalens_launcher" android:gravity="fill" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- MangaLens 2.0: resolution-independent neon book/lens mark. -->
+    <path android:fillColor="#130817" android:pathData="M13,13h82v82h-82z" />
+    <path android:fillColor="#32124A" android:pathData="M16,20 C28,13 41,14 54,25 C67,14 80,13 92,20 L92,82 C78,76 66,77 54,88 C42,77 30,76 16,82 Z" />
+    <path android:fillColor="#8B5CFF" android:pathData="M20,25 C31,20 42,22 51,31 L51,76 C42,69 32,68 20,72 Z" />
+    <path android:fillColor="#00D7FF" android:pathData="M88,25 C77,20 66,22 57,31 L57,76 C66,69 76,68 88,72 Z" />
+    <path android:fillColor="#FF1744" android:pathData="M54,35 C69,35 80,43 87,54 C80,65 69,73 54,73 C39,73 28,65 21,54 C28,43 39,35 54,35 Z" />
+    <path android:fillColor="#140B19" android:pathData="M54,40 C66,40 75,46 81,54 C75,62 66,68 54,68 C42,68 33,62 27,54 C33,46 42,40 54,40 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M54,45 A9,9 0,1 0,54,63 A9,9 0,1 0,54,45" />
+    <path android:fillColor="#8B5CFF" android:pathData="M54,49 A5,5 0,1 0,54,59 A5,5 0,1 0,54,49" />
+    <path android:fillColor="#00E5FF" android:pathData="M70,27 L76,18 L79,29 L90,31 L80,36 L82,47 L73,39 L63,44 L67,33 Z" />
+</vector>
