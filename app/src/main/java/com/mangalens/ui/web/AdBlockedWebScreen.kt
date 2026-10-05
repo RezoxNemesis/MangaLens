@@ -183,7 +183,12 @@ fun AdBlockedWebScreen(
             val texts = parseJavascriptStringArray(raw).take(MAX_WEB_TEXT_NODES)
             totalTranslatable = texts.count { it.trim().length >= 2 && it.any(Char::isLetter) }
             if (texts.isEmpty()) {
-                translationStatus = "No readable page text found."
+                val host = runCatching { java.net.URI(currentUrl).host.orEmpty().lowercase() }.getOrDefault("")
+                translationStatus = if (
+                    host.endsWith("youtube.com") || host.endsWith("instagram.com") ||
+                    host.endsWith("x.com") || host.endsWith("twitter.com")
+                ) "Dynamic media page • use English CC, Video mode or Live OCR for media content."
+                else "No readable page text found."
                 return@LaunchedEffect
             }
             for ((index, original) in texts.withIndex()) {
@@ -239,7 +244,7 @@ fun AdBlockedWebScreen(
 
     Box(modifier.fillMaxSize()) {
         AndroidView(
-            modifier = Modifier.fillMaxSize().padding(top = 110.dp),
+            modifier = Modifier.fillMaxSize().padding(top = 74.dp),
             factory = { ctx ->
                 WebView(ctx).apply {
                     com.mangalens.core.web.SafeWebView.configure(this)
@@ -303,50 +308,62 @@ fun AdBlockedWebScreen(
         )
 
         Surface(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0xEE0C1018),
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 5.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xF20A0D14),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .42f)),
-            shadowElevation = 10.dp
+            shadowElevation = 8.dp
         ) {
-            Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                Text(pageTitle.ifBlank { "Web" }, maxLines = 1, style = MaterialTheme.typography.titleSmall)
-                Text(currentUrl, maxLines = 1, style = MaterialTheme.typography.bodySmall)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    onClose?.let { TextButton(onClick = it) { Text("Close player") } }
-                    TextButton(onClick = { webView?.goBack() }, enabled = canGoBack) { Text("Back") }
-                    TextButton(onClick = { webView?.goForward() }, enabled = canGoForward) { Text("Forward") }
-                    TextButton(onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() }) { Text(if (loadProgress < 100) "Stop" else "Reload") }
-                    TextButton(onClick = { onOpenManga(currentUrl) }, enabled = pageReady) { Text("Open in Manga") }
-                    detectedMedia?.let { media ->
-                        TextButton(
-                            onClick = {
-                                val cookie = android.webkit.CookieManager.getInstance().getCookie(media.url).orEmpty()
-                                val enrichedHeaders = buildMap {
-                                    putAll(media.headers)
-                                    if (cookie.isNotBlank()) put("Cookie", cookie)
-                                    if (keys.none { it.equals("Referer", ignoreCase = true) }) put("Referer", currentUrl)
-                                }
-                                onOpenVideo(media.copy(headers = enrichedHeaders), currentUrl)
-                            },
-                            enabled = pageReady
-                        ) { Text("Open in Video") }
-                    }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(pageTitle.ifBlank { "Web" }, maxLines = 1, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        runCatching { java.net.URI(currentUrl).host?.removePrefix("www.") }.getOrNull().orEmpty(),
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = { webView?.goBack() }, enabled = canGoBack, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("‹") }
+                TextButton(onClick = { webView?.goForward() }, enabled = canGoForward, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("›") }
+                TextButton(
+                    onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() },
+                    contentPadding = PaddingValues(horizontal = 7.dp)
+                ) { Text(if (loadProgress < 100) "■" else "↻") }
+                if (detectedMedia != null) {
                     TextButton(
                         onClick = {
-                            siteAdBlockEnabled = !siteAdBlockEnabled
-                            webView?.reload()
+                            val media = detectedMedia ?: return@TextButton
+                            val cookie = android.webkit.CookieManager.getInstance().getCookie(media.url).orEmpty()
+                            val enrichedHeaders = buildMap {
+                                putAll(media.headers)
+                                if (cookie.isNotBlank()) put("Cookie", cookie)
+                                if (keys.none { it.equals("Referer", ignoreCase = true) }) put("Referer", currentUrl)
+                            }
+                            onOpenVideo(media.copy(headers = enrichedHeaders), currentUrl)
                         },
-                        enabled = adBlockEnabled
-                    ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ad block: On" else "Ad block: Off") }
-                    TextButton(onClick = { clearSiteDialog = true }) { Text("Clear site data") }
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) { Text("Video") }
                 }
-                if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
+                TextButton(
+                    onClick = {
+                        siteAdBlockEnabled = !siteAdBlockEnabled
+                        webView?.reload()
+                    },
+                    enabled = adBlockEnabled,
+                    contentPadding = PaddingValues(horizontal = 7.dp)
+                ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ads ✓" else "Ads") }
+                TextButton(onClick = { hudVisible = true }, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("•••") }
             }
+            if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
         }
         if (captureActive) com.mangalens.ui.video.LiveAudioSubtitleOverlay(speech,
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 125.dp, start = 16.dp, end = 16.dp))
-        if (hudVisible || translating || captureActive) {
+        if (hudVisible || translating) {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
                 tonalElevation = 2.dp,
@@ -369,13 +386,24 @@ fun AdBlockedWebScreen(
                         )
                         com.mangalens.ui.video.VideoDockAction(
                             label = "Download",
-                            status = if (detectedMedia != null) "Detected media" else "Page / media",
+                            status = "Resolve best media",
                             onClick = {
                                 scope.launch {
-                                    runCatching { MediaDownloadManager(context).enqueue(
-                                        detectedMedia?.url ?: currentUrl, "MangaLens web page",
-                                        sourcePageUrl = currentUrl, headers = detectedMedia?.headers.orEmpty()) }
-                                        .onFailure { translationStatus = "Download failed: " + (it.message ?: "unknown error") }
+                                    translationStatus = "Resolving the best accessible media source…"
+                                    runCatching {
+                                        MediaDownloadManager(context).enqueue(
+                                            currentUrl,
+                                            title = pageTitle.takeIf(String::isNotBlank),
+                                            quality = com.mangalens.download.DownloadQuality.BEST,
+                                            sourcePageUrl = currentUrl,
+                                            headers = detectedMedia?.headers.orEmpty()
+                                        )
+                                    }.onSuccess {
+                                        translationStatus = "Download queued from " +
+                                            (runCatching { java.net.URI(currentUrl).host?.removePrefix("www.") }.getOrNull() ?: "source")
+                                    }.onFailure {
+                                        translationStatus = "Download failed: " + (it.message ?: "unable to resolve media")
+                                    }
                                 }
                             }
                         )
@@ -384,6 +412,17 @@ fun AdBlockedWebScreen(
                             status = if (captureActive) "Live audio" else "Speech",
                             selected = captureActive,
                             onClick = { speechSettings = true }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "Manga",
+                            status = "Reader",
+                            enabled = pageReady,
+                            onClick = { onOpenManga(currentUrl) }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "Site data",
+                            status = "Cookies / cache",
+                            onClick = { clearSiteDialog = true }
                         )
                         com.mangalens.ui.video.VideoDockAction(
                             label = if (autoScroll) "Pause scroll" else "Auto scroll",
