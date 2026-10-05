@@ -108,7 +108,11 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
             '[id*="ad-container" i]','[id*="ad-wrapper" i]','[id*="ad-slot" i]',
             'iframe[src*="doubleclick" i]','iframe[src*="exoclick" i]',
             'iframe[src*="trafficjunky" i]','iframe[src*="popads" i]',
-            'iframe[src*="clickadu" i]'
+            'iframe[src*="clickadu" i]',
+            'ytd-display-ad-renderer','ytd-ad-slot-renderer',
+            'ytd-promoted-sparkles-web-renderer','ytm-promoted-sparkles-web-renderer',
+            '.ytp-ad-overlay-container','.ytp-ad-message-container',
+            '[class*="video-ads" i][class*="ytp" i]'
           ];
           const hide=()=>{
             document.querySelectorAll(selectors.join(',')).forEach(e=>{
@@ -125,6 +129,24 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
               const thirdParty=u.hostname!==location.hostname && !u.hostname.endsWith('.'+location.hostname) && !location.hostname.endsWith('.'+u.hostname);
               return suspicious.test(u.href) && (thirdParty || /\/vast|\/vmap|\/pagead|\/preroll|\/midroll/i.test(u.pathname));
             }catch(_){ return false; }
+          };
+          const hideSponsoredFeedItems=()=>{
+            try{
+              if(/(^|\.)instagram\.com$/i.test(location.hostname)){
+                document.querySelectorAll('article').forEach(article=>{
+                  const sponsored=Array.from(article.querySelectorAll('span,a')).some(node=>
+                    /^sponsored$/i.test((node.textContent||'').trim()));
+                  if(sponsored) article.style.setProperty('display','none','important');
+                });
+              }
+              if(/(^|\.)youtube\.com$/i.test(location.hostname)){
+                document.querySelectorAll('ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer').forEach(item=>{
+                  const promoted=Array.from(item.querySelectorAll('span,yt-formatted-string')).some(node=>
+                    /^(sponsored|ad)$/i.test((node.textContent||'').trim()));
+                  if(promoted) item.style.setProperty('display','none','important');
+                });
+              }
+            }catch(_){}
           };
           const cleanAnchors=()=>{
             document.querySelectorAll('a[target="_blank"],a[target="_new"]').forEach(a=>{
@@ -168,9 +190,11 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
             }
             return nativeXhrOpen.apply(this,arguments);
           };
-          hide(); cleanAnchors();
+          hide(); hideSponsoredFeedItems(); cleanAnchors();
           if(document.documentElement){
-            new MutationObserver(()=>{hide();cleanAnchors();}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class','id','style']});
+            new MutationObserver(()=>{
+              hide(); hideSponsoredFeedItems(); cleanAnchors();
+            }).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class','id','style']});
           }
         })();
     """.trimIndent()
