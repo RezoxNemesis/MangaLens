@@ -2,6 +2,7 @@ package com.mangalens.core.adblock
 
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -102,5 +103,16 @@ class AdBlockEngineTest {
         assertNull("Normal first-party video titles must not be overblocked", response)
     }
 
+
+    @Test
+    fun socialVideoAdSelectorsArePresentWithoutBlockingSharedMediaCdn() {
+        val script = adBlockEngine.getElementHidingScript()
+        assertTrue(script.contains("ytd-display-ad-renderer"))
+        assertTrue(script.contains("instagram.com"))
+        assertNull(
+            "YouTube video CDN must not be blanket-blocked because it also carries real playback.",
+            adBlockEngine.shouldBlockRequest("https://rr1---sn.example.googlevideo.com/videoplayback?id=1&mime=video%2Fmp4")
+        )
+    }
 
 }
