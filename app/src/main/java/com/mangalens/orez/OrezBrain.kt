@@ -11,7 +11,13 @@ import kotlin.math.max
 
 enum class OrezEngineMode { LOCAL_LITE, HYBRID_AUTO, WEB_ASSIST }
 enum class OrezIntent { GREETING, QUESTION, ADVICE, REASONING, PLANNING, TRANSLATION, TROUBLESHOOTING, MANGA, VIDEO, WEB_SEARCH, COMMAND, MATH, GENERAL }
-data class OrezContext(val recentMessages:List<OrezMessageEntity>,val targetLanguage:String="hi",val sourceText:String?=null)
+data class OrezContext(
+    val recentMessages: List<OrezMessageEntity>,
+    val targetLanguage: String = "hi",
+    val sourceText: String? = null,
+    val libraryContext: String = "",
+    val chapterText: String? = null
+)
 data class OrezBrainResponse(val text:String,val intent:OrezIntent,val sources:List<String> = emptyList(),val usedLocalKnowledge:Boolean=false,val usedLiveSearch:Boolean=false,val videos:List<OrezVideoResult> = emptyList())
 
 class OrezBrain(private val database:OrezRoomDatabase, private val context: android.content.Context, private val liveSearch:suspend(String)->LiveSearchAnswer){
@@ -34,6 +40,56 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         val intent=classify(clean)
         if(intent==OrezIntent.MATH) return@withContext OrezBrainResponse(solveMath(clean),intent)
 
+        if (isLibraryScopedRequest(clean) && context.libraryContext.isNotBlank()) {
+            val prompt = """
+                Answer using ONLY the saved-library data below. Do not browse the web and do not invent
+                chapters, progress, metadata, or recommendations outside this library.
+                USER REQUEST:
+                $clean
+
+                SAVED LIBRARY:
+                ${context.libraryContext.take(6000)}
+            """.trimIndent()
+            val modelAnswer = localAnswer(prompt, context.recentMessages, 7_000L)
+            if (!modelAnswer.isNullOrBlank()) {
+                return@withContext OrezBrainResponse(
+                    sanitizeLocal(modelAnswer),
+                    OrezIntent.PLANNING,
+                    usedLocalKnowledge = true
+                )
+            }
+            return@withContext OrezBrainResponse(
+                deterministicLibraryAnswer(clean, context.libraryContext),
+                OrezIntent.PLANNING,
+                usedLocalKnowledge = true
+            )
+        }
+
+        if (isChapterScopedRequest(clean) && !context.chapterText.isNullOrBlank()) {
+            val text = context.chapterText!!.take(7000)
+            val prompt = """
+                Answer using ONLY the chapter text below. Preserve character relationships and tone.
+                Do not infer missing pages or use web knowledge.
+                USER REQUEST:
+                $clean
+
+                CHAPTER TEXT:
+                $text
+            """.trimIndent()
+            val modelAnswer = localAnswer(prompt, context.recentMessages, 7_500L)
+            if (!modelAnswer.isNullOrBlank()) {
+                return@withContext OrezBrainResponse(
+                    sanitizeLocal(modelAnswer),
+                    OrezIntent.MANGA,
+                    usedLocalKnowledge = true
+                )
+            }
+            return@withContext OrezBrainResponse(
+                extractiveChapterAnswer(text),
+                OrezIntent.MANGA,
+                usedLocalKnowledge = true
+            )
+        }
         if (OrezVideoSearch.isDiscovery(clean)) {
             val explicitlyYoutube = Regex("(?i)youtube|youtu\\.be").containsMatchIn(clean)
             if (explicitlyYoutube) {
@@ -196,6 +252,55 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             "telugu" -> "te"
             "urdu" -> "ur"
             else -> fallback
+        }
+    }
+
+    private fun isLibraryScopedRequest(input: String): Boolean {
+        val text = input.lowercase(Locale.ROOT)
+        return listOf(
+            "saved chapters only", "saved chapter", "reading list", "my library",
+            "library only", "bookmarks", "bookmarked", "what should i read"
+        ).any(text::contains)
+    }
+
+    private fun isChapterScopedRequest(input: String): Boolean {
+        val text = input.lowercase(Locale.ROOT)
+        return listOf(
+            "this chapter", "current chapter", "summarize", "summary",
+            "chapter context", "what happened", "explain this chapter"
+        ).any(text::contains)
+    }
+
+    private fun deterministicLibraryAnswer(query: String, libraryContext: String): String {
+        val rows = libraryContext.lineSequence()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .take(20)
+            .toList()
+        if (rows.isEmpty()) return "Your saved library is empty."
+        val planning = query.contains("plan", true) || query.contains("reading list", true) ||
+            query.contains("what should i read", true)
+        return buildString {
+            append(if (planning) "Using only your saved library:\n" else "Saved-library result:\n")
+            rows.forEachIndexed { index, row ->
+                append(index + 1).append(". ").append(row).append('\n')
+            }
+            if (planning) append("Start with items already marked Reading, then bookmarked items, then On hold. Completed items can stay last.")
+        }.trim()
+    }
+
+    private fun extractiveChapterAnswer(chapterText: String): String {
+        val sentences = chapterText
+            .replace(Regex("""\s+"""), " ")
+            .split(Regex("""(?<=[.!?।])\s+"""))
+            .map(String::trim)
+            .filter { it.length >= 20 }
+            .distinct()
+            .take(6)
+        return if (sentences.isEmpty()) {
+            "I have chapter text, but it is too fragmented to summarise reliably."
+        } else {
+            "Chapter summary based only on the available text: " + sentences.joinToString(" ").take(1500)
         }
     }
 
