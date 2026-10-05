@@ -35,7 +35,7 @@ fun LiveAudioSubtitleOverlay(engine: VideoSpeechEngine, modifier: Modifier = Mod
             val timing = engine.positionMs - offset
             val synced = current.cues.lastOrNull { timing in it.startMs..it.endMs }?.text
             displayed = when {
-                !current.enabled -> ""
+                !current.enabled && !current.generated -> ""
                 synced != null -> synced
                 prefs.getBoolean("show_latest", true) && System.currentTimeMillis() - arrival < prefs.getInt("hold_ms", 6000) -> current.latestText
                 else -> ""
