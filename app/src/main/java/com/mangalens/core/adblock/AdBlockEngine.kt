@@ -130,6 +130,15 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
               return suspicious.test(u.href) && (thirdParty || /\/vast|\/vmap|\/pagead|\/preroll|\/midroll/i.test(u.pathname));
             }catch(_){ return false; }
           };
+          const skipYouTubeAdWhenAllowed=()=>{
+            try{
+              if(!/(^|\.)youtube\.com$/i.test(location.hostname)) return;
+              const button=document.querySelector(
+                '.ytp-ad-skip-button,.ytp-ad-skip-button-modern,button.ytp-skip-ad-button,.videoAdUiSkipButton'
+              );
+              if(button && button.offsetParent!==null) button.click();
+            }catch(_){}
+          };
           const hideSponsoredFeedItems=()=>{
             try{
               if(/(^|\.)instagram\.com$/i.test(location.hostname)){
@@ -190,10 +199,10 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
             }
             return nativeXhrOpen.apply(this,arguments);
           };
-          hide(); hideSponsoredFeedItems(); cleanAnchors();
+          hide(); hideSponsoredFeedItems(); skipYouTubeAdWhenAllowed(); cleanAnchors();
           if(document.documentElement){
             new MutationObserver(()=>{
-              hide(); hideSponsoredFeedItems(); cleanAnchors();
+              hide(); hideSponsoredFeedItems(); skipYouTubeAdWhenAllowed(); cleanAnchors();
             }).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class','id','style']});
           }
         })();
