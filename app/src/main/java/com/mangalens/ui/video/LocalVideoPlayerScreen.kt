@@ -69,7 +69,14 @@ fun LocalVideoPlayerScreen(
     var subtitleLanguage by rememberSaveable { mutableStateOf("hi") }
     var liveTranslationEnabled by rememberSaveable { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    var activeVideoUri by rememberSaveable { mutableStateOf(initialUri?.toString()) }
     val scope = rememberCoroutineScope()
+    val fullSubtitleGenerator = remember(vm.speech, scope) {
+        FullVideoSubtitleGenerator(context.applicationContext, vm.speech, scope)
+    }
+    val subtitleMediaSource = activeVideoUri?.let {
+        SubtitleMediaSource(uri = it, cacheKey = it, label = "Local video")
+    }
 
     fun immersive(enabled: Boolean) {
         fullscreen = enabled
@@ -101,10 +108,20 @@ fun LocalVideoPlayerScreen(
         onDispose { immersive(false) }
     }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::open) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            activeVideoUri = it.toString()
+            vm.open(it)
+        }
+    }
     val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> subtitle = uri; subtitleStatus = uri?.let { "Subtitle file selected." } }
 
-    LaunchedEffect(initialUri) { initialUri?.let(vm::open) }
+    LaunchedEffect(initialUri) {
+        initialUri?.let {
+            activeVideoUri = it.toString()
+            vm.open(it)
+        }
+    }
     LaunchedEffect(translationEnabled) { if (!translationEnabled) liveTranslationEnabled = false }
 
     DisposableEffect(vm.player) {
@@ -197,6 +214,7 @@ fun LocalVideoPlayerScreen(
                 ) {
                     TextButton(onClick = { picker.launch(arrayOf("video/*")); interact() }) { Text("Open") }
                     TextButton(onClick = { showTools = true; interact() }) { Text("Tools") }
+                    TextButton(onClick = { showTools = true; interact() }) { Text("Subtitles") }
                     TextButton(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT; zoom = 1f; interact() }) { Text("Fit") }
                     TextButton(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom = 1.15f; interact() }) { Text("Crop") }
                     TextButton(onClick = { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL; zoom = 1f; interact() }) { Text("Stretch") }
@@ -211,7 +229,7 @@ fun LocalVideoPlayerScreen(
         if (showTools) {
             ModalBottomSheet(onDismissRequest = { showTools = false }) {
                 Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    LiveAudioSubtitleSettings(vm.speech)
+                    SubtitleToolsPanel(vm.speech, fullSubtitleGenerator, subtitleMediaSource)
                     HorizontalDivider()
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton({
