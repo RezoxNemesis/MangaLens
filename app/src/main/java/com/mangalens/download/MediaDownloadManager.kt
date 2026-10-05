@@ -80,7 +80,8 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
             val saved = contexts.readMedia(id)
             val page = saved?.sourcePageUrl
             if (!page.isNullOrBlank() && page != item.sourceUrl) {
-                val quality = DownloadQuality.selectable.firstOrNull { it.height == saved?.requestedHeight }\n                    ?: DownloadQuality.BEST
+                val quality = DownloadQuality.selectable.firstOrNull { it.height == saved?.requestedHeight }
+                    ?: DownloadQuality.BEST
                 resolver.resolveCancellable(page, quality)?.let { refreshed ->
                     val mime = refreshed.mimeType ?: item.mimeType
                     if (dao.refreshFailedSource(id, refreshed.url, mime) > 0) {
