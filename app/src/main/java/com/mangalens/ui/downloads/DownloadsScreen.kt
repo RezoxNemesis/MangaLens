@@ -86,7 +86,7 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
             Text("Images · ZIP · CBZ · PDF", color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton({ picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }) { Text("Choose a chapter →") }
         }
-        if (appState.translating || appState.translationDone > 0) {
+        if (appState.translating) {
             com.mangalens.ui.components.Panel(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Text("Translation queue", style = MaterialTheme.typography.titleMedium)
                 Text((appState.activeChapter?.title ?: "Chapter") + " · ${appState.translationDone}/${appState.translationTotal} pages processed")
@@ -139,7 +139,15 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
         ) { Text(if (quality == DownloadQuality.BEST) "DOWNLOAD BEST AVAILABLE" else "DOWNLOAD " + quality.label) }
 
         vm.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+            val friendly = when {
+                it.contains("could not find an accessible video/audio source", ignoreCase = true) ->
+                    "Couldn’t resolve a downloadable media stream yet. If the video plays in Web, start it briefly and use Download there so MangaLens can reuse the live website session."
+                it.contains("HTTP 403", ignoreCase = true) ->
+                    "The media link expired or rejected this request. Resume to refresh the source, or reopen the page and download again."
+                else -> it
+            }
+            Text(friendly, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+            TextButton(onClick = vm::clearError) { Text("Dismiss") }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -194,8 +202,15 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
                             Text(formatBytes(item.bytesDownloaded) + " downloaded")
                         }
 
-                        item.error?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error)
+                        item.error?.let { failure ->
+                            val friendly = when {
+                                failure.contains("HTTP 403", ignoreCase = true) ->
+                                    "Source expired or rejected the transfer. Resume to refresh it."
+                                failure.contains("HTML", ignoreCase = true) ->
+                                    "The source returned a webpage instead of media. Reopen the source and retry."
+                                else -> failure
+                            }
+                            Text(friendly, color = MaterialTheme.colorScheme.error)
                         }
 
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
