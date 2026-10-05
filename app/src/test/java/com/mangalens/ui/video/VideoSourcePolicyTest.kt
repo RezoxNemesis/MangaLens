@@ -27,4 +27,29 @@ class VideoSourcePolicyTest {
         assertTrue(VideoSourcePolicy.isLikelyMediaRequest(preferred!!))
         assertNull(VideoSourcePolicy.preferredMediaUrl(listOf("https://example.com/watch/title")))
     }
+    @Test fun recognisesExtensionlessYouTubePlaybackRequest() {
+        val url = "https://rr1---sn.example.googlevideo.com/videoplayback?id=abc&mime=video%2Fmp4&itag=137"
+        assertTrue(VideoSourcePolicy.isLikelyMediaRequest(url, mapOf("Accept" to "video/*")))
+    }
+
+    @Test fun rejectsYouTubeAudioOnlyRequestAsPrimaryVideo() {
+        val url = "https://rr1---sn.example.googlevideo.com/videoplayback?id=abc&mime=audio%2Fmp4&itag=140"
+        assertFalse(VideoSourcePolicy.isLikelyMediaRequest(url, mapOf("Accept" to "*/*")))
+    }
+
+    @Test fun recognisesExtensionlessInstagramCdnVideo() {
+        val url = "https://scontent.cdninstagram.com/o1/v/t16/f2/m82/fixture?efg=video"
+        assertTrue(
+            VideoSourcePolicy.isLikelyMediaRequest(
+                url,
+                mapOf("Range" to "bytes=0-", "Accept" to "*/*")
+            )
+        )
+    }
+
+    @Test fun treatsInstagramAndYouTubePagesAsSourcePages() {
+        assertTrue(VideoSourcePolicy.isSourcePage("https://www.instagram.com/reel/ABC123/"))
+        assertTrue(VideoSourcePolicy.isSourcePage("https://www.youtube.com/watch?v=ABC123"))
+    }
+
 }
