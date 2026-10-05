@@ -29,7 +29,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             // Current yt-dlp gives the default client first. Then try clients that can expose
             // ordinary HTTPS/DASH/HLS media without intentionally capping quality. Keep Android
             // last because YouTube periodically applies stricter token checks to that client.
-            listOf(null, "tv", "web_embedded", "ios", "android")
+            listOf(null, "tv", "web_embedded", "web_safari", "ios", "android")
         } else listOf(null)
         var lastFailure: Exception? = null
         clients.forEach { client ->
