@@ -40,7 +40,8 @@ object MangaLettering {
             .takeIf { it.isFinite() }?.toFloat() ?: bounds.height().coerceAtLeast(8f)
         val padding = max(2, (lineHeight * .14f).toInt())
         val reference = borderColor(image, bounds, padding)
-        val rect = expandWritableSurface(image, bounds, reference, padding, lineHeight)
+        val uniformSurface = isUniformSurface(image, bounds, reference, padding)
+        val rect = expandWritableSurface(image, bounds, reference, padding, lineHeight, uniformSurface)
 
         require(rect.width() > 0 && rect.height() > 0)
         val patch = Bitmap.createBitmap(rect.width(), rect.height(), Bitmap.Config.ARGB_8888)
@@ -83,7 +84,8 @@ object MangaLettering {
         bounds: RectF,
         reference: Int,
         padding: Int,
-        lineHeight: Float
+        lineHeight: Float,
+        uniformSurface: Boolean
     ): Rect {
         var left = (bounds.left.toInt() - padding).coerceAtLeast(0)
         var top = (bounds.top.toInt() - padding).coerceAtLeast(0)
@@ -91,12 +93,15 @@ object MangaLettering {
         var bottom = (bounds.bottom.toInt() + padding + 1).coerceAtMost(image.height)
 
         val maxHorizontal = min(
-            (bounds.width() * .65f).toInt().coerceAtLeast(padding * 2),
-            (image.width * .20f).toInt().coerceAtLeast(padding * 2)
+            (bounds.width() * if (uniformSurface) .85f else .65f).toInt().coerceAtLeast(padding * 2),
+            (image.width * if (uniformSurface) .26f else .20f).toInt().coerceAtLeast(padding * 2)
         )
         val maxVertical = min(
-            max((bounds.height() * 1.10f).toInt(), (lineHeight * 1.35f).toInt()),
-            (image.height * .16f).toInt().coerceAtLeast(padding * 2)
+            max(
+                (bounds.height() * if (uniformSurface) 2.20f else 1.10f).toInt(),
+                (lineHeight * if (uniformSurface) 2.80f else 1.35f).toInt()
+            ),
+            (image.height * if (uniformSurface) .26f else .16f).toInt().coerceAtLeast(padding * 2)
         )
         val step = max(2, min(8, (lineHeight * .16f).toInt().coerceAtLeast(2)))
 
@@ -138,6 +143,32 @@ object MangaLettering {
             }
         }
         return Rect(left, top, right, bottom)
+    }
+
+    private fun isUniformSurface(image: Bitmap, box: RectF, reference: Int, pad: Int): Boolean {
+        val l = (box.left.toInt() - pad).coerceIn(0, image.width - 1)
+        val r = (box.right.toInt() + pad).coerceIn(l, image.width - 1)
+        val t = (box.top.toInt() - pad).coerceIn(0, image.height - 1)
+        val b = (box.bottom.toInt() + pad).coerceIn(t, image.height - 1)
+        var samples = 0
+        var close = 0
+        var sum = 0L
+        val stepX = max(1, (r - l) / 28)
+        val stepY = max(1, (b - t) / 20)
+        for (x in l..r step stepX) {
+            listOf(t, b).forEach { y ->
+                val d = distance(image.getPixel(x, y), reference)
+                samples++; sum += d; if (d <= 52) close++
+            }
+        }
+        for (y in t..b step stepY) {
+            listOf(l, r).forEach { x ->
+                val d = distance(image.getPixel(x, y), reference)
+                samples++; sum += d; if (d <= 52) close++
+            }
+        }
+        if (samples == 0) return false
+        return close >= samples * .80f && sum.toFloat() / samples <= 46f
     }
 
     private fun stripMatches(
@@ -189,7 +220,8 @@ object MangaLettering {
             val localInk = inkColor(source, line, localBackground)
             val contrast = distance(localInk, localBackground)
             val threshold = (contrast * .23f).toInt().coerceIn(30, 112)
-            val expand = max(1, (line.height() * .09f).toInt())
+            val uniform = isUniformSurface(source, line, localBackground, padding)
+            val expand = max(1, (line.height() * if (uniform) .16f else .09f).toInt())
             val l = (line.left.toInt() - expand).coerceIn(destinationBounds.left, destinationBounds.right - 1)
             val t = (line.top.toInt() - expand).coerceIn(destinationBounds.top, destinationBounds.bottom - 1)
             val r = (line.right.toInt() + expand + 1).coerceIn(l + 1, destinationBounds.right)
@@ -200,7 +232,7 @@ object MangaLettering {
                 for (gx in l until r) {
                     val px = gx - destinationBounds.left
                     val pixel = source.getPixel(gx, gy)
-                    if (distance(pixel, localBackground) >= threshold) {
+                    if (uniform || distance(pixel, localBackground) >= threshold) {
                         masked[py * width + px] = true
                     }
                 }
