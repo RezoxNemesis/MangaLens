@@ -22,8 +22,9 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_com_mangalens_whisper_WhisperNati
     auto params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.n_threads = threads; params.translate = true; params.language = language;
     params.print_progress = false; params.print_realtime = false; params.print_timestamps = false;
-    params.no_speech_thold = 0.6f; params.logprob_thold = -1.0f; params.temperature_inc = 0.0f;
+    params.no_speech_thold = 0.75f; params.logprob_thold = -1.0f; params.temperature_inc = 0.0f;
     params.no_context = true; params.single_segment = false; params.suppress_blank = true;
+    params.suppress_nst = true; params.split_on_word = true; params.max_len = 84;
     params.abort_callback = [](void * data) { return static_cast<Session *>(data)->cancelled.load(); };
     params.abort_callback_user_data = session;
     const auto count = env->GetArrayLength(pcm);
@@ -35,7 +36,7 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_com_mangalens_whisper_WhisperNati
     int n = whisper_full_n_segments(session->ctx);
     std::vector<std::string> lines;
     for (int i = 0; i < n; ++i) {
-        if (whisper_full_get_segment_no_speech_prob(session->ctx, i) > 0.6f) continue;
+        if (whisper_full_get_segment_no_speech_prob(session->ctx, i) > 0.78f) continue;
         lines.push_back(std::to_string(whisper_full_get_segment_t0(session->ctx, i) * 10) + "\t" +
             std::to_string(whisper_full_get_segment_t1(session->ctx, i) * 10) + "\t" + whisper_full_get_segment_text(session->ctx, i));
     }
