@@ -30,7 +30,7 @@ class DownloadsViewModel(app: android.app.Application) : AndroidViewModel(app) {
 
     fun enqueue(url: String, quality: DownloadQuality) = viewModelScope.launch {
         error = runCatching {
-            manager.enqueue(url, "MangaLens media", quality = quality)
+            manager.enqueue(url, title = null, quality = quality)
         }.exceptionOrNull()?.message
     }
 
@@ -154,6 +154,28 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text(item.title, style = MaterialTheme.typography.titleMedium)
+                        val sourceHost = remember(item.sourcePageUrl, item.sourceUrl) {
+                            runCatching {
+                                java.net.URI(item.sourcePageUrl ?: item.sourceUrl).host?.removePrefix("www.")
+                            }.getOrNull().orEmpty()
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AssistChip(
+                                onClick = {},
+                                enabled = false,
+                                label = { Text(item.provider.ifBlank { "media" }) }
+                            )
+                            if (sourceHost.isNotBlank()) {
+                                AssistChip(onClick = {}, enabled = false, label = { Text(sourceHost, maxLines = 1) })
+                            }
+                            item.requestedHeight?.let { requested ->
+                                AssistChip(
+                                    onClick = {},
+                                    enabled = false,
+                                    label = { Text(if (requested >= 9_000) "Best available" else "${requested}p") }
+                                )
+                            }
+                        }
                         Text(item.mimeType, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         item.stage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         item.actualHeight?.let { Text("Verified output: ${it}p", style = MaterialTheme.typography.labelMedium) }
