@@ -55,7 +55,7 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { BrandHeader("MangaLens 2.0", "READ BEYOND LANGUAGE", action = {
+        item { BrandHeader("MangaLens 2.1", "READ BEYOND LANGUAGE", action = {
             IconButton({ showLink = true }) { Icon(Icons.Outlined.Link, "Open link") }
             IconButton(onOpenOrez) { Icon(Icons.Outlined.SmartToy, "Ask Orez") }
         }) }
