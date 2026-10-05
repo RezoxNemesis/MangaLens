@@ -96,11 +96,14 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         }
         dao.stageIfActive(id, "Checking media quality")
         val actualHeight = if (mime.startsWith("video/")) LocalMediaMuxer.videoHeight(publication, metadata?.audioUrl != null) else null
-        metadata?.requestedHeight?.let { ceiling ->
+        metadata?.requestedHeight?.takeIf { it < 9_000 }?.let { ceiling ->
             check(actualHeight == null || actualHeight <= ceiling) { "Source output is ${actualHeight}p, above the selected ${ceiling}p ceiling." }
         }
-        val qualityNote = if (actualHeight != null && metadata?.requestedHeight != null && actualHeight < metadata.requestedHeight)
-            "Completed at ${actualHeight}p; source selection was below the ${metadata.requestedHeight}p ceiling." else "Completed and media checked"
+        val qualityNote = if (actualHeight != null && metadata?.requestedHeight != null && metadata.requestedHeight < 9_000 && actualHeight < metadata.requestedHeight)
+            "Completed at ${actualHeight}p; source selection was below the ${metadata.requestedHeight}p ceiling."
+        else if (actualHeight != null && metadata?.requestedHeight != null && metadata.requestedHeight >= 9_000)
+            "Completed at the highest accessible source quality (${actualHeight}p)."
+        else "Completed and media checked"
         val uri = publish(publication, title, mime)
         try {
             currentCoroutineContext().ensureActive()
