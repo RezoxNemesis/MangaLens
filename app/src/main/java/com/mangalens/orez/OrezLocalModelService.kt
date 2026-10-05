@@ -8,6 +8,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import java.io.File
@@ -15,6 +18,27 @@ import java.io.File
 class OrezLocalModelService(private val manager: OrezModelManager) {
     private val engine = OrezNativeEngine()
     private val packStore by lazy { OrezConversationPackStore(manager.context) }
+    private val loadMutex = Mutex()
+    @Volatile private var temporarilyUnavailableUntil = 0L
+
+    suspend fun warmUp(): Boolean = withContext(Dispatchers.Default) {
+        val file = manager.modelFile
+        if (!file.exists() || file.length() < OrezModelManager.MODEL_BYTES) return@withContext false
+        ensureLoaded(file, 7_000L)
+    }
+
+    private suspend fun ensureLoaded(file: File, budgetMs: Long): Boolean {
+        if (engine.isLoaded) return true
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < temporarilyUnavailableUntil) return false
+        val loaded = withTimeoutOrNull(budgetMs) {
+            loadMutex.withLock {
+                if (engine.isLoaded) true else engine.load(file.absolutePath)
+            }
+        } ?: false
+        if (!loaded) temporarilyUnavailableUntil = now + 30_000L
+        return loaded
+    }
 
     suspend fun answer(prompt: String, recent: List<OrezMessageEntity>): String? = withContext(Dispatchers.Default) {
         val file: File = manager.modelFile
@@ -22,21 +46,21 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         if (!engine.isLoaded) {
             val info = android.app.ActivityManager.MemoryInfo()
             (manager.context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(info)
-            if (info.lowMemory || info.availMem < file.length() + 192L * 1024 * 1024) return@withContext null
+            if (info.lowMemory || info.availMem < file.length() + 224L * 1024 * 1024) return@withContext null
         }
-        if (!engine.load(file.absolutePath)) return@withContext null
+        if (!ensureLoaded(file, 7_000L)) return@withContext null
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
             val role = if (message.role.equals("assistant", true) || message.role.equals("OREZ", true)) "assistant" else "user"
             "<|im_start|>$role\n${message.text}\n<|im_end|>"
-        }.takeLast(9000)
+        }.takeLast(4200)
 
-        val examples = try { packStore.search(prompt, 3) }
+        val examples = try { packStore.search(prompt, 2) }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (_: Exception) { emptyList() }
         val retrieval = examples.joinToString("\n\n") {
             "REFERENCE EXAMPLE [" + it.domain + "]:\nUser: " + it.prompt.take(1200) + "\nAssistant: " + it.response.take(1800)
-        }.take(6000)
+        }.take(2600)
 
         val system = """
             You are OREZ, the private local AI inside MangaLens.
@@ -71,18 +95,25 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         }
 
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
-        val raw = generate(promptText).trim()
+        val tokenBudget = when {
+            prompt.contains("Return only the translation", ignoreCase = true) -> 192
+            prompt.length < 400 -> 224
+            else -> 288
+        }
+        val raw = withTimeoutOrNull(12_000L) { generate(promptText, tokenBudget) }
+            ?.trim()
+            ?: return@withContext null
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         sanitize(raw).takeIf { it.isNotBlank() }
     }
 
-    private suspend fun generate(prompt: String): String = suspendCancellableCoroutine { continuation ->
+    private suspend fun generate(prompt: String, maxTokens: Int): String = suspendCancellableCoroutine { continuation ->
         val request = engine.newGeneration()
         continuation.invokeOnCancellation { request.cancel() }
         // Native cleanup must finish even when the caller's coroutine is cancelled.
         cleanupScope.launch(Dispatchers.Default) {
             try {
-                continuation.resume(engine.generate(prompt, 512, request))
+                continuation.resume(engine.generate(prompt, maxTokens.coerceIn(96, 320), request))
             } catch (failure: Exception) {
                 continuation.resumeWithException(failure)
             } finally {
