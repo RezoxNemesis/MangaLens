@@ -4,14 +4,18 @@ import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -45,19 +49,28 @@ fun LiveAudioSubtitleOverlay(engine: VideoSpeechEngine, modifier: Modifier = Mod
     }
     if (displayed.isNotBlank()) {
         val size = prefs.getInt("font_size", 22)
-        Text(
-            displayed,
-            modifier = modifier
-                .widthIn(max = 920.dp)
-                .background(Color.Black.copy(alpha = prefs.getFloat("opacity", .75f)), RoundedCornerShape(8.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            color = Color.White,
-            fontSize = size.sp,
-            lineHeight = (size * 1.18f).sp,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-        )
+        Surface(
+            modifier = modifier.widthIn(max = 920.dp),
+            shape = RoundedCornerShape(10.dp),
+            color = Color.Black.copy(alpha = prefs.getFloat("opacity", .75f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = .10f)),
+            shadowElevation = 8.dp
+        ) {
+            Text(
+                displayed,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                color = Color.White,
+                fontSize = size.sp,
+                lineHeight = (size * 1.18f).sp,
+                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    shadow = Shadow(Color.Black, Offset(1f, 1f), 4f)
+                ),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
