@@ -47,29 +47,40 @@ object MangaLettering {
         val patch = Bitmap.createBitmap(rect.width(), rect.height(), Bitmap.Config.ARGB_8888)
         Canvas(patch).drawBitmap(image, rect, Rect(0, 0, rect.width(), rect.height()), null)
 
-        val first = sourceLines.firstOrNull() ?: bounds
-        val background = borderColor(image, first, padding)
-        val ink = inkColor(image, first, background)
+        val representative = sourceLines
+            .filter { it.width() > 0f && it.height() > 0f }
+            .sortedBy { it.height() }
+            .let { linesByHeight -> linesByHeight.getOrNull(linesByHeight.size / 2) }
+            ?: bounds
+        val background = borderColor(image, representative, padding)
+        val ink = inkColor(image, representative, background)
         val alignment = inferAlignment(sourceLines, bounds)
+        val sourceSample = source.lineSequence()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .maxByOrNull(String::length)
+            .orEmpty()
         val style = if (preserveStyle) {
             inferStyle(
                 image,
-                first,
-                source.lineSequence().firstOrNull().orEmpty(),
+                representative,
+                sourceSample,
                 ink,
                 background,
                 alignment
             )
         } else {
-            Style(color = ink, size = first.height().coerceAtLeast(12f), alignment = alignment)
+            Style(color = ink, size = representative.height().coerceAtLeast(12f), alignment = alignment)
         }
 
         eraseSourceGlyphs(
             source = image,
             destination = patch,
             destinationBounds = rect,
+            sourceBounds = bounds,
             lines = sourceLines,
-            padding = padding
+            padding = padding,
+            uniformSurface = uniformSurface
         )
         return Patch(rect, patch, style)
     }
@@ -206,8 +217,10 @@ object MangaLettering {
         source: Bitmap,
         destination: Bitmap,
         destinationBounds: Rect,
+        sourceBounds: RectF,
         lines: List<RectF>,
-        padding: Int
+        padding: Int,
+        uniformSurface: Boolean
     ) {
         val width = destination.width
         val height = destination.height
@@ -235,6 +248,26 @@ object MangaLettering {
                     if (uniform || distance(pixel, localBackground) >= threshold) {
                         masked[py * width + px] = true
                     }
+                }
+            }
+        }
+
+        // On a clean speech balloon / document card, OCR may miss one short word or
+        // punctuation line. Reconstruct the entire recognised text zone so those missed glyphs
+        // cannot survive underneath the translation. Artwork-heavy regions keep the conservative
+        // glyph-only mask above.
+        if (uniformSurface) {
+            val extraX = max(padding * 2, (sourceBounds.height() * .10f).toInt())
+            val extraY = max(padding * 2, (lines.map { it.height() }.average() * .35f).toInt())
+            val l = (sourceBounds.left.toInt() - extraX).coerceIn(destinationBounds.left, destinationBounds.right - 1)
+            val t = (sourceBounds.top.toInt() - extraY).coerceIn(destinationBounds.top, destinationBounds.bottom - 1)
+            val r = (sourceBounds.right.toInt() + extraX + 1).coerceIn(l + 1, destinationBounds.right)
+            val b = (sourceBounds.bottom.toInt() + extraY + 1).coerceIn(t + 1, destinationBounds.bottom)
+            for (gy in t until b) {
+                val py = gy - destinationBounds.top
+                for (gx in l until r) {
+                    val px = gx - destinationBounds.left
+                    masked[py * width + px] = true
                 }
             }
         }
