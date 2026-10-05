@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,24 +25,66 @@ fun LocalVideoGalleryScreen(onOpenPlayer:(Uri)->Unit,onOpenSystem:()->Unit,onOpe
  val context=LocalContext.current
  var videos by remember{mutableStateOf(emptyList<LocalVideoItem>())}
  LaunchedEffect(Unit){videos=LocalVideoCatalog(context).scan()}
- Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
+ Box(
+  modifier.fillMaxSize().background(
+   Brush.verticalGradient(
+    listOf(
+     MaterialTheme.colorScheme.primary.copy(alpha=.05f),
+     MaterialTheme.colorScheme.background,
+     MaterialTheme.colorScheme.background
+    )
+   )
+  )
+ ){
   LazyVerticalGrid(columns=GridCells.Adaptive(170.dp),modifier=Modifier.fillMaxSize().padding(14.dp),contentPadding=PaddingValues(bottom=96.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
    item(span={GridItemSpan(maxLineSpan)}){
-    Column{Text("Video Vault",style=MaterialTheme.typography.headlineMedium);Text("${videos.size} local videos • device + SD media",color=MaterialTheme.colorScheme.onSurfaceVariant);Spacer(Modifier.height(10.dp));FilledTonalButton(onClick=onOpenSystem){Text("System picker")}}
+    Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+     com.mangalens.ui.components.BrandHeader("Video Vault","LOCAL MEDIA • MANGALENS 2.0"){
+      FilledTonalButton(onClick=onOpenSystem,shape=RoundedCornerShape(14.dp)){Text("Picker")}
+     }
+     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
+      com.mangalens.ui.components.NeonStatusPill("${videos.size} videos",positive=videos.isNotEmpty())
+      com.mangalens.ui.components.NeonStatusPill("Device + SD")
+     }
+    }
    }
    items(videos,key={it.id}){video->
-    Card(Modifier.fillMaxWidth().clickable{onOpenPlayer(video.uri)},shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.72f))){
+    Card(
+     Modifier.fillMaxWidth().clickable{onOpenPlayer(video.uri)},
+     shape=RoundedCornerShape(22.dp),
+     colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surface.copy(alpha=.94f)),
+     border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outline.copy(alpha=.55f))
+    ){
      Column{
       Box(Modifier.fillMaxWidth().height(120.dp)){
        AsyncImage(video.uri,video.name,Modifier.fillMaxSize().clip(RoundedCornerShape(topStart=24.dp,topEnd=24.dp)),contentScale=ContentScale.Crop)
        Text(formatDuration(video.durationMs),Modifier.align(Alignment.BottomStart).padding(8.dp).background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.surface.copy(alpha=.9f),MaterialTheme.colorScheme.surface.copy(alpha=.4f))),RoundedCornerShape(10.dp)).padding(7.dp),style=MaterialTheme.typography.labelSmall)
       }
-      Column(Modifier.padding(12.dp)){Text(video.name,maxLines=2,style=MaterialTheme.typography.titleSmall);Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically){AssistChip(onClick={},enabled=false,label={Text(codecTag(video.mimeType))});Text(formatSize(video.sizeBytes),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)};TextButton(onClick={onOpenExternal(video.uri)}){Text("Open externally")}}
+      Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(7.dp)){
+        Icon(Icons.Outlined.PlayCircle,null,tint=MaterialTheme.colorScheme.secondary,modifier=Modifier.size(20.dp))
+        Text(video.name,maxLines=2,style=MaterialTheme.typography.titleSmall,modifier=Modifier.weight(1f))
+       }
+       Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically){
+        AssistChip(onClick={},enabled=false,label={Text(codecTag(video.mimeType))})
+        Text(formatSize(video.sizeBytes),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+       }
+       TextButton(onClick={onOpenExternal(video.uri)}){Text("Open externally")}
+      }
      }
     }
    }
   }
-  if(videos.isEmpty())Card(Modifier.align(Alignment.Center).padding(24.dp),shape=RoundedCornerShape(28.dp)){Column(Modifier.padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally){Text("No indexed videos",style=MaterialTheme.typography.titleLarge);Text("Use the system picker to open a file.");Spacer(Modifier.height(12.dp));Button(onClick=onOpenSystem){Text("Choose video")}}}
+  if(videos.isEmpty())com.mangalens.ui.components.Panel(Modifier.align(Alignment.Center).padding(24.dp).widthIn(max=380.dp)){
+   Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+    Icon(Icons.Outlined.FolderOpen,null,tint=MaterialTheme.colorScheme.secondary,modifier=Modifier.size(38.dp))
+    Column{
+     Text("No indexed videos",style=MaterialTheme.typography.titleLarge,fontWeight=androidx.compose.ui.text.font.FontWeight.Bold)
+     Text("Open a local file or let the media catalog populate.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+   }
+   Button(onClick=onOpenSystem,shape=RoundedCornerShape(14.dp)){Text("Choose video")}
+  }
  }
 }
 private fun formatDuration(ms:Long):String{val t=(ms/1000).coerceAtLeast(0);return "%02d:%02d".format(t/60,t%60)}
