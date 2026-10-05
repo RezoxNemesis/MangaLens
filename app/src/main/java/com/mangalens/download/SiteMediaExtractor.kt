@@ -26,11 +26,20 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             // Restrict stdout to selected-stream metadata rather than every format/thumbnail/subtitle.
             addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,title,extractor_key,http_headers,has_drm,_type,requested_formats})j")
             addOption("--no-warnings")
-            addOption("--socket-timeout", "20")
-            addOption("--retries", "1")
-            addOption("--extractor-retries", "1")
-            // Select a muxed representation. A video-only DASH URL would lose the audio.
-            addOption("-f", if (allowSeparateStreams) "bestvideo[height<=${quality.height}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=${quality.height}]" else "best[height<=${quality.height}]/worst")
+            addOption("--socket-timeout", "30")
+            addOption("--retries", "3")
+            addOption("--extractor-retries", "2")
+            addOption("--user-agent", "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36")
+            // Prefer the requested ceiling, but always retain a no-height fallback. Some supported
+            // sites (notably KVS-style pages) temporarily expose valid MP4 formats with unknown
+            // resolution metadata; filtering only by [height<=N] made those pages appear unplayable.
+            addOption("-f", if (allowSeparateStreams) {
+                "bestvideo[height<=${quality.height}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/" +
+                    "best[height<=${quality.height}]/" +
+                    "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best"
+            } else {
+                "best[height<=${quality.height}]/best"
+            })
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
         val timeout = timer.schedule({ YoutubeDL.destroyProcessById(processId) }, 90, TimeUnit.SECONDS)
