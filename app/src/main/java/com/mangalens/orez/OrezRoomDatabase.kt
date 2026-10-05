@@ -47,6 +47,9 @@ interface OrezMessageDao {
     @Query("SELECT COUNT(*) FROM orez_messages") suspend fun count(): Int
     @Query("DELETE FROM orez_messages WHERE id NOT IN (SELECT id FROM orez_messages ORDER BY id DESC LIMIT 200)")
     suspend fun trimHistory()
+    @Query("DELETE FROM orez_messages WHERE id = :id") suspend fun deleteMessage(id: Long)
+    @Query("SELECT MIN(id) FROM orez_messages WHERE id > :id AND role = 'YOU'") suspend fun nextUserMessageId(id: Long): Long?
+    @Query("DELETE FROM orez_messages WHERE id >= :fromId AND id < :untilId") suspend fun deleteRange(fromId: Long, untilId: Long)
     @Query("DELETE FROM orez_messages") suspend fun clear()
 }
 
