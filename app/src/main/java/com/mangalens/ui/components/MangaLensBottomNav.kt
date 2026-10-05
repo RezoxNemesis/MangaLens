@@ -3,6 +3,8 @@ package com.mangalens.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -27,10 +29,15 @@ private val navItems = listOf(
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         Row(Modifier.fillMaxWidth().height(66.dp)) {
             navItems.forEach { item -> val selected = currentRoute == item.route
+                val tint = animateColorAsState(
+                    if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tween(220),
+                    label = "navTint"
+                ).value
                 Column(Modifier.weight(1f).fillMaxHeight().semantics { contentDescription = item.accessibilityLabel }.clickable { onNavigate(item.route) }.padding(top = 9.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(item.icon, null, Modifier.size(23.dp), tint = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(item.label, fontSize = 10.sp, color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    if (selected) Box(Modifier.size(18.dp, 2.dp).background(MaterialTheme.colorScheme.primary))
+                    Icon(item.icon, null, Modifier.size(23.dp), tint = tint)
+                    Text(item.label, fontSize = 10.sp, color = tint, maxLines = 1)
+                    if (selected) Box(Modifier.size(24.dp, 3.dp).background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.RoundedCornerShape(50)))
                 }
             }
         }
