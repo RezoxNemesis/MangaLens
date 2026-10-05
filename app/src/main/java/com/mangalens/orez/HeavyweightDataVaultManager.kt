@@ -50,8 +50,16 @@ interface HeavyKnowledgeDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(items: List<HeavyKnowledgeEntity>)
 
-    @Query("SELECT * FROM heavy_knowledge WHERE normalizedPrompt LIKE '%' || :query || '%' LIMIT :limit")
-    suspend fun search(query: String, limit: Int): List<HeavyKnowledgeEntity>
+    @Query("SELECT * FROM heavy_knowledge WHERE rowid BETWEEN :startRow AND :endRow AND normalizedPrompt LIKE '%' || :query || '%' LIMIT :limit")
+    suspend fun searchWindow(
+        query: String,
+        startRow: Long,
+        endRow: Long,
+        limit: Int
+    ): List<HeavyKnowledgeEntity>
+
+    @Query("SELECT MAX(rowid) FROM heavy_knowledge")
+    suspend fun maxRowId(): Long?
 
     @Query("SELECT COUNT(*) FROM heavy_knowledge")
     suspend fun count(): Long
@@ -283,7 +291,47 @@ class HeavyweightDataVaultManager(private val context: Context) {
 
     suspend fun searchKnowledge(query: String, limit: Int = 12): List<HeavyKnowledgeEntity> =
         withContext(Dispatchers.IO) {
-            db.knowledge().search(normalize(query), limit.coerceIn(1, 100))
+            val normalized = normalize(query)
+            if (normalized.length < 3) return@withContext emptyList()
+
+            val requested = limit.coerceIn(1, 100)
+            val maxRowId = db.knowledge().maxRowId() ?: 0L
+            if (maxRowId <= 0L) return@withContext emptyList()
+
+            val windows = OrezCorpusWindowPlanner.plan(
+                totalRows = maxRowId,
+                query = normalized,
+                windowSize = CORPUS_SEARCH_WINDOW_ROWS,
+                maxWindows = CORPUS_SEARCH_WINDOWS
+            )
+            val perWindow = minOf(4, requested)
+            val hitsByWindow = ArrayList<List<HeavyKnowledgeEntity>>(windows.size)
+            for (window in windows) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                hitsByWindow += db.knowledge().searchWindow(
+                    query = normalized,
+                    startRow = window.startRow,
+                    endRow = window.endRow,
+                    limit = perWindow
+                )
+            }
+
+            // Interleave windows so early rows cannot monopolise the result set.
+            val output = LinkedHashMap<String, HeavyKnowledgeEntity>()
+            var offset = 0
+            while (output.size < requested) {
+                var added = false
+                for (hits in hitsByWindow) {
+                    hits.getOrNull(offset)?.let { item ->
+                        output.putIfAbsent(item.key, item)
+                        added = true
+                    }
+                    if (output.size >= requested) break
+                }
+                if (!added) break
+                offset++
+            }
+            output.values.toList()
         }
 
     suspend fun exactTranslation(source: String, language: String): String? =
@@ -393,5 +441,7 @@ class HeavyweightDataVaultManager(private val context: Context) {
 
     companion object {
         private const val BUNDLED_VERSION = 2
+        private const val CORPUS_SEARCH_WINDOW_ROWS = 1_024
+        private const val CORPUS_SEARCH_WINDOWS = 6
     }
 }
