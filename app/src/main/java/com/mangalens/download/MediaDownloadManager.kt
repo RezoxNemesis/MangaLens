@@ -79,6 +79,59 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         id
     }
 
+    /**
+     * Queues a concrete media request already observed by the WebView/native resolver.
+     * This deliberately skips page re-extraction so signed CDN URLs keep the exact
+     * Cookie/Referer/User-Agent context that made them playable in the browser.
+     */
+    suspend fun enqueueResolvedMedia(
+        url: String,
+        title: String? = null,
+        mimeType: String = "video/mp4",
+        quality: DownloadQuality = DownloadQuality.BEST,
+        sourcePageUrl: String? = null,
+        headers: Map<String, String> = emptyMap(),
+        provider: String = "web-sniff"
+    ): String = withContext(Dispatchers.IO) {
+        val clean = url.trim()
+        require(clean.startsWith("http://") || clean.startsWith("https://")) {
+            "Only HTTP(S) media links can be downloaded."
+        }
+        val page = sourcePageUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        val safeHeaders = headers.filter { (name, value) ->
+            name.lowercase() in setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent") &&
+                value.length <= 16_384 &&
+                value.none { it == '\r' || it == '\n' || it == '\u0000' }
+        }
+        val resolved = ResolvedMediaLink(
+            url = clean,
+            mimeType = mimeType,
+            provider = provider,
+            title = title?.takeIf(String::isNotBlank),
+            sourcePageUrl = page,
+            headers = safeHeaders,
+            requestedHeight = quality.height
+        )
+        val id = UUID.randomUUID().toString()
+        val finalTitle = title?.takeIf(String::isNotBlank)
+            ?: clean.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
+        contexts.write(id, resolved)
+        dao.upsert(
+            DownloadEntity(
+                id = id,
+                sourceUrl = clean,
+                title = finalTitle,
+                mimeType = mimeType,
+                state = DownloadState.QUEUED,
+                provider = provider,
+                sourcePageUrl = page ?: clean,
+                requestedHeight = quality.height
+            )
+        )
+        start(id, clean, finalTitle, mimeType)
+        id
+    }
+
     suspend fun pause(id: String) = withContext(Dispatchers.IO) {
         val item = dao.get(id) ?: return@withContext
         if (dao.stopIfActive(id, DownloadState.PAUSED, null) == 0) return@withContext
