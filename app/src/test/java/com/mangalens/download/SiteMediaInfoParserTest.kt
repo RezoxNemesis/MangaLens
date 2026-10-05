@@ -55,4 +55,16 @@ class SiteMediaInfoParserTest {
     }
 
 
+    @Test fun acceptsHighResolutionMp4VideoWithSeparateAacAudio() {
+        val json = """{"title":"4K fixture","requested_formats":[
+          {"url":"https://cdn.example/video-av1.mp4","ext":"mp4","height":2160,"vcodec":"av01.0.12M.08","acodec":"none"},
+          {"url":"https://cdn.example/audio.m4a","ext":"m4a","vcodec":"none","acodec":"mp4a.40.2"}
+        ],"http_headers":{"User-Agent":"fixture"}}"""
+        val selected = SiteMediaInfoParser.parse(json, "https://www.youtube.com/watch?v=fixture", true)!!
+        assertEquals(2160, selected.detectedHeight)
+        assertEquals("https://cdn.example/video-av1.mp4", selected.url)
+        assertEquals("https://cdn.example/audio.m4a", selected.audioUrl)
+    }
+
+
 }
