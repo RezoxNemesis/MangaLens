@@ -19,7 +19,11 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
         "hilltopads.net", "hilltopads.com", "admaven.com", "ad-maven.com",
         "adspyglass.com", "ero-advertising.com", "plugrush.com", "popunder.net",
         "tsyndicate.com", "twinrdsyn.com", "go2cloud.org", "mediafuse.com",
-        "bidvertiser.com", "revcontent.com", "mgid.com", "zedo.com"
+        "bidvertiser.com", "revcontent.com", "mgid.com", "zedo.com",
+        "adsrvr.org", "rubiconproject.com", "openx.net", "pubmatic.com",
+        "criteo.com", "criteo.net", "smartadserver.com", "casalemedia.com",
+        "serving-sys.com", "lijit.com", "contextweb.com", "yieldmo.com",
+        "sharethrough.com", "33across.com", "adform.net", "adform.com"
     )
 
     private val blockedPathMarkers = setOf(
@@ -27,7 +31,9 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
         "/popunder", "/popup", "/clickunder", "/redirect-ad", "/prebid/",
         "/tracking/", "/tracker/", "/pixel.gif", "/beacon", "/promotions/",
         "/vast", "/vmap", "/preroll", "/pre-roll", "/midroll", "/postroll",
-        "/popads", "/clickads", "/adtag/", "/ads.xml", "/ad.xml"
+        "/popads", "/clickads", "/adtag/", "/ads.xml", "/ad.xml",
+        "/pagead/", "/adview", "/adclick", "/sponsor/", "/sponsored/",
+        "/commercial/", "/advertiser/", "/trackingpixel", "/event.gif"
     )
 
     private val blockedQueryMarkers = setOf(
@@ -112,12 +118,19 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
               }
             });
           };
-          const suspicious=/doubleclick|googlesyndication|exoclick|trafficjunky|popads|popcash|clickadu|hilltopads|admaven|ad-maven|trafficstars|juicyads|clickunder|popunder|interstitial|\/vast(?:[/?#]|$)|\/vmap(?:[/?#]|$)/i;
+          const suspicious=/doubleclick|googlesyndication|googleadservices|exoclick|trafficjunky|popads|popcash|clickadu|hilltopads|admaven|ad-maven|trafficstars|juicyads|rubiconproject|pubmatic|criteo|smartadserver|casalemedia|adsrvr|clickunder|popunder|interstitial|\/vast(?:[/?#]|$)|\/vmap(?:[/?#]|$)|\/pagead\/|\/preroll(?:[/?#]|$)|\/midroll(?:[/?#]|$)/i;
+          const suspiciousUrl=(value)=>{
+            try{
+              const u=new URL(String(value||''),location.href);
+              const thirdParty=u.hostname!==location.hostname && !u.hostname.endsWith('.'+location.hostname) && !location.hostname.endsWith('.'+u.hostname);
+              return suspicious.test(u.href) && (thirdParty || /\/vast|\/vmap|\/pagead|\/preroll|\/midroll/i.test(u.pathname));
+            }catch(_){ return false; }
+          };
           const cleanAnchors=()=>{
             document.querySelectorAll('a[target="_blank"],a[target="_new"]').forEach(a=>{
               try {
                 const u=new URL(a.href,location.href);
-                if(suspicious.test(u.href)){
+                if(suspiciousUrl(u.href)){
                   a.removeAttribute('target');
                   a.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();},{capture:true});
                 }
@@ -128,13 +141,36 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
           window.open=function(target,name,features){
             try{
               const absolute=new URL(String(target||''),location.href).href;
-              if(suspicious.test(absolute)) return null;
+              if(suspiciousUrl(absolute)) return null;
             }catch(_){}
             return nativeOpen.call(window,target,name,features);
           };
+          const nativeBeacon=navigator.sendBeacon?.bind(navigator);
+          if(nativeBeacon){
+            navigator.sendBeacon=function(target,data){
+              if(suspiciousUrl(target)) return true;
+              return nativeBeacon(target,data);
+            };
+          }
+          const nativeFetch=window.fetch?.bind(window);
+          if(nativeFetch){
+            window.fetch=function(input,init){
+              const target=typeof input==='string'?input:(input&&input.url)||'';
+              if(suspiciousUrl(target)) return Promise.resolve(new Response('',{status:204}));
+              return nativeFetch(input,init);
+            };
+          }
+          const nativeXhrOpen=XMLHttpRequest.prototype.open;
+          XMLHttpRequest.prototype.open=function(method,target){
+            if(suspiciousUrl(target)){
+              this.__mangalensBlocked=true;
+              return nativeXhrOpen.call(this,method,'data:text/plain,',true);
+            }
+            return nativeXhrOpen.apply(this,arguments);
+          };
           hide(); cleanAnchors();
           if(document.documentElement){
-            new MutationObserver(()=>{hide();cleanAnchors();}).observe(document.documentElement,{subtree:true,childList:true});
+            new MutationObserver(()=>{hide();cleanAnchors();}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class','id','style']});
           }
         })();
     """.trimIndent()
