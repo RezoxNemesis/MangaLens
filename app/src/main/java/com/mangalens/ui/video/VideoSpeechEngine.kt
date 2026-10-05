@@ -76,10 +76,18 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         }
     }
     fun setEnabled(value: Boolean) {
+        val replacingGeneratedTrack = value && mutable.value.generated
         synchronized(handleGuard) { enabled = value && !closed && handle != 0L }
         invalidate()
-        mutable.value = mutable.value.copy(enabled = enabled, generated = false, latestText = "", status =
-            if (enabled) "Listening to video audio…" else if (handle == 0L) "Install or import a multilingual Whisper model first." else "Live audio subtitles off")
+        mutable.value = mutable.value.copy(
+            enabled = enabled,
+            generated = false,
+            cues = if (replacingGeneratedTrack) emptyList() else mutable.value.cues,
+            latestText = "",
+            status = if (enabled) "Listening to video audio…"
+                else if (handle == 0L) "Install or import a multilingual Whisper model first."
+                else "Live audio subtitles off"
+        )
     }
     fun invalidate(clear: Boolean = false) {
         synchronized(handleGuard) {
