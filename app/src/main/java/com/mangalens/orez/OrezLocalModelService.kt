@@ -24,7 +24,15 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     suspend fun warmUp(): Boolean = withContext(Dispatchers.Default) {
         val file = manager.modelFile
         if (!file.exists() || file.length() < OrezModelManager.MODEL_BYTES) return@withContext false
+        if (!hasMemoryHeadroom(file)) return@withContext false
         ensureLoaded(file, 7_000L)
+    }
+
+    private fun hasMemoryHeadroom(file: File): Boolean {
+        val info = android.app.ActivityManager.MemoryInfo()
+        val activity = manager.context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        activity.getMemoryInfo(info)
+        return !info.lowMemory && info.availMem >= file.length() + 224L * 1024 * 1024
     }
 
     private suspend fun ensureLoaded(file: File, budgetMs: Long): Boolean {
@@ -43,11 +51,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     suspend fun answer(prompt: String, recent: List<OrezMessageEntity>): String? = withContext(Dispatchers.Default) {
         val file: File = manager.modelFile
         if (!file.exists() || file.length() < OrezModelManager.MODEL_BYTES) return@withContext null
-        if (!engine.isLoaded) {
-            val info = android.app.ActivityManager.MemoryInfo()
-            (manager.context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(info)
-            if (info.lowMemory || info.availMem < file.length() + 224L * 1024 * 1024) return@withContext null
-        }
+        if (!engine.isLoaded && !hasMemoryHeadroom(file)) return@withContext null
         if (!ensureLoaded(file, 7_000L)) return@withContext null
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
@@ -113,9 +117,10 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         // Native cleanup must finish even when the caller's coroutine is cancelled.
         cleanupScope.launch(Dispatchers.Default) {
             try {
-                continuation.resume(engine.generate(prompt, maxTokens.coerceIn(96, 320), request))
+                val result = engine.generate(prompt, maxTokens.coerceIn(96, 320), request)
+                if (continuation.isActive) continuation.resume(result)
             } catch (failure: Exception) {
-                continuation.resumeWithException(failure)
+                if (continuation.isActive) continuation.resumeWithException(failure)
             } finally {
                 request.close()
             }
