@@ -1,6 +1,7 @@
 package com.mangalens.core.translation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class TranslationQualityPolicyTest {
@@ -36,4 +37,38 @@ class TranslationQualityPolicyTest {
         )
         assertEquals("रुको!", chosen)
     }
+    @Test
+    fun neutralEnglishDialogueDoesNotInventHindiRespect() {
+        val chosen = TranslationQualityPolicy.choose(
+            source = "Don't worry about it.",
+            draft = "इसके बारे में चिंता मत कीजिए।",
+            refined = "इसके बारे में चिंता मत कीजिए।",
+            targetLanguage = "hi"
+        )
+        assertEquals("इसके बारे में चिंता मत करो।", chosen)
+    }
+
+    @Test
+    fun hostileEnglishDialogueDropsFormalHindiPronouns() {
+        val chosen = TranslationQualityPolicy.choose(
+            source = "You... son... of a...",
+            draft = "आप... एक कमीने के बेटे...",
+            refined = "आप... एक कमीने के बेटे...",
+            targetLanguage = "hi"
+        )
+        assertFalse(chosen.contains("आप"))
+    }
+
+    @Test
+    fun explicitRespectCueKeepsFormalRegister() {
+        val chosen = TranslationQualityPolicy.choose(
+            source = "Sir, you should rest.",
+            draft = "सर, आपको आराम करना चाहिए।",
+            refined = "सर, आपको आराम करना चाहिए।",
+            targetLanguage = "hi"
+        )
+        assertEquals("सर, आपको आराम करना चाहिए।", chosen)
+    }
+
+
 }
