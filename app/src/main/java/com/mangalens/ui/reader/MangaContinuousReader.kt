@@ -250,13 +250,19 @@ fun MangaContinuousReader(
 
         AnimatedVisibility(
             visible = hudVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(androidx.compose.animation.core.tween(220)) +
+                androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { -it / 5 },
+            exit = fadeOut(androidx.compose.animation.core.tween(180)) +
+                androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(220)) { -it / 6 },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth().statusBarsPadding(),
-                color = MaterialTheme.colorScheme.surface
+                color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = .28f)
+                )
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(10.dp),
@@ -278,11 +284,23 @@ fun MangaContinuousReader(
 
         AnimatedVisibility(
             visible = hudVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(androidx.compose.animation.core.tween(240)) +
+                androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(300)) { it / 3 },
+            exit = fadeOut(androidx.compose.animation.core.tween(180)) +
+                androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(240)) { it / 3 },
             modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).navigationBarsPadding()
         ) {
-            Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = .48f)
+                ),
+                shadowElevation = 14.dp,
+                tonalElevation = 2.dp
+            ) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         TextButton({ goToPage(activePage - 1) }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
@@ -321,9 +339,9 @@ fun MangaContinuousReader(
                             androidx.compose.material3.Switch(translated && !originalVisible, { enabled -> if (enabled) { originalVisible = false; if (!translated) onTranslate() } else originalVisible = true })
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton({ languageMenu = true }) { Text("Language: ${targetLanguage.uppercase()} ▾") }
+                            TextButton({ languageMenu = true }) { Text("Language: ${targetLanguage.uppercase()} ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
                             Box {
-                                TextButton({ styleMenu = true }) { Text("Style: $translationStyle ▾") }
+                                TextButton({ styleMenu = true }) { Text("Style: $translationStyle ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
                                 androidx.compose.material3.DropdownMenu(styleMenu, { styleMenu = false }) {
                                     listOf("natural", "faithful", "casual", "formal", "webtoon").forEach { style -> androidx.compose.material3.DropdownMenuItem(text = { Text(style.replaceFirstChar { it.uppercase() }) }, onClick = { onTranslationStyleChanged(style); styleMenu = false }) }
                                 }
@@ -335,7 +353,11 @@ fun MangaContinuousReader(
                         }
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(onTranslate, enabled = !translating && pages.isNotEmpty()) { Text(if (translating) "Translating…" else "Translate") }
+                        Button(
+                            onTranslate,
+                            enabled = !translating && pages.isNotEmpty(),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                        ) { Text(if (translating) "Translating…" else "Translate", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
                         TextButton({ originalVisible = !originalVisible }) { Text(if (originalVisible) "Translation" else "Original") }
                         if (readingMode == "vertical") TextButton({ autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause scroll" else "Auto-scroll") }
                         if (controls) { TextButton(onDownload) { Text("Download") }; TextButton(onMenu) { Text("More settings") } }
