@@ -81,7 +81,7 @@ internal object SiteMediaInfoParser {
             val videoUrl = video.optString("url").takeIf(::isWebUrl) ?: return null
             val audioUrl = audio.optString("url").takeIf(::isWebUrl) ?: return null
             return ResolvedMediaLink(videoUrl, "video/mp4", info.optString("extractor_key", "yt-dlp"),
-                detectedHeight = video.optInt("height").takeIf { it > 0 }, title = info.optString("title"),
+                detectedHeight = heightHint(video), title = info.optString("title"),
                 sourcePageUrl = sourcePage, headers = safeHeaders(info) + safeHeaders(video),
                 audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio))
         }
@@ -101,10 +101,20 @@ internal object SiteMediaInfoParser {
         val headers = safeHeaders(info)
         return ResolvedMediaLink(
             url = url, mimeType = mime, provider = info.optString("extractor_key", "yt-dlp"),
-            detectedHeight = info.optInt("height", 0).takeIf { it > 0 },
+            detectedHeight = heightHint(info),
             title = info.optString("title").takeIf { it.isNotBlank() },
             sourcePageUrl = sourcePage, headers = headers
         )
+    }
+
+    private fun heightHint(info: JSONObject): Int? {
+        info.optInt("height", 0).takeIf { it > 0 }?.let { return it }
+        // Some site extractors historically exposed pixel resolution through yt-dlp's "quality"
+        // field. Only accept values that are unmistakably video heights; never treat rank 1/2/3
+        // quality preferences as pixels.
+        return info.optInt("quality", 0).takeIf {
+            it in setOf(240, 360, 480, 540, 720, 1080, 1440, 2160, 4320)
+        }
     }
 
     private fun safeHeaders(info: JSONObject): Map<String, String> {
