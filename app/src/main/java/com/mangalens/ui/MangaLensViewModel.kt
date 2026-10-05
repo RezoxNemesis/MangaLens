@@ -195,15 +195,26 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun resetAdBlockStats() = statsStore.reset()
 
-    fun acceptResolvedVideo(url: String, headers: Map<String, String>, pageUrl: String) {
+    fun acceptResolvedVideo(
+        url: String,
+        headers: Map<String, String>,
+        pageUrl: String,
+        audioUrl: String?,
+        audioHeaders: Map<String, String>
+    ) {
         if (!UrlEngineRouter.isSafeWebUrl(url)) {
             _state.value = _state.value.copy(error = "The detected media URL is not a safe HTTP or HTTPS address.")
             return
         }
+        val safeAudioUrl = audioUrl?.takeIf(UrlEngineRouter::isSafeWebUrl)
         val safePageUrl = pageUrl.takeIf(UrlEngineRouter::isSafeWebUrl)
-        val allowed = setOf("accept", "cookie", "origin", "referer", "user-agent")
-        val safeHeaders = headers
-            .filter { (name, value) -> name.lowercase() in allowed && value.length <= 16_384 }
+        val allowed = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
+        fun sanitize(values: Map<String, String>): Map<String, String> = values
+            .filter { (name, value) ->
+                name.lowercase() in allowed &&
+                    value.length <= 16_384 &&
+                    value.none { it == '\r' || it == '\n' || it == '\u0000' }
+            }
             .toMap()
         safePageUrl?.let { prefs.edit().putString("last_url", it).apply() }
         _state.value = _state.value.copy(
@@ -211,9 +222,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             mode = ContentType.VIDEO_STREAM,
             videoUrl = url,
             videoPageUrl = safePageUrl,
-            videoHeaders = safeHeaders,
-            videoAudioUrl = null,
-            videoAudioHeaders = emptyMap(),
+            videoHeaders = sanitize(headers),
+            videoAudioUrl = safeAudioUrl,
+            videoAudioHeaders = if (safeAudioUrl != null) sanitize(audioHeaders) else emptyMap(),
             loading = false,
             error = null
         )
