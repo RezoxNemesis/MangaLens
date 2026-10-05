@@ -71,7 +71,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
         } }) { Text("Clear cache") } }, dismissButton = { TextButton({ clearCache = false }) { Text("Cancel") } })
     LazyColumn(Modifier.fillMaxWidth().statusBarsPadding().imePadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
-            com.mangalens.ui.components.BrandHeader("MangaLens 2.0", "TOOLS • AI • PROTECTION")
+            com.mangalens.ui.components.BrandHeader("MangaLens 2.1", "TOOLS • AI • PROTECTION")
             Text("Appearance, translation modules, OREZ data and network protection.",color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
