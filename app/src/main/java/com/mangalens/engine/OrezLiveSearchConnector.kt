@@ -38,9 +38,14 @@ class OrezLiveSearchConnector(
         val enriched = if (provider == "wikipedia") results.take(4) else coroutineScope {
             results.take(4).map { result ->
                 async(Dispatchers.IO) {
-                    val page = fetch(result.url, 7000)
-                    val evidence = relevantSentences(page, query).take(3).joinToString(" ")
-                    result.copy(snippet = evidence.ifBlank { result.snippet }.take(1000))
+                    val host = runCatching { java.net.URI(result.url).host.orEmpty().lowercase() }.getOrDefault("")
+                    val evidence = if (host.endsWith("wikipedia.org")) {
+                        result.snippet
+                    } else {
+                        val page = fetch(result.url, 7000)
+                        relevantSentences(page, query).take(3).joinToString(" ")
+                    }
+                    result.copy(snippet = cleanEvidence(evidence.ifBlank { result.snippet }).take(700))
                 }
             }.awaitAll()
         }
@@ -69,8 +74,9 @@ class OrezLiveSearchConnector(
                     .replace(Regex("(?is)<style[\\s\\S]*?</style>"), " ")
                     .replace(Regex("(?is)<noscript[\\s\\S]*?</noscript>"), " ")
                     .replace(Regex("(?is)<svg[\\s\\S]*?</svg>"), " ")
+                    .replace(Regex("(?is)<(?:nav|header|footer|aside|form)[^>]*>[\\s\\S]*?</(?:nav|header|footer|aside|form)>"), " ")
                     .replace(Regex("<[^>]+>"), " ")
-                    .let(::clean)
+                    .let(::cleanEvidence)
                     .take(maxChars.coerceIn(0, 12_000))
     }
 
@@ -116,12 +122,31 @@ class OrezLiveSearchConnector(
         val terms = Regex("""[\p{L}\p{N}]{4,}""").findAll(query.lowercase())
             .map { it.value }.distinct().take(10).toSet()
         val sentences = text.split(Regex("""(?<=[.!?])\s+|(?<=。)\s*"""))
-            .map { it.trim() }.filter { it.length >= 35 }
+            .map(::cleanEvidence)
+            .filter { it.length in 35..650 }
+            .filterNot { isBoilerplate(it) }
         val ranked = sentences.map { sentence ->
             sentence to terms.count { sentence.lowercase().contains(it) }
         }.sortedByDescending { it.second }
         val matched = ranked.filter { it.second > 0 }.take(3).map { it.first }
         return (matched.ifEmpty { sentences.take(2) }).map { it.take(650) }
+    }
+
+    private fun cleanEvidence(value: String): String =
+        clean(value)
+            .replace(Regex("""(?i)\b(jump to content|main menu|navigation|create account|log in|donate|personal tools|move to sidebar|toggle .*? subsection)\b"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+    private fun isBoilerplate(value: String): Boolean {
+        val lower = value.lowercase()
+        val markers = listOf(
+            "jump to content", "main menu", "navigation", "create account", "log in",
+            "privacy policy", "terms of use", "cookie policy", "subscribe", "sign up",
+            "upload file", "community portal", "recent changes"
+        )
+        return markers.count(lower::contains) >= 1 ||
+            value.split(' ').distinct().size < value.split(' ').size * .45
     }
 
     companion object { private const val MAX_HTML_BYTES = 1_500_000 }
