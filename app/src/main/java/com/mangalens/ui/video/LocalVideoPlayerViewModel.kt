@@ -15,6 +15,7 @@ import com.mangalens.download.MangaLensDownloadService
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.ui.PlayerView
 
 @OptIn(UnstableApi::class)
@@ -85,7 +86,9 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun openHttp(
         value: String,
         referer: String? = null,
-        headers: Map<String, String> = emptyMap()
+        headers: Map<String, String> = emptyMap(),
+        audioUrl: String? = null,
+        audioHeaders: Map<String, String> = emptyMap()
     ) {
         val requestKey = buildString {
             append(value).append('\n')
@@ -93,14 +96,33 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
             headers.entries.sortedBy { it.key.lowercase() }.forEach { (name, headerValue) ->
                 append(name.lowercase()).append('=').append(headerValue).append('\n')
             }
+            append("audio=").append(audioUrl.orEmpty()).append('\n')
+            audioHeaders.entries.sortedBy { it.key.lowercase() }.forEach { (name, headerValue) ->
+                append("audio-").append(name.lowercase()).append('=').append(headerValue).append('\n')
+            }
         }
         if (httpRequestKey == requestKey && player.mediaItemCount > 0) return
         savePosition()
         uri = Uri.parse(value)
         httpRequestKey = requestKey
-        // Each media source owns a snapshot, so old segment requests cannot inherit a new session.
-        val factory = sourceFactory(MediaPlaybackDataSource.factory(MediaRequestContext(value, referer, headers)))
-        player.setMediaSource(factory.createMediaSource(MediaItem.fromUri(value)), positions.getLong(positionKey(Uri.parse(value)), 0L))
+
+        // Each media source owns a request-context snapshot. This matters for signed/CDN media:
+        // redirects and segment requests keep the source-page Referer/Cookie instead of inheriting
+        // whichever WebView page happened to load most recently.
+        val videoFactory = sourceFactory(
+            MediaPlaybackDataSource.factory(MediaRequestContext(value, referer, headers))
+        )
+        val videoSource = videoFactory.createMediaSource(MediaItem.fromUri(value))
+        val source = if (!audioUrl.isNullOrBlank()) {
+            val audioFactory = sourceFactory(
+                MediaPlaybackDataSource.factory(MediaRequestContext(audioUrl, referer, audioHeaders))
+            )
+            val audioSource = audioFactory.createMediaSource(MediaItem.fromUri(audioUrl))
+            MergingMediaSource(videoSource, audioSource)
+        } else {
+            videoSource
+        }
+        player.setMediaSource(source, positions.getLong(positionKey(Uri.parse(value)), 0L))
         player.prepare()
         player.playWhenReady = true
     }
