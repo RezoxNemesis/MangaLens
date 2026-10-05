@@ -9,6 +9,13 @@ import android.webkit.WebResourceError
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -242,9 +249,16 @@ fun AdBlockedWebScreen(
         }
     }
 
+    val browserChromeVisible = hudVisible || loadProgress < 100
+    val browserTopInset by animateDpAsState(
+        targetValue = if (browserChromeVisible) 66.dp else 0.dp,
+        animationSpec = tween(220),
+        label = "webTopInset"
+    )
+
     Box(modifier.fillMaxSize()) {
         AndroidView(
-            modifier = Modifier.fillMaxSize().padding(top = 74.dp),
+            modifier = Modifier.fillMaxSize().padding(top = browserTopInset),
             factory = { ctx ->
                 WebView(ctx).apply {
                     com.mangalens.core.web.SafeWebView.configure(this)
@@ -307,8 +321,14 @@ fun AdBlockedWebScreen(
             update = { view -> if (webView !== view) webView = view }
         )
 
+        AnimatedVisibility(
+            visible = browserChromeVisible,
+            enter = fadeIn(tween(160)) + slideInVertically(tween(220)) { -it / 2 },
+            exit = fadeOut(tween(140)) + slideOutVertically(tween(190)) { -it / 2 },
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
         Surface(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 5.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 5.dp),
             shape = RoundedCornerShape(16.dp),
             color = Color(0xF20A0D14),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .42f)),
@@ -361,8 +381,9 @@ fun AdBlockedWebScreen(
             }
             if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
         }
+        }
         if (captureActive) com.mangalens.ui.video.LiveAudioSubtitleOverlay(speech,
-            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 125.dp, start = 16.dp, end = 16.dp))
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (hudVisible) 125.dp else 24.dp, start = 16.dp, end = 16.dp))
         if (hudVisible || translating) {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
