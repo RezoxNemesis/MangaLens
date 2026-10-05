@@ -42,6 +42,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
     }
 
     private fun execute(url: String, quality: DownloadQuality, youtubeClient: String?): ResolvedMediaLink? {
+        val browserCookies = browserCookieFile(url)
         val heightFilter = if (quality == DownloadQuality.BEST) "" else "[height<=${quality.height}]"
         val format = if (allowSeparateStreams) {
             "bestvideo$heightFilter[ext=mp4]+bestaudio[ext=m4a]/" +
@@ -62,6 +63,8 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             addOption("--extractor-retries", "3")
             addOption("--fragment-retries", "3")
             addOption("--user-agent", "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36")
+            addOption("--referer", url)
+            browserCookies?.let { addOption("--cookies", it.absolutePath) }
             if (!youtubeClient.isNullOrBlank()) {
                 addOption("--extractor-args", "youtube:player_client=$youtubeClient")
             }
@@ -75,6 +78,41 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         } finally {
             timeout.cancel(false)
             YoutubeDL.destroyProcessById(processId)
+            browserCookies?.delete()
+        }
+    }
+
+    /**
+     * Export only cookies Android WebView would send to this exact site into a temporary
+     * Netscape cookie file. It stays in app-private cache and is deleted after extraction.
+     */
+    private fun browserCookieFile(url: String): java.io.File? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val raw = runCatching { android.webkit.CookieManager.getInstance().getCookie(url) }
+            .getOrNull()?.takeIf { it.isNotBlank() && it.length <= 64 * 1024 } ?: return null
+        val rows = raw.split(';').mapNotNull { token ->
+            val value = token.trim()
+            val separator = value.indexOf('=')
+            if (separator <= 0) return@mapNotNull null
+            val name = value.substring(0, separator).trim()
+            val cookieValue = value.substring(separator + 1).trim()
+            if (name.isBlank() || name.any { it <= ' ' || it == ';' || it == '\t' } ||
+                cookieValue.any { it == '\r' || it == '\n' || it == '\t' }) return@mapNotNull null
+            listOf(
+                host,
+                "FALSE",
+                "/",
+                if (uri.scheme.equals("https", true)) "TRUE" else "FALSE",
+                "0",
+                name,
+                cookieValue
+            ).joinToString("\t")
+        }
+        if (rows.isEmpty()) return null
+        val dir = java.io.File(app.cacheDir, "yt_dlp_session").apply { mkdirs() }
+        return java.io.File(dir, "cookies-${UUID.randomUUID()}.txt").apply {
+            writeText("# Netscape HTTP Cookie File\n" + rows.joinToString("\n") + "\n")
         }
     }
 
