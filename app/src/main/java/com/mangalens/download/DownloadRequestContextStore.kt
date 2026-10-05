@@ -15,6 +15,8 @@ internal class DownloadRequestContextStore(context: Context) {
         directory.mkdirs()
         val json = JSONObject().put("url", media.url)
             .put("page", media.sourcePageUrl ?: JSONObject.NULL)
+            .put("provider", media.provider)
+            .put("title", media.title ?: JSONObject.NULL)
             .put("headers", JSONObject(media.headers))
             .put("mime", media.mimeType ?: JSONObject.NULL)
             .put("height", media.detectedHeight ?: JSONObject.NULL)
@@ -22,8 +24,11 @@ internal class DownloadRequestContextStore(context: Context) {
             .put("audioHeaders", JSONObject(media.audioHeaders))
             .put("requestedHeight", media.requestedHeight ?: JSONObject.NULL)
         val temp = File(directory, "$id.tmp")
+        val target = File(directory, "$id.json")
+        temp.delete()
         temp.writeText(json.toString())
-        check(temp.renameTo(File(directory, "$id.json"))) { "Unable to persist download request context" }
+        if (target.exists()) target.delete()
+        check(temp.renameTo(target)) { "Unable to persist download request context" }
     }
 
     fun read(id: String): MediaRequestContext? = readMedia(id)?.let {
@@ -38,7 +43,11 @@ internal class DownloadRequestContextStore(context: Context) {
             val json = JSONObject(file.readText())
             val values = json.optJSONObject("headers") ?: JSONObject()
             val headers = values.keys().asSequence().associateWith { values.optString(it) }
-            ResolvedMediaLink(json.getString("url"), json.optString("mime").takeIf { it != "null" },
+            ResolvedMediaLink(
+                url = json.getString("url"),
+                mimeType = json.optString("mime").takeIf { it != "null" },
+                provider = json.optString("provider", "generic"),
+                title = json.optString("title").takeIf { it.isNotBlank() && it != "null" },
                 detectedHeight = json.optInt("height", 0).takeIf { it > 0 },
                 sourcePageUrl = json.optString("page").takeIf { it != "null" }, headers = headers,
                 audioUrl = json.optString("audioUrl").takeIf { it.isNotBlank() && it != "null" },
