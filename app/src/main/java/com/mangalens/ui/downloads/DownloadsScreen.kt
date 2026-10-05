@@ -3,6 +3,7 @@ package com.mangalens.ui.downloads
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -48,9 +50,21 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
 
     var tab by remember { mutableStateOf("Downloads") }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImport(it) }
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            com.mangalens.ui.components.BrandHeader("Download Room", "BEST AVAILABLE QUALITY • RESUMABLE")
+    Column(
+        Modifier.fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = .045f),
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .statusBarsPadding()
+            .padding(16.dp)
+    ) {
+        com.mangalens.ui.components.BrandHeader("Download Room", "BEST AVAILABLE QUALITY • RESUMABLE") {
             TextButton(onClick = onBack) { Text("Back") }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -120,8 +134,9 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
                 url = ""
             },
             enabled = url.trim().startsWith("http://") || url.trim().startsWith("https://"),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("DOWNLOAD") }
+            modifier = Modifier.fillMaxWidth(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+        ) { Text(if (quality == DownloadQuality.BEST) "DOWNLOAD BEST AVAILABLE" else "DOWNLOAD " + quality.label) }
 
         vm.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
