@@ -411,19 +411,40 @@ fun AdBlockedWebScreen(
                             onClick = {
                                 scope.launch {
                                     translationStatus = "Resolving the best accessible media source…"
-                                    runCatching {
-                                        MediaDownloadManager(context).enqueue(
+                                    val manager = MediaDownloadManager(context)
+                                    try {
+                                        manager.enqueue(
                                             currentUrl,
                                             title = pageTitle.takeIf(String::isNotBlank),
                                             quality = com.mangalens.download.DownloadQuality.BEST,
                                             sourcePageUrl = currentUrl,
                                             headers = detectedMedia?.headers.orEmpty()
                                         )
-                                    }.onSuccess {
                                         translationStatus = "Download queued from " +
                                             (runCatching { java.net.URI(currentUrl).host?.removePrefix("www.") }.getOrNull() ?: "source")
-                                    }.onFailure {
-                                        translationStatus = "Download failed: " + (it.message ?: "unable to resolve media")
+                                    } catch (pageFailure: Throwable) {
+                                        if (pageFailure is kotlinx.coroutines.CancellationException) throw pageFailure
+                                        val media = detectedMedia
+                                        if (media == null) {
+                                            translationStatus = "Download failed: " +
+                                                (pageFailure.message ?: "unable to resolve media")
+                                        } else {
+                                            translationStatus = "Page extractor unavailable • using detected video stream…"
+                                            runCatching {
+                                                manager.enqueue(
+                                                    media.url,
+                                                    title = pageTitle.takeIf(String::isNotBlank),
+                                                    quality = com.mangalens.download.DownloadQuality.BEST,
+                                                    sourcePageUrl = currentUrl,
+                                                    headers = media.headers
+                                                )
+                                            }.onSuccess {
+                                                translationStatus = "Detected media queued for download."
+                                            }.onFailure {
+                                                translationStatus = "Download failed after page + stream fallback: " +
+                                                    (it.message ?: pageFailure.message ?: "unavailable media")
+                                            }
+                                        }
                                     }
                                 }
                             }
