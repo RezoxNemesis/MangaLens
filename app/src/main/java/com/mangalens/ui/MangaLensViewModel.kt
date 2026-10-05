@@ -516,36 +516,56 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         val chapterContext = _state.value.overlays.values.flatten().takeLast(12)
             .joinToString("\n") { it.translatedText }
         val translated = mutableListOf<TranslationOverlay>()
+        val preserveStyle = app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE)
+            .getBoolean("preserve_style", true)
+        val reconstructedCanvas = if (bitmap.isMutable) android.graphics.Canvas(bitmap) else null
         for (region in advancedRegions) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val localized = recallTranslation(region.source, targetLanguage, style) ?: run {
+                val draft = translator.translate(region.source, targetLanguage)
+                val refined = orezRefiner.refine(
+                    region.source,
+                    draft,
+                    targetLanguage,
+                    style,
+                    chapterContext = chapterContext,
+                )
+                com.mangalens.core.translation.TranslationQualityPolicy.choose(
+                    source = region.source,
+                    draft = draft,
+                    refined = refined,
+                    targetLanguage = targetLanguage
+                ).also { rememberTranslation(region.source, it, targetLanguage, style) }
+            }
+            val patch = com.mangalens.core.translation.MangaLettering.prepare(
+                bitmap,
+                region.bounds,
+                region.lineBounds,
+                region.source,
+                preserveStyle
+            )
+            // Build later patches from a progressively cleaned page. Overlapping OCR regions on
+            // PDFs/flat speech surfaces can otherwise re-introduce text erased by an earlier patch,
+            // because every patch would contain a snapshot of the untouched original page.
+            reconstructedCanvas?.drawBitmap(
+                patch.background,
+                patch.bounds.left.toFloat(),
+                patch.bounds.top.toFloat(),
+                null
+            )
             val overlay = TranslationOverlay(
                 region = com.mangalens.core.translation.OcrRegion(
                     region.source, region.bounds.left.toInt(), region.bounds.top.toInt(),
                     region.bounds.right.toInt(), region.bounds.bottom.toInt()
                 ),
-                translatedText = recallTranslation(region.source, targetLanguage, style) ?: run {
-                    val draft = translator.translate(region.source, targetLanguage)
-                    val refined = orezRefiner.refine(
-                        region.source,
-                        draft,
-                        targetLanguage,
-                        style,
-                        chapterContext = chapterContext,
-                    )
-                    com.mangalens.core.translation.TranslationQualityPolicy.choose(
-                        source = region.source,
-                        draft = draft,
-                        refined = refined,
-                        targetLanguage = targetLanguage
-                    ).also { rememberTranslation(region.source, it, targetLanguage, style) }
-                },
+                translatedText = localized,
                 textColorArgb = region.textColor,
                 backgroundColorArgb = region.backgroundColor,
                 fontSizePx = region.textSize,
                 maxWidthPx = region.bounds.width(),
-                        imageWidthPx = bitmap.width,
-                        imageHeightPx = bitmap.height,
-                        patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE).getBoolean("preserve_style", true))
+                imageWidthPx = bitmap.width,
+                imageHeightPx = bitmap.height,
+                patch = patch
             )
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             translated += overlay
@@ -639,9 +659,19 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         val options = android.graphics.BitmapFactory.Options().apply {
             inSampleSize = sample
             inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
-            inMutable = false
+            // OCR is complete before lettering reconstruction starts, so the same bounded page
+            // bitmap can safely become the cumulative cleaned surface without allocating a second
+            // full-page ARGB copy.
+            inMutable = true
         }
-        return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
+        val decoded = runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull() ?: return null
+        if (decoded.isMutable) return decoded
+        return runCatching {
+            decoded.copy(android.graphics.Bitmap.Config.ARGB_8888, true).also { decoded.recycle() }
+        }.getOrElse {
+            decoded.recycle()
+            null
+        }
     }
 
     fun pauseTranslation(paused: Boolean) {
