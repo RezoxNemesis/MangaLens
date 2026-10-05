@@ -21,11 +21,13 @@ class MediaRequestContext(
         val target = webUri(requestUrl) ?: return emptyMap()
         val result = linkedMapOf(
             "User-Agent" to (captured["user-agent"] ?: USER_AGENT),
-            "Accept" to (captured["accept"] ?: "*/*")
+            "Accept" to (captured["accept"] ?: "*/*"),
+            "Accept-Language" to (captured["accept-language"] ?: "en-US,en;q=0.9")
         )
         if (page != null && !(page.scheme.equals("https", true) && target.scheme.equals("http", true))) {
             result["Referer"] = page.toASCIIString()
-            result["Origin"] = "${page.scheme.lowercase(Locale.ROOT)}://${page.rawAuthority}"
+            result["Origin"] = captured["origin"]
+                ?: "${page.scheme.lowercase(Locale.ROOT)}://${page.rawAuthority}"
         }
         val cookie = browserCookie?.takeIf { it.isNotBlank() && safeValue(it) }
             ?: captured["cookie"]?.takeIf { requestUrl == mediaUrl }
@@ -34,8 +36,8 @@ class MediaRequestContext(
     }
 
     companion object {
-        private val ALLOWED = setOf("accept", "cookie", "referer", "user-agent")
-        const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
+        private val ALLOWED = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
+        const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36 MangaLens/2.1"
         private fun safeValue(value: String) = value.length <= 16_384 &&
             value.none { it < ' ' || it == '\u007f' }
         private fun webUri(value: String): URI? = runCatching { URI(value) }.getOrNull()?.takeIf {
