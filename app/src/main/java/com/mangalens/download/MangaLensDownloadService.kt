@@ -59,10 +59,15 @@ class MangaLensDownloadService : DownloadService(
         }
         val active = downloads.firstOrNull { it.state == Download.STATE_DOWNLOADING } ?: downloads.firstOrNull()
         val percent = active?.percentDownloaded?.takeIf { it >= 0f }?.toInt() ?: 0
+        val activeTitle = active?.request?.id?.let { id ->
+            runCatching { DownloadRequestContextStore(this).readMedia(id)?.title }
+                .getOrNull()
+                ?.takeIf(String::isNotBlank)
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("MangaLens downloads")
-            .setContentText(active?.request?.id ?: "Media download manager")
+            .setContentText(activeTitle ?: active?.request?.id ?: "Media download manager")
             .setProgress(100, percent, active?.percentDownloaded?.let { it < 0f } ?: false)
             .setOngoing(true)
             .build()
