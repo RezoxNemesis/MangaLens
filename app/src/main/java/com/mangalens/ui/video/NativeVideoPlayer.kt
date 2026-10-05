@@ -253,15 +253,21 @@ fun NativeVideoPlayer(
             modifier = Modifier.fillMaxSize()
         )
 
+        // Visual OCR and decoded-audio captions deliberately occupy separate lanes.
+        // This avoids the two translation systems covering each other during playback.
         LiveVideoOcrTranslationOverlay(
             enabled = liveTranslationEnabled,
             targetLanguage = targetLanguage,
             playerView = playerView,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (hudVisible) 132.dp else 8.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = if (hudVisible) 76.dp else 20.dp)
         )
 
-        LiveAudioSubtitleOverlay(playerVm.speech,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp).padding(bottom = if (hudVisible) 142.dp else 24.dp))
+        LiveAudioSubtitleOverlay(
+            playerVm.speech,
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .padding(horizontal = 24.dp)
+                .padding(bottom = if (hudVisible) 154.dp else 26.dp)
+        )
         if (showSpeechSettings) {
             androidx.compose.ui.window.Dialog(onDismissRequest = { showSpeechSettings = false }) {
                 Surface(shape = MaterialTheme.shapes.large) {
