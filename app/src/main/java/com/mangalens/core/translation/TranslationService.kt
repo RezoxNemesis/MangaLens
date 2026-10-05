@@ -1,5 +1,19 @@
 package com.mangalens.core.translation
 
+internal fun normalizeEnglishDialogueForHindi(value: String): String {
+    var text = value
+    val replacements = listOf(
+        Regex("""(?i)\bpissed me off even more\b""") to "made me even angrier",
+        Regex("""(?i)\bpissed me off\b""") to "made me angry",
+        Regex("""(?i)\bused to get beaten up\b""") to "used to be beaten badly",
+        Regex("""(?i)\bget beaten up\b""") to "be beaten badly",
+        Regex("""(?i)\bbeaten up\b""") to "badly beaten",
+        Regex("""(?i)\bhurt a bit for me too\b""") to "hurt me a little too"
+    )
+    replacements.forEach { (pattern, replacement) -> text = text.replace(pattern, replacement) }
+    return text
+}
+
 import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
@@ -26,6 +40,9 @@ class TranslationService {
             TranslateLanguage.fromLanguageTag(detected) ?: TranslateLanguage.ENGLISH
         }
         if (source == target) return text
+        val translationInput = if (source == TranslateLanguage.ENGLISH && target == TranslateLanguage.HINDI) {
+            normalizeEnglishDialogueForHindi(sourceText)
+        } else sourceText
 
         val translator = synchronized(translatorLock) {
             val key = "$source->$target"
@@ -50,7 +67,7 @@ class TranslationService {
             translator.downloadModelIfNeeded()
                 .addOnSuccessListener {
                     if (!continuation.isActive) return@addOnSuccessListener
-                    translator.translate(sourceText)
+                    translator.translate(translationInput)
                         .addOnSuccessListener { translated ->
                             if (continuation.isActive) continuation.resume(translated)
                         }
