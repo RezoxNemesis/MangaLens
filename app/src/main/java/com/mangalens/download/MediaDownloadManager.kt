@@ -37,7 +37,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         url: String,
         title: String? = null,
         mimeType: String? = null,
-        quality: DownloadQuality = DownloadQuality.P2160,
+        quality: DownloadQuality = DownloadQuality.BEST,
         sourcePageUrl: String? = null,
         headers: Map<String, String> = emptyMap()
     ): String = withContext(Dispatchers.IO) {
@@ -80,8 +80,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
             val saved = contexts.readMedia(id)
             val page = saved?.sourcePageUrl
             if (!page.isNullOrBlank() && page != item.sourceUrl) {
-                val quality = DownloadQuality.selectable.firstOrNull { it.height == saved?.detectedHeight }
-                    ?: DownloadQuality.P2160
+                val quality = DownloadQuality.selectable.firstOrNull { it.height == saved?.requestedHeight }\n                    ?: DownloadQuality.BEST
                 resolver.resolveCancellable(page, quality)?.let { refreshed ->
                     val mime = refreshed.mimeType ?: item.mimeType
                     if (dao.refreshFailedSource(id, refreshed.url, mime) > 0) {
