@@ -285,7 +285,7 @@ fun NativeVideoPlayer(
         if (speechState.ready && hudVisible) {
             VideoStatusChip(
                 if (speechState.generated) "Generated English subtitles • offline"
-                else if (speechState.enabled) "English audio captions active"
+                else if (speechState.enabled) speechState.status
                 else "Whisper ready • offline",
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 96.dp),
                 active = speechState.enabled || speechState.generated
@@ -314,7 +314,7 @@ fun NativeVideoPlayer(
                             label = "English Audio CC",
                             status = when {
                                 speechState.generated -> "Generated track active"
-                                speechState.enabled -> "Live captions active"
+                                speechState.enabled -> speechState.status.take(32)
                                 speechState.ready -> "Whisper ready • offline"
                                 else -> "Model required"
                             },
@@ -340,7 +340,7 @@ fun NativeVideoPlayer(
                                     runCatching {
                                         MediaDownloadManager(context).enqueue(
                                             sourcePageUrl ?: activeUrl,
-                                            "MangaLens video",
+                                            title = null,
                                             quality = downloadQuality,
                                             sourcePageUrl = sourcePageUrl,
                                             headers = activeHeaders
