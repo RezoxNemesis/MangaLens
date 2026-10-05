@@ -56,7 +56,23 @@ object TranslationQualityPolicy {
             if (mostFrequent >= 5 && mostFrequent * 2 >= words.size) return false
         }
 
-        return targetScriptLooksPlausible(candidate, targetLanguage)
+        if (!targetScriptLooksPlausible(candidate, targetLanguage)) return false
+        val target = targetLanguage.lowercase().substringBefore('-')
+        if (target == "hi") {
+            val sourceLetters = source.filter(Char::isLetter)
+            val sourceLatin = sourceLetters.count { it.code in 0x0041..0x024F }
+            if (sourceLetters.isNotEmpty() && sourceLatin.toFloat() / sourceLetters.length >= .65f) {
+                val candidateLetters = candidate.filter(Char::isLetter)
+                if (candidateLetters.length >= 4) {
+                    val devanagari = candidateLetters.count { it in '\u0900'..'\u097f' }
+                    val latin = candidateLetters.count { it.code in 0x0041..0x024F }
+                    if (devanagari.toFloat() / candidateLetters.length < .55f || latin.toFloat() / candidateLetters.length > .40f) {
+                        return false
+                    }
+                }
+            }
+        }
+        return true
     }
 
     private fun normalize(value: String): String =
