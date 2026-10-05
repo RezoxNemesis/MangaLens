@@ -3,9 +3,15 @@ package com.mangalens.ui.video
 import android.graphics.Bitmap
 import android.view.TextureView
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -15,8 +21,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.media3.ui.PlayerView
 import com.mangalens.core.translation.TranslationService
@@ -113,23 +121,58 @@ fun LiveVideoOcrTranslationOverlay(
 
     if (enabled && (translated.isNotBlank() || status != null)) {
         Surface(
-            modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-            color = Color.Black.copy(alpha = 0.84f),
+            modifier = modifier
+                .fillMaxWidth(.92f)
+                .widthIn(max = 760.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            color = Color(0xEB090D14),
             contentColor = Color.White,
-            shape = MaterialTheme.shapes.large,
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = .55f)),
+            shadowElevation = 10.dp,
             tonalElevation = 0.dp
         ) {
             Column(
-                Modifier.fillMaxWidth().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "LIVE OCR",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        targetLanguage.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = .62f)
+                    )
+                }
                 if (original.isNotBlank()) {
-                    Text(original, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+                    Text(
+                        original,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.58f),
+                        maxLines = 2
+                    )
                 }
                 if (translated.isNotBlank()) {
-                    Text(translated, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        translated,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 3
+                    )
                 }
-                status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.72f)) }
+                status?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.66f)
+                    )
+                }
             }
         }
     }
