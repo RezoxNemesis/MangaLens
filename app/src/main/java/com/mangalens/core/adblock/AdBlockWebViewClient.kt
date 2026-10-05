@@ -9,10 +9,15 @@ open class AdBlockWebViewClient(
     private val adBlockEngine: AdBlockEngine = AdBlockEngine(),
     private val enabled: () -> Boolean = { true }
 ) : WebViewClient() {
-    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
-        request == null || !com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(request.url.toString())
-
     @Volatile private var pageOrigin: String? = null
+
+    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+        val safeRequest = request ?: return true
+        val url = safeRequest.url.toString()
+        if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) return true
+        if (enabled() && adBlockEngine.shouldBlockRequest(url, pageOrigin, "navigation") != null) return true
+        return false
+    }
     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
         pageOrigin = url
         super.onPageStarted(view, url, favicon)
