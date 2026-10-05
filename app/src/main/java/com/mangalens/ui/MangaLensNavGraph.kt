@@ -141,7 +141,9 @@ fun MangaLensNavGraph(
                         onBack = { navController.popBackStack() },
                         onOpenWeb = { navController.navigate("web") },
                         sourcePageUrl = state.videoPageUrl,
-                        requestHeaders = state.videoHeaders
+                        requestHeaders = state.videoHeaders,
+                        audioUrl = state.videoAudioUrl,
+                        audioHeaders = state.videoAudioHeaders
                     )
                 } ?: Column(
                     Modifier.fillMaxSize().padding(24.dp),
