@@ -217,7 +217,7 @@ fun LocalVideoPlayerScreen(
                     label = "English Audio CC",
                     status = when {
                         speechState.generated -> "Generated track active"
-                        speechState.enabled -> "Live captions active"
+                        speechState.enabled -> speechState.status.take(32)
                         speechState.ready -> "Whisper ready • offline"
                         else -> "Model required"
                     },
@@ -263,7 +263,7 @@ fun LocalVideoPlayerScreen(
         if (speechState.ready && controls) {
             VideoStatusChip(
                 if (speechState.generated) "Generated English subtitles • offline"
-                else if (speechState.enabled) "English audio captions active"
+                else if (speechState.enabled) speechState.status
                 else "Whisper ready • offline",
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 92.dp),
                 active = speechState.enabled || speechState.generated
@@ -311,19 +311,6 @@ fun LocalVideoPlayerScreen(
                             }
                         }) { Text("Audio") }
                     }
-                    Button(onClick = {
-                        val current = vm.player.currentMediaItem?.localConfiguration?.uri ?: return@Button
-                        val sub = subtitle
-                        if (sub == null) subtitlePicker.launch(arrayOf("text/*", "application/x-subrip"))
-                        else {
-                            vm.player.setMediaItem(androidx.media3.common.MediaItem.Builder().setUri(current).setSubtitleConfigurations(
-                                listOf(androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(sub)
-                                    .setMimeType(if (sub.toString().lowercase().endsWith(".srt")) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
-                                    .setLanguage("und").build())
-                            ).build(), vm.player.currentPosition)
-                            vm.player.prepare(); vm.player.playWhenReady = true
-                        }
-                    }, Modifier.fillMaxWidth()) { Text(if (subtitle == null) "Choose SRT / VTT" else "Apply subtitles") }
                     Button(onClick = {
                         val current = vm.player.currentMediaItem?.localConfiguration?.uri ?: return@Button
                         val sub = subtitle
