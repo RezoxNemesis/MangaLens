@@ -24,9 +24,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
 
     override suspend fun doWork(): Result {
         val id = inputData.getString(KEY_ID) ?: return Result.failure()
-        val url = inputData.getString(KEY_URL) ?: return Result.failure()
-        val title = inputData.getString(KEY_TITLE) ?: "MangaLens download"
-        val mime = inputData.getString(KEY_MIME) ?: guessMime(url)
+        val item = dao.get(id) ?: return Result.failure()
+        val url = item.sourceUrl
+        val title = item.title
+        val mime = item.mimeType.ifBlank { guessMime(url) }
 
         return try {
             setForeground(createForegroundInfo(title, 0L, -1L))
@@ -35,8 +36,15 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: IOException) {
+            val refreshed = if (runAttemptCount < MAX_RETRIES) {
+                runCatching { refreshSource(id, e.message.orEmpty()) }.getOrDefault(false)
+            } else false
             if (runAttemptCount < MAX_RETRIES) {
-                dao.stageIfActive(id, "Waiting to retry network transfer (${runAttemptCount + 1}/$MAX_RETRIES)")
+                dao.stageIfActive(
+                    id,
+                    if (refreshed) "Source refreshed • retrying transfer"
+                    else "Waiting to retry network transfer (${runAttemptCount + 1}/$MAX_RETRIES)"
+                )
                 Result.retry()
             } else {
                 markFailed(id, e.message ?: "Network failure")
@@ -61,7 +69,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         val client = DownloadRequestContextStore(applicationContext).read(id)?.let { context ->
             HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(context) { url -> android.webkit.CookieManager.getInstance().getCookie(url) }).build()
         } ?: HTTP
-        ResumableMediaTransfer(client).download(url, temp, validatorFile) { done, total ->
+        ResumableMediaTransfer(client).download(url, temp, validatorFile, mime) { done, total ->
             val now = SystemClock.elapsedRealtime()
             if (done - lastPersistBytes >= PROGRESS_BYTES || now - lastPersistAt >= PROGRESS_INTERVAL_MS) {
                 persistProgress(id, done, total)
@@ -85,7 +93,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             val audioClient = HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(
                 com.mangalens.ui.video.MediaRequestContext(audioUrl, metadata.sourcePageUrl, metadata.audioHeaders)
             ) { actual -> android.webkit.CookieManager.getInstance().getCookie(actual) }).build()
-            ResumableMediaTransfer(audioClient).download(audioUrl, audio, audioValidator) { done, total ->
+            ResumableMediaTransfer(audioClient).download(audioUrl, audio, audioValidator, "audio/") { done, total ->
                 persistProgress(id, temp.length() + done, if (total > 0) temp.length() + total else -1)
             }
             currentCoroutineContext().ensureActive()
@@ -117,6 +125,46 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         dao.completedDetails(id, actualHeight, qualityNote)
         temp.delete(); audio.delete(); muxed.delete(); audioValidator.delete()
         validatorFile.delete()
+    }
+
+    private suspend fun refreshSource(id: String, failure: String): Boolean {
+        val item = dao.get(id) ?: return false
+        val store = DownloadRequestContextStore(applicationContext)
+        val saved = store.readMedia(id) ?: return false
+        val page = saved.sourcePageUrl ?: item.sourcePageUrl ?: return false
+        if (!page.startsWith("http://") && !page.startsWith("https://")) return false
+
+        val quality = DownloadQuality.selectable.firstOrNull {
+            it.height == (saved.requestedHeight ?: item.requestedHeight)
+        } ?: DownloadQuality.BEST
+        dao.stageIfActive(id, "Refreshing media source after " + failure.ifBlank { "network rejection" }.take(80))
+        val resolver = MediaLinkResolver(
+            siteExtractor = YtDlpSiteMediaExtractor(applicationContext, allowSeparateStreams = true)
+        )
+        val refreshed = resolver.resolveCancellable(page, quality) ?: return false
+        val mime = refreshed.mimeType ?: item.mimeType
+        val title = refreshed.title?.takeIf(String::isNotBlank) ?: item.title
+        val normalized = refreshed.copy(
+            sourcePageUrl = refreshed.sourcePageUrl ?: page,
+            requestedHeight = refreshed.requestedHeight ?: quality.height
+        )
+        val updated = dao.refreshSource(
+            id = id,
+            url = normalized.url,
+            mime = mime,
+            title = title,
+            provider = normalized.provider,
+            pageUrl = normalized.sourcePageUrl,
+            requestedHeight = normalized.requestedHeight,
+            stage = "Resolved fresh " + normalized.provider + " media source"
+        ) > 0
+        if (!updated) return false
+        store.write(id, normalized)
+        val root = File(applicationContext.filesDir, "downloads")
+        listOf(
+            "$id.part", "$id.validator", "$id.audio.part", "$id.audio.validator", "$id.muxed.mp4"
+        ).forEach { File(root, it).delete() }
+        return true
     }
 
     private suspend fun persistProgress(id: String, done: Long, total: Long) {
