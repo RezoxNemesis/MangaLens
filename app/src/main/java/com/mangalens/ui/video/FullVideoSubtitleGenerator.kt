@@ -80,6 +80,7 @@ class FullVideoSubtitleGenerator(
 
                 mutable.value = FullSubtitleState(running = true, progress = .01f, stage = "Opening video audio…")
                 val all = mutableListOf<SpeechCue>()
+                var segmentIndex = 0
                 decode(source) { audio, startMs, mediaProgress ->
                     coroutineContext.ensureActive()
                     if (!SpeechWindowPolicy.hasActivity(audio)) {
@@ -89,11 +90,17 @@ class FullVideoSubtitleGenerator(
                         )
                         return@decode
                     }
+                    segmentIndex++
                     mutable.value = mutable.value.copy(
-                        progress = (.05f + mediaProgress * .85f).coerceIn(.05f, .90f),
-                        stage = "Transcribing and translating speech to English…"
+                        progress = (.03f + mediaProgress * .88f).coerceIn(.03f, .91f),
+                        stage = "Transcribing segment $segmentIndex • ${formatClock(startMs)}"
                     )
                     val cues = engine.inferEnglishChunk(audio, startMs)
+                    mutable.value = mutable.value.copy(
+                        progress = (.04f + mediaProgress * .88f).coerceIn(.04f, .92f),
+                        stage = if (cues.isEmpty()) "Segment $segmentIndex scanned • no clear speech"
+                            else "Segment $segmentIndex translated • ${cues.size} cue(s)"
+                    )
                     val merged = SpeechWindowPolicy.append(all, cues)
                     all.clear()
                     all.addAll(merged)
@@ -285,6 +292,9 @@ class FullVideoSubtitleGenerator(
             )
         }
 
+        private fun formatClock(ms: Long): String =
+            "%02d:%02d".format((ms.coerceAtLeast(0L) / 60_000), (ms / 1_000) % 60)
+
         private fun parseTimestamp(value: String): Long? {
             val match = Regex("""(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})""").matchEntire(value) ?: return null
             val (h, m, s, ms) = match.destructured
@@ -298,7 +308,7 @@ class FullVideoSubtitleGenerator(
     private data class DecodedChunk(val samples: FloatArray, val startMs: Long)
 
     private class Pcm16kChunker(
-        private val chunkSamples: Int = 16_000 * 20,
+        private val chunkSamples: Int = 16_000 * 8,
         private val overlapSamples: Int = 16_000
     ) {
         private val samples = FloatArray(chunkSamples)
