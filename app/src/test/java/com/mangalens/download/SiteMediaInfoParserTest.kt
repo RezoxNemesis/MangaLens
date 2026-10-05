@@ -46,4 +46,13 @@ class SiteMediaInfoParserTest {
         assertEquals("video/mp4", selected.mimeType)
     }
 
+    @Test fun siteQualityPixelValueCanRecoverMissingHeight() {
+        val result = SiteMediaInfoParser.parse(
+            """{"url":"https://cdn.example/get_file/video.mp4","ext":"mp4","vcodec":"avc1","acodec":"aac","quality":2160}""",
+            "https://rule34video.com/video/1/example/"
+        )!!
+        assertEquals(2160, result.detectedHeight)
+    }
+
+
 }
