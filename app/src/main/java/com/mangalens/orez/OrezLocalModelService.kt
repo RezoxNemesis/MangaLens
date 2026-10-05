@@ -20,12 +20,13 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     private val packStore by lazy { OrezConversationPackStore(manager.context) }
     private val loadMutex = Mutex()
     @Volatile private var temporarilyUnavailableUntil = 0L
+    @Volatile private var idleReleaseJob: kotlinx.coroutines.Job? = null
 
     suspend fun warmUp(): Boolean = withContext(Dispatchers.Default) {
         val file = manager.modelFile
         if (!file.exists() || file.length() < OrezModelManager.MODEL_BYTES) return@withContext false
         if (!hasMemoryHeadroom(file)) return@withContext false
-        ensureLoaded(file, 7_000L)
+        ensureLoaded(file, 7_000L).also { if (it) scheduleIdleRelease() }
     }
 
     private fun hasMemoryHeadroom(file: File): Boolean {
@@ -49,6 +50,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     }
 
     suspend fun answer(prompt: String, recent: List<OrezMessageEntity>): String? = withContext(Dispatchers.Default) {
+        idleReleaseJob?.cancel()
         val file: File = manager.modelFile
         if (!file.exists() || file.length() < OrezModelManager.MODEL_BYTES) return@withContext null
         if (!engine.isLoaded && !hasMemoryHeadroom(file)) return@withContext null
@@ -106,8 +108,12 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         }
         val raw = withTimeoutOrNull(12_000L) { generate(promptText, tokenBudget) }
             ?.trim()
-            ?: return@withContext null
+            ?: run {
+                scheduleIdleRelease()
+                return@withContext null
+            }
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        scheduleIdleRelease()
         sanitize(raw).takeIf { it.isNotBlank() }
     }
 
@@ -134,8 +140,23 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
 
+    private fun scheduleIdleRelease() {
+        idleReleaseJob?.cancel()
+        idleReleaseJob = cleanupScope.launch {
+            delay(20_000L)
+            engine.cancelGenerations()
+            engine.close()
+        }
+    }
+
+    fun releaseMemory() {
+        idleReleaseJob?.cancel()
+        engine.cancelGenerations()
+        cleanupScope.launch { engine.close() }
+    }
+
     // A generation holds JNI/engine locks. Screen disposal must not wait for them on Main.
-    fun close() { engine.cancelGenerations(); cleanupScope.launch { engine.close() } }
+    fun close() { releaseMemory() }
 
     companion object {
         private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
