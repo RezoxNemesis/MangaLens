@@ -49,15 +49,27 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
             ?: throw IllegalArgumentException("The page did not expose an accessible media source.")
         val mediaUrl = resolved.url
         val id = UUID.randomUUID().toString()
-        val finalTitle = title?.takeIf(String::isNotBlank)
-            ?: resolved.title?.takeIf(String::isNotBlank)
+        val finalTitle = resolved.title?.takeIf(String::isNotBlank)
+            ?: title?.takeIf(String::isNotBlank)
             ?: mediaUrl.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
         val mime = mimeType ?: resolved.mimeType ?: "application/octet-stream"
         contexts.write(id, resolved.copy(
             sourcePageUrl = sourcePageUrl ?: resolved.sourcePageUrl,
             headers = resolved.headers + headers
         ))
-        dao.upsert(DownloadEntity(id, mediaUrl, finalTitle, mime, state = DownloadState.QUEUED))
+        val pageUrl = sourcePageUrl ?: resolved.sourcePageUrl ?: clean
+        dao.upsert(
+            DownloadEntity(
+                id = id,
+                sourceUrl = mediaUrl,
+                title = finalTitle,
+                mimeType = mime,
+                state = DownloadState.QUEUED,
+                provider = resolved.provider,
+                sourcePageUrl = pageUrl,
+                requestedHeight = quality.height
+            )
+        )
         start(id, mediaUrl, finalTitle, mime)
         id
     }
@@ -84,9 +96,26 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
                     ?: DownloadQuality.BEST
                 resolver.resolveCancellable(page, quality)?.let { refreshed ->
                     val mime = refreshed.mimeType ?: item.mimeType
-                    if (dao.refreshFailedSource(id, refreshed.url, mime) > 0) {
-                        contexts.write(id, refreshed)
-                        item = item.copy(sourceUrl = refreshed.url, mimeType = mime)
+                    val refreshedTitle = refreshed.title?.takeIf(String::isNotBlank) ?: item.title
+                    if (dao.refreshSource(
+                            id,
+                            refreshed.url,
+                            mime,
+                            refreshedTitle,
+                            refreshed.provider,
+                            refreshed.sourcePageUrl ?: page,
+                            refreshed.requestedHeight ?: quality.height,
+                            "Refreshed expired source"
+                        ) > 0) {
+                        contexts.write(id, refreshed.copy(requestedHeight = refreshed.requestedHeight ?: quality.height))
+                        item = item.copy(
+                            sourceUrl = refreshed.url,
+                            mimeType = mime,
+                            title = refreshedTitle,
+                            provider = refreshed.provider,
+                            sourcePageUrl = refreshed.sourcePageUrl ?: page,
+                            requestedHeight = refreshed.requestedHeight ?: quality.height
+                        )
                         // A partial file/validator belongs to the previous signed representation.
                         java.io.File(context.filesDir, "downloads/$id.part").delete()
                         java.io.File(context.filesDir, "downloads/$id.validator").delete()
