@@ -18,7 +18,7 @@ data class TranslationStyleProfile(
 
         val NATURAL = TranslationStyleProfile(
             "natural", "Natural",
-            "Use fluent, natural dialogue that sounds like a professionally localized manga/manhwa while preserving the original intent."
+            "Use fluent, natural dialogue that sounds professionally localized while preserving intent, relationship and emotional register. Do not add respect, politeness or honorificity that the source does not express."
         )
         val FAITHFUL = TranslationStyleProfile(
             "faithful", "Faithful",
