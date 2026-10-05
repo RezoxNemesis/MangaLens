@@ -19,6 +19,7 @@ class UrlEngineRouterTest {
         assertEquals(ContentType.VIDEO_STREAM, router.classifyUrl("https://video.example.com/watch?id=12345"))
         assertEquals(ContentType.VIDEO_STREAM, router.classifyUrl("https://example.com/8kb89/video/title"))
         assertEquals(ContentType.VIDEO_STREAM, router.classifyUrl("https://www.youtube.com/watch?v=12345"))
+        assertEquals(ContentType.VIDEO_STREAM, router.classifyUrl("https://rule34video.com/video/4642490/example-4k60fps/"))
         assertEquals(ContentType.GENERIC_WEB, router.classifyUrl("https://example.com/articles/video-game-design"))
     }
 
