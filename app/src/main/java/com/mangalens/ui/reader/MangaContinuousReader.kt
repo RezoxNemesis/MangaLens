@@ -68,6 +68,7 @@ fun MangaContinuousReader(
     translating: Boolean = false,
     error: String? = null,
     overlays: Map<Int, List<TranslationOverlay>>,
+    promoPages: Set<Int> = emptySet(),
     targetLanguage: String = "hi",
     onTargetLanguageChanged: (String) -> Unit = {},
     translationStyle: String = "natural",
@@ -95,6 +96,8 @@ fun MangaContinuousReader(
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var languageMenu by remember { mutableStateOf(false) }
+    var hidePromos by rememberSaveable(chapterId) { mutableStateOf(prefs.getBoolean("hide_promos", true)) }
+    var revealedPromoPages by remember(chapterId) { mutableStateOf(emptySet<Int>()) }
     val currentPages by rememberUpdatedState(pages)
     val currentPositionCallback by rememberUpdatedState(onPositionChanged)
     val listState = rememberLazyListState()
@@ -186,6 +189,14 @@ fun MangaContinuousReader(
                         PageLoadError(page, onRetry)
                         return@items
                     }
+                    val promoHidden = hidePromos && page.index in promoPages && page.index !in revealedPromoPages
+                    if (promoHidden) {
+                        PromoPagePlaceholder(
+                            page = page,
+                            onShow = { revealedPromoPages = revealedPromoPages + page.index }
+                        )
+                        return@items
+                    }
                     Box(Modifier.fillMaxWidth().pointerInput(page.sourceUrl) {
                         detectTapGestures(onTap = { hudVisible = !hudVisible },
                             onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
@@ -206,6 +217,17 @@ fun MangaContinuousReader(
                     val page = pages[position]
                     if (page.error != null) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { PageLoadError(page, onRetry) }
+                        return@HorizontalPager
+                    }
+                    val promoHidden = hidePromos && page.index in promoPages && page.index !in revealedPromoPages
+                    if (promoHidden) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            PromoPagePlaceholder(
+                                page = page,
+                                onShow = { revealedPromoPages = revealedPromoPages + page.index },
+                                onSkip = { goToPage(position + 1) }
+                            )
+                        }
                         return@HorizontalPager
                     }
                     FittedMangaPage(page, modifier = Modifier.fillMaxSize().clipToBounds()
@@ -338,6 +360,20 @@ fun MangaContinuousReader(
                             Text("Translation", style = MaterialTheme.typography.titleSmall)
                             androidx.compose.material3.Switch(translated && !originalVisible, { enabled -> if (enabled) { originalVisible = false; if (!translated) onTranslate() } else originalVisible = true })
                         }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Hide scan promos", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    if (promoPages.isEmpty()) "No promo pages detected yet" else "${promoPages.size} detected • tap a placeholder to reveal",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            androidx.compose.material3.Switch(hidePromos, {
+                                hidePromos = it
+                                prefs.edit().putBoolean("hide_promos", it).apply()
+                            })
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton({ languageMenu = true }) { Text("Language: ${targetLanguage.uppercase()} ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
                             Box {
@@ -376,6 +412,30 @@ fun MangaContinuousReader(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PromoPagePlaceholder(
+    page: ChapterPage,
+    onShow: () -> Unit,
+    onSkip: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .72f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .35f))
+    ) {
+        Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Scan-group promo page hidden", style = MaterialTheme.typography.titleMedium)
+            Text("Page ${page.index + 1} was classified as an announcement, ad-free upsell or scan-credit page. Nothing was deleted.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onShow) { Text("Show this page") }
+                onSkip?.let { TextButton(it) { Text("Next page") } }
             }
         }
     }
