@@ -57,6 +57,7 @@ class OrezModelManager(val context: Context) {
     }
 
     fun enqueue() {
+        val alreadyDownloading = _state.value.downloading
         val id = UUID.randomUUID().toString()
         val request = OneTimeWorkRequestBuilder<OrezModelDownloadWorker>()
             .setInputData(workDataOf(OrezModelDownloadWorker.KEY_ID to id))
@@ -66,7 +67,7 @@ class OrezModelManager(val context: Context) {
             .build()
         prefs.edit().putBoolean("downloading", true).apply()
         _state.value = readState().copy(downloading = true, error = null)
-        val policy = if (_state.value.downloading) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE
+        val policy = if (alreadyDownloading) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE
         WorkManager.getInstance(context).enqueueUniqueWork("orez-model", policy, request)
     }
 
