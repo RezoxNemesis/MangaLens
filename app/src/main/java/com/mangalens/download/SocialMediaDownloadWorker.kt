@@ -7,10 +7,12 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.webkit.CookieManager
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import com.farimarwat.commons.UpdateChannel
 import com.farimarwat.commons.YoutubeDLRequest
 import com.farimarwat.library.YoutubeDL
 import kotlinx.coroutines.CancellationException
@@ -58,6 +60,7 @@ class SocialMediaDownloadWorker(
             dao.upsert(old.copy(state = DownloadState.DOWNLOADING, progressPercent = 0f, error = null))
 
             ensureYoutubeDl()
+            refreshExtractorIfStale()
             download(id, url, qualityHeight, requestedTitle, workDir)
 
             val output = findFinalMedia(workDir)
@@ -118,6 +121,29 @@ class SocialMediaDownloadWorker(
         if (failure != null) throw failure
     }
 
+    private suspend fun refreshExtractorIfStale() {
+        val preferences = applicationContext.getSharedPreferences(
+            "mangalens_social_extractor",
+            Context.MODE_PRIVATE
+        )
+        val now = System.currentTimeMillis()
+        val lastUpdate = preferences.getLong("last_successful_update", 0L)
+        if (now - lastUpdate < EXTRACTOR_UPDATE_INTERVAL_MS) return
+
+        var updated = false
+        runCatching {
+            YoutubeDL.updateYoutubeDL(
+                appContext = applicationContext,
+                updateChannel = UpdateChannel.STABLE,
+                onSuccess = { updated = true },
+                onError = { }
+            )
+        }
+        if (updated) {
+            preferences.edit().putLong("last_successful_update", now).apply()
+        }
+    }
+
     private suspend fun download(
         id: String,
         url: String,
@@ -132,7 +158,10 @@ class SocialMediaDownloadWorker(
             .addOption("--newline")
             .addOption("--retries", 5)
             .addOption("--fragment-retries", 5)
+            .addOption("--extractor-retries", 3)
             .addOption("--concurrent-fragments", 4)
+            .addOption("--user-agent", DEFAULT_USER_AGENT)
+            .addOption("--add-header", "Referer: " + providerReferer(url))
             .addOption(
                 "-f",
                 "bestvideo[height<=$height][ext=mp4]+bestaudio[ext=m4a]/" +
@@ -141,6 +170,11 @@ class SocialMediaDownloadWorker(
             )
             .addOption("--merge-output-format", "mp4")
             .addOption("-o", outputTemplate)
+
+        runCatching { CookieManager.getInstance().getCookie(url) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { request.addOption("--add-header", "Cookie: " + it) }
 
         val downloadJob = YoutubeDL.download(
             request = request,
@@ -260,6 +294,15 @@ class SocialMediaDownloadWorker(
         return name.ifBlank { "MangaLens-media.mp4" }
     }
 
+    private fun providerReferer(url: String): String {
+        val lower = url.lowercase(Locale.ROOT)
+        return when {
+            "instagram.com" in lower -> "https://www.instagram.com/"
+            "youtube.com" in lower || "youtu.be" in lower -> "https://www.youtube.com/"
+            else -> url
+        }
+    }
+
     private fun friendlyError(failure: Throwable): String {
         val raw = (failure.message ?: failure::class.java.simpleName).replace(Regex("\\s+"), " ").trim()
         val lower = raw.lowercase(Locale.ROOT)
@@ -308,5 +351,9 @@ class SocialMediaDownloadWorker(
         private const val CHANNEL_ID = "mangalens_social_downloads"
         private const val NOTIFICATION_ID = 10005
         private const val BUFFER_SIZE = 128 * 1024
+        private const val EXTRACTOR_UPDATE_INTERVAL_MS = 3L * 24L * 60L * 60L * 1000L
+        private const val DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
     }
 }
