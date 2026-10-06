@@ -195,7 +195,17 @@ class OrezAiViewModel @JvmOverloads constructor(
         thinkingStage = "Stopped • ready"
     }
 
-    fun downloadLocalModel() = modelManager.enqueue()
+    fun selectModelTier(tier: OrezModelTier) {
+        modelManager.selectTier(tier)
+        val descriptor = OrezModelCatalog.descriptor(tier)
+        thinkingStage = if (modelManager.state.value.selectedInstalled) {
+            (descriptor?.label ?: tier.displayName) + " selected • warm on demand"
+        } else {
+            (descriptor?.label ?: tier.displayName) + " selected • download when ready"
+        }
+    }
+
+    fun downloadLocalModel() = modelManager.enqueue(modelManager.state.value.selectedTier)
     fun refreshLocalModel() = modelManager.refresh()
 
     fun deleteMessage(id: Long) = viewModelScope.launch {
@@ -358,10 +368,18 @@ fun OrezAiScreen(
                                 Text("OREZ Engine", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                                 Text(
                                     when {
-                                        modelState.downloading -> "Installing optimized model • ${(modelState.progress * 100).toInt()}%"
-                                        modelState.optimized -> "Optimized local model • ${OrezModelManager.MODEL_BYTES / 1_000_000L} MB"
-                                        modelState.legacyInstalled -> "Legacy local model • ${OrezModelManager.LEGACY_MODEL_BYTES / 1_000_000L} MB • upgrade recommended"
-                                        else -> "Optional optimized model • ${OrezModelManager.MODEL_BYTES / 1_000_000L} MB"
+                                        modelState.downloading ->
+                                            "Installing " + (modelState.selectedDescriptor?.label ?: modelState.selectedTier.displayName) +
+                                                " • " + ((modelState.progress * 100).toInt()) + "%"
+                                        modelState.selectedInstalled ->
+                                            (modelState.selectedDescriptor?.label ?: modelState.selectedTier.displayName) +
+                                                " local intelligence • " + (modelState.total / 1_000_000L) + " MB"
+                                        modelState.legacyInstalled && modelState.installedTiers.isEmpty() ->
+                                            "Legacy local model • " + (OrezModelManager.LEGACY_MODEL_BYTES / 1_000_000L) +
+                                                " MB • upgrade recommended"
+                                        else ->
+                                            (modelState.selectedDescriptor?.label ?: modelState.selectedTier.displayName) +
+                                                " available • " + (modelState.total / 1_000_000L) + " MB"
                                     },
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -369,17 +387,37 @@ fun OrezAiScreen(
                             NeonStatusPill(
                                 when {
                                     modelState.downloading -> "Installing"
-                                    modelState.optimized -> "Optimized"
+                                    modelState.selectedInstalled -> modelState.selectedTier.displayName
                                     modelState.legacyInstalled -> "Legacy pack"
                                     else -> "App + web logic"
                                 },
-                                positive = modelState.optimized
+                                positive = modelState.selectedInstalled
                             )
                         }
 
                         if (modelState.downloading) {
                             LinearProgressIndicator(progress = { modelState.progress }, modifier = Modifier.fillMaxWidth())
                         }
+
+                        Text("Local intelligence", style = MaterialTheme.typography.labelLarge)
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            OrezModelCatalog.availableDescriptors.forEach { descriptor ->
+                                FilterChip(
+                                    selected = modelState.selectedTier == descriptor.tier,
+                                    onClick = { vm.selectModelTier(descriptor.tier) },
+                                    label = { Text(descriptor.label, maxLines = 1) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        Text(
+                            "Lite stays fast on modest phones. Core installs separately for stronger local reasoning and falls back to Lite when available memory is too low.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
                         Text("Engine mode", style = MaterialTheme.typography.labelLarge)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -410,11 +448,18 @@ fun OrezAiScreen(
                         )
                         TextButton(onClick = { confirmClear = true }) { Text("Clear conversation") }
 
-                        if (!modelState.downloading && !modelState.optimized) {
-                            Button(vm::downloadLocalModel, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
-                                Text(if (modelState.legacyInstalled) "Replace legacy pack with optimized model" else "Download optimized local model")
+                        if (!modelState.downloading && !modelState.selectedInstalled) {
+                            Button(
+                                vm::downloadLocalModel,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                            ) {
+                                Text(
+                                    "Download " +
+                                        (modelState.selectedDescriptor?.label ?: modelState.selectedTier.displayName) +
+                                        " model"
+                                )
                             }
-                        } else if (modelState.optimized) {
+                        } else if (modelState.selectedInstalled) {
                             TextButton(vm::refreshLocalModel) { Text("Recheck model health →") }
                         }
                     }
