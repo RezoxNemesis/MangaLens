@@ -31,8 +31,14 @@ class OrezOcrCoordinator(private val engine:AdvancedOcrTranslationEngine=Advance
         }
         return OrezOcrResult(processed,bubbles,processed.firstOrNull()?.sourceLanguage?:LocalSourceLanguage.UNKNOWN)
     }
-    private suspend fun recognize(bitmap:Bitmap):Text=suspendCancellableCoroutine{cont->
-        recognizer.process(InputImage.fromBitmap(bitmap,0)).addOnSuccessListener{cont.resume(it)}.addOnFailureListener{cont.resumeWithException(it)}
+    private suspend fun recognize(bitmap: Bitmap): Text = suspendCancellableCoroutine { continuation ->
+        recognizer.process(InputImage.fromBitmap(bitmap, 0))
+            .addOnSuccessListener { result ->
+                if (continuation.isActive) continuation.resume(result)
+            }
+            .addOnFailureListener { failure ->
+                if (continuation.isActive) continuation.resumeWithException(failure)
+            }
     }
     fun close(){recognizer.close()}
 }
