@@ -10,6 +10,13 @@ class SpeechWindowPolicyTest {
         assertTrue(SpeechWindowPolicy.hasActivity(FloatArray(16000 * 3) { if (it % 8000 < 2400) .03f else 0f }))
     }
 
+    @Test fun sustainedQuietDialogueStillCountsAsSpeech() {
+        val quietDialogue = FloatArray(16000 * 3) { index ->
+            if (index % 6400 < 2800) .004f else 0f
+        }
+        assertTrue(SpeechWindowPolicy.hasActivity(quietDialogue))
+    }
+
     @Test fun overlapIsDeduplicatedButLaterRepeatedDialogueSurvives() {
         val old = SpeechCue(1000, 3000, "Hello, world!")
         val cues = SpeechWindowPolicy.append(
