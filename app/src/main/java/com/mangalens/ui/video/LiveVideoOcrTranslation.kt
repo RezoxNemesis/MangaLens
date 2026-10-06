@@ -13,15 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.Player
+import androidx.media3.common.text.CueGroup
 import androidx.media3.ui.PlayerView
 import com.mangalens.core.translation.TranslationService
 import com.mangalens.engine.AdvancedTranslationEngine
@@ -34,6 +31,15 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
+/**
+ * Live subtitle translator with two cooperating paths:
+ *
+ * 1. Embedded/text subtitle tracks from Media3 are translated directly. This is the preferred,
+ *    lossless path when a video already contains subtitles.
+ * 2. If no text cue is available, the displayed video frame is sampled and OCR is used to read
+ *    burned-in/hardcoded subtitles. OCR waits for a cue to survive multiple frames before showing
+ *    it, which greatly reduces flicker and one-frame hallucinations.
+ */
 @Composable
 fun LiveVideoOcrTranslationOverlay(
     enabled: Boolean,
@@ -42,22 +48,97 @@ fun LiveVideoOcrTranslationOverlay(
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var original by remember { mutableStateOf("") }
-    var translated by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf<String?>(null) }
+
+    var embeddedSource by remember(playerView) { mutableStateOf("") }
+    var embeddedTranslated by remember(playerView) { mutableStateOf("") }
+
+    var ocrOriginal by remember(playerView) { mutableStateOf("") }
+    var ocrTranslated by remember(playerView) { mutableStateOf("") }
+    var status by remember(playerView) { mutableStateOf<String?>(null) }
+
+    val embeddedCache = remember {
+        object : LinkedHashMap<String, String>(32, .75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, String>?
+            ): Boolean = size > 64
+        }
+    }
+
+    DisposableEffect(enabled, playerView) {
+        val player = playerView?.player
+        if (!enabled || player == null) {
+            embeddedSource = ""
+            embeddedTranslated = ""
+            onDispose { }
+        } else {
+            val listener = object : Player.Listener {
+                override fun onCues(cueGroup: CueGroup) {
+                    embeddedSource = cueGroup.cues
+                        .mapNotNull { cue -> cue.text?.toString()?.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .joinToString("
+")
+                        .take(1200)
+                }
+            }
+            player.addListener(listener)
+            onDispose {
+                player.removeListener(listener)
+                embeddedSource = ""
+                embeddedTranslated = ""
+            }
+        }
+    }
+
+    LaunchedEffect(enabled, targetLanguage, embeddedSource) {
+        if (!enabled || embeddedSource.isBlank()) {
+            embeddedTranslated = ""
+            return@LaunchedEffect
+        }
+
+        val signature = normalizeSignature(embeddedSource)
+        val key = targetLanguage.lowercase() + "|" + signature
+        embeddedCache[key]?.let {
+            embeddedTranslated = it
+            status = null
+            return@LaunchedEffect
+        }
+
+        val translator = TranslationService()
+        try {
+            status = "Translating embedded subtitles…"
+            val result = translator.translate(embeddedSource, targetLanguage)
+                .trim()
+                .ifBlank { embeddedSource }
+            embeddedCache[key] = result
+            embeddedTranslated = result
+            status = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            embeddedTranslated = embeddedSource
+            status = "Embedded subtitle translation unavailable: " +
+                (failure.message ?: "unknown error")
+        } finally {
+            translator.close()
+        }
+    }
 
     LaunchedEffect(enabled, targetLanguage, playerView) {
         if (!enabled || playerView == null) {
-            original = ""
-            translated = ""
+            ocrOriginal = ""
+            ocrTranslated = ""
             status = null
             return@LaunchedEffect
         }
 
         val ocr = AdvancedTranslationEngine(context)
         val translator = TranslationService()
-        val translationCache = object : LinkedHashMap<String, String>(32, .75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 48
+        val translationCache = object : LinkedHashMap<String, String>(48, .75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, String>?
+            ): Boolean = size > 72
         }
 
         var candidate = ""
@@ -68,10 +149,20 @@ fun LiveVideoOcrTranslationOverlay(
             status = "Live subtitles starting…"
             while (true) {
                 currentCoroutineContext().ensureActive()
+
+                // Direct subtitle cues are cleaner than OCR. While one is active, avoid wasting CPU
+                // sampling the video surface and let Media3's text track drive the overlay.
+                if (embeddedSource.isNotBlank()) {
+                    candidate = ""
+                    candidateCount = 0
+                    delay(350L)
+                    continue
+                }
+
                 val frame = capturePlayerFrame(playerView)
                 if (frame == null) {
                     status = "Waiting for a video frame…"
-                    delay(900L)
+                    delay(700L)
                     continue
                 }
 
@@ -80,7 +171,11 @@ fun LiveVideoOcrTranslationOverlay(
                     val sourceLines = regions
                         .sortedWith(compareBy({ it.bounds.top }, { it.bounds.left }))
                         .map { it.source.trim() }
-                        .filter { line -> line.length >= 2 && line.any(Char::isLetterOrDigit) }
+                        .filter { line ->
+                            line.length >= 2 &&
+                                line.any(Char::isLetterOrDigit) &&
+                                line.length <= 220
+                        }
                         .distinct()
                         .take(6)
 
@@ -90,7 +185,11 @@ fun LiveVideoOcrTranslationOverlay(
                     if (signature.isBlank()) {
                         candidate = ""
                         candidateCount = 0
-                        status = if (translated.isBlank()) "Looking for visible subtitles…" else null
+                        status = if (ocrTranslated.isBlank()) {
+                            "Looking for visible subtitles…"
+                        } else {
+                            null
+                        }
                     } else {
                         val similar = similarity(signature, candidate) >= .76f
                         if (similar) {
@@ -100,11 +199,12 @@ fun LiveVideoOcrTranslationOverlay(
                             candidateCount = 1
                         }
 
-                        // Require the text to survive two frames. This removes most single-frame OCR
-                        // noise without making normal subtitle changes feel sluggish.
-                        if (candidateCount >= 2 && similarity(signature, lastTranslatedSignature) < .92f) {
-                            original = source
-                            status = "Translating subtitle…"
+                        if (
+                            candidateCount >= REQUIRED_STABLE_FRAMES &&
+                            similarity(signature, lastTranslatedSignature) < .92f
+                        ) {
+                            ocrOriginal = source
+                            status = "Translating visible subtitle…"
 
                             val translatedLines = sourceLines.map { line ->
                                 val key = targetLanguage.lowercase() + "|" + normalizeSignature(line)
@@ -116,9 +216,9 @@ fun LiveVideoOcrTranslationOverlay(
                                 }.also { translationCache[key] = it }
                             }
 
-                            translated = translatedLines.joinToString(" ").take(900)
+                            ocrTranslated = translatedLines.joinToString(" ").take(900)
                             lastTranslatedSignature = signature
-                            status = if (translated.isBlank()) {
+                            status = if (ocrTranslated.isBlank()) {
                                 "Subtitle detected, but no translation was produced."
                             } else {
                                 null
@@ -128,21 +228,28 @@ fun LiveVideoOcrTranslationOverlay(
                 } finally {
                     frame.recycle()
                 }
-                delay(900L)
+                delay(OCR_INTERVAL_MS)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
-            status = "Live subtitle translation failed: " + (failure.message ?: "unknown error")
+            status = "Live subtitle translation failed: " +
+                (failure.message ?: "unknown error")
         } finally {
             ocr.close()
             translator.close()
         }
     }
 
-    if (enabled && (translated.isNotBlank() || status != null)) {
+    val displayedTranslation = embeddedTranslated.ifBlank { ocrTranslated }
+    val displayedOriginal = embeddedSource.ifBlank { ocrOriginal }
+    val sourceLabel = if (embeddedSource.isNotBlank()) "Embedded subtitle" else "On-screen OCR"
+
+    if (enabled && (displayedTranslation.isNotBlank() || status != null)) {
         Surface(
-            modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             color = Color.Black.copy(alpha = 0.82f),
             contentColor = Color.White,
             shape = MaterialTheme.shapes.large,
@@ -152,18 +259,28 @@ fun LiveVideoOcrTranslationOverlay(
                 Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                if (translated.isNotBlank()) {
+                if (displayedTranslation.isNotBlank()) {
                     Text(
-                        translated,
+                        displayedTranslation,
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White
                     )
                 }
-                if (original.isNotBlank() && original != translated) {
+                if (
+                    displayedOriginal.isNotBlank() &&
+                    normalizeSignature(displayedOriginal) != normalizeSignature(displayedTranslation)
+                ) {
                     Text(
-                        original,
+                        displayedOriginal,
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.58f)
+                    )
+                }
+                if (displayedTranslation.isNotBlank()) {
+                    Text(
+                        sourceLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.46f)
                     )
                 }
                 status?.let {
@@ -178,59 +295,65 @@ fun LiveVideoOcrTranslationOverlay(
     }
 }
 
-private suspend fun capturePlayerFrame(playerView: PlayerView): Bitmap? = withContext(Dispatchers.Main.immediate) {
-    val surface = playerView.videoSurfaceView ?: return@withContext null
-    val sourceWidth = surface.width
-    val sourceHeight = surface.height
-    if (sourceWidth <= 0 || sourceHeight <= 0) return@withContext null
+private suspend fun capturePlayerFrame(playerView: PlayerView): Bitmap? =
+    withContext(Dispatchers.Main.immediate) {
+        val surface = playerView.videoSurfaceView ?: return@withContext null
+        val sourceWidth = surface.width
+        val sourceHeight = surface.height
+        if (sourceWidth <= 0 || sourceHeight <= 0) return@withContext null
 
-    val targetWidth = sourceWidth.coerceAtMost(960)
-    val targetHeight = ((targetWidth.toFloat() / sourceWidth) * sourceHeight)
-        .toInt()
-        .coerceAtLeast(1)
+        val targetWidth = sourceWidth.coerceAtMost(960)
+        val targetHeight = ((targetWidth.toFloat() / sourceWidth) * sourceHeight)
+            .toInt()
+            .coerceAtLeast(1)
 
-    when (surface) {
-        is TextureView -> runCatching { surface.getBitmap(targetWidth, targetHeight) }.getOrNull()
-        is SurfaceView -> copySurface(surface, targetWidth, targetHeight)
-        else -> null
+        when (surface) {
+            is TextureView ->
+                runCatching { surface.getBitmap(targetWidth, targetHeight) }.getOrNull()
+            is SurfaceView -> copySurface(surface, targetWidth, targetHeight)
+            else -> null
+        }
+    }
+
+private suspend fun copySurface(
+    surface: SurfaceView,
+    width: Int,
+    height: Int
+): Bitmap? = suspendCancellableCoroutine { continuation ->
+    val bitmap = runCatching {
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    }.getOrNull()
+
+    if (bitmap == null) {
+        continuation.resume(null)
+        return@suspendCancellableCoroutine
+    }
+
+    runCatching {
+        PixelCopy.request(
+            surface,
+            bitmap,
+            { result ->
+                if (!continuation.isActive) {
+                    bitmap.recycle()
+                } else if (result == PixelCopy.SUCCESS) {
+                    continuation.resume(bitmap)
+                } else {
+                    bitmap.recycle()
+                    continuation.resume(null)
+                }
+            },
+            Handler(Looper.getMainLooper())
+        )
+    }.onFailure {
+        bitmap.recycle()
+        if (continuation.isActive) continuation.resume(null)
+    }
+
+    continuation.invokeOnCancellation {
+        if (!bitmap.isRecycled) bitmap.recycle()
     }
 }
-
-private suspend fun copySurface(surface: SurfaceView, width: Int, height: Int): Bitmap? =
-    suspendCancellableCoroutine { continuation ->
-        val bitmap = runCatching {
-            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        }.getOrNull()
-        if (bitmap == null) {
-            continuation.resume(null)
-            return@suspendCancellableCoroutine
-        }
-
-        runCatching {
-            PixelCopy.request(
-                surface,
-                bitmap,
-                { result ->
-                    if (!continuation.isActive) {
-                        bitmap.recycle()
-                    } else if (result == PixelCopy.SUCCESS) {
-                        continuation.resume(bitmap)
-                    } else {
-                        bitmap.recycle()
-                        continuation.resume(null)
-                    }
-                },
-                Handler(Looper.getMainLooper())
-            )
-        }.onFailure {
-            bitmap.recycle()
-            if (continuation.isActive) continuation.resume(null)
-        }
-
-        continuation.invokeOnCancellation {
-            if (!bitmap.isRecycled) bitmap.recycle()
-        }
-    }
 
 private fun normalizeSignature(value: String): String =
     value.lowercase()
@@ -248,3 +371,6 @@ private fun similarity(a: String, b: String): Float {
     val union = (left + right).size
     return if (union == 0) 0f else intersection.toFloat() / union
 }
+
+private const val REQUIRED_STABLE_FRAMES = 2
+private const val OCR_INTERVAL_MS = 700L
