@@ -152,6 +152,7 @@ fun LocalVideoPlayerScreen(
             update = { view ->
                 playerView = view
                 view.setResizeMode(resizeMode)
+                view.subtitleView?.visibility = if (liveTranslationEnabled) View.GONE else View.VISIBLE
                 view.scaleX = zoom
                 view.scaleY = zoom
             },
