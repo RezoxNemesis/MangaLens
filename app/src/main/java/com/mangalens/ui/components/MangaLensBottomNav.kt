@@ -34,10 +34,25 @@ private val navItems = listOf(
                     tween(220),
                     label = "navTint"
                 ).value
-                Column(Modifier.weight(1f).fillMaxHeight().semantics { contentDescription = item.accessibilityLabel }.clickable { onNavigate(item.route) }.padding(top = 9.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(item.icon, null, Modifier.size(23.dp), tint = tint)
+                val tile = animateColorAsState(
+                    if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .12f)
+                    else androidx.compose.ui.graphics.Color.Transparent,
+                    tween(220),
+                    label = "navTile"
+                ).value
+                Column(
+                    Modifier.weight(1f).fillMaxHeight()
+                        .padding(horizontal = 5.dp, vertical = 5.dp)
+                        .background(tile, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                        .semantics { contentDescription = item.accessibilityLabel }
+                        .clickable { onNavigate(item.route) }
+                        .padding(top = 5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(item.icon, null, Modifier.size(if (selected) 25.dp else 23.dp), tint = tint)
                     Text(item.label, fontSize = 10.sp, color = tint, maxLines = 1)
-                    if (selected) Box(Modifier.size(24.dp, 3.dp).background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.RoundedCornerShape(50)))
+                    if (selected) Box(Modifier.size(28.dp, 3.dp).background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.RoundedCornerShape(50)))
                 }
             }
         }
