@@ -122,7 +122,9 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
     // Bound prefill scratch allocations and leave CPU headroom for the UI/player.
     cp.n_batch = 256;
     cp.n_ubatch = 128;
-    cp.n_threads = std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+    // Interactive chat must leave CPU headroom for Compose scrolling, video and OCR.
+    // Two inference threads are deliberately preferred over saturating four big cores.
+    cp.n_threads = std::max(1u, std::min(2u, std::thread::hardware_concurrency() / 2));
     cp.n_threads_batch = cp.n_threads;
     cp.abort_callback = abort_generation;
     cp.abort_callback_data = request.get();
