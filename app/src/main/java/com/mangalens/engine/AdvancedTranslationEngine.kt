@@ -357,7 +357,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                 else -> ch.code < 0x0250
             }
         }
-        return (matches.toFloat() / letters.size).coerceIn(0f, 1f)
+        return (matches.toFloat() / letters.length).coerceIn(0f, 1f)
     }
 
     private fun contrastText(background: Int): Int {
