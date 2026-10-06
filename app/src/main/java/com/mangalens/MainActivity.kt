@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     VerificationDialog(
                         request = verificationRequest,
-                        onVerified = { cookie, _ -> viewModel.ingestWithCookie(cookie) },
+                        onVerified = { cookie, userAgent -> viewModel.ingestWithCookie(cookie, userAgent) },
                         onDismiss = { viewModel.captchaBridge.reset() }
                     )
                 }
