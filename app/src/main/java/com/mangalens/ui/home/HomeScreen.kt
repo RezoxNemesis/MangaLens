@@ -55,7 +55,7 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { BrandHeader("MangaLens 2.1", "READ BEYOND LANGUAGE", action = {
+        item { BrandHeader("MangaLens 2.2", "RECOVERY BUILD • READ BEYOND LANGUAGE", action = {
             IconButton({ showLink = true }) { Icon(Icons.Outlined.Link, "Open link") }
             IconButton(onOpenOrez) { Icon(Icons.Outlined.SmartToy, "Ask Orez") }
         }) }
@@ -106,7 +106,7 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
                     Column {
-                        Text("Meet Orez 2.1", style = MaterialTheme.typography.titleMedium)
+                        Text("Meet Orez 2.2", style = MaterialTheme.typography.titleMedium)
                         Text("Hybrid story assistant, OCR helper and web-backed companion.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
