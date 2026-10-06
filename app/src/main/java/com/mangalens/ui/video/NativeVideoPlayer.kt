@@ -143,10 +143,11 @@ fun NativeVideoPlayer(
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                     useController = false
+                    subtitleView?.visibility = if (liveTranslationEnabled) android.view.View.GONE else android.view.View.VISIBLE
                     this.resizeMode = resizeMode
                 }
             },
-            update = { it.resizeMode = resizeMode; playerView = it },
+            update = { it.resizeMode = resizeMode; it.subtitleView?.visibility = if (liveTranslationEnabled) android.view.View.GONE else android.view.View.VISIBLE; playerView = it },
             modifier = Modifier.fillMaxSize()
         )
 
