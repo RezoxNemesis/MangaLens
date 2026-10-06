@@ -329,7 +329,6 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         // every patch from the immutable original page allowed overlapping OCR fragments
         // to paint already-erased source glyphs back into the balloon.
         regions.forEach { region ->
-            currentCoroutineContextOrNull()?.ensureActive()
             val patch = com.mangalens.core.translation.MangaLettering.prepare(
                 output,
                 region.bounds,
