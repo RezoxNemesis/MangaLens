@@ -12,8 +12,10 @@ android {
         applicationId = "com.mangalens"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0-rc1"
+        val gitSha = System.getenv("GITHUB_SHA")?.take(12) ?: "local"
+        buildConfigField("String", "GIT_SHA", "\\\"$gitSha\\\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
@@ -28,7 +30,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     lint { disable += "UnsafeOptInUsageError" }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
