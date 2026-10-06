@@ -369,7 +369,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun decodeForOcr(path: String, maxDimension: Int = 2400): android.graphics.Bitmap? {
+    private fun decodeForOcr(path: String, maxDimension: Int = 3200): android.graphics.Bitmap? {
         val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(path, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -377,7 +377,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         while (bounds.outWidth / sample > maxDimension || bounds.outHeight / sample > maxDimension) sample *= 2
         val options = android.graphics.BitmapFactory.Options().apply {
             inSampleSize = sample
-            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
             inMutable = false
         }
         return runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull()
