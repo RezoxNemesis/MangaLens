@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 fun NativeVideoPlayer(
     url: String,
     translationEnabled: Boolean,
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -40,6 +41,7 @@ fun NativeVideoPlayer(
     var downloadQuality by remember { mutableStateOf(com.mangalens.download.DownloadQuality.P1080) }
     var downloadStatus by remember { mutableStateOf<String?>(null) }
     var liveTranslationEnabled by remember { mutableStateOf(translationEnabled) }
+    var controlsLocked by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
     val playerVm: LocalVideoPlayerViewModel = viewModel()
@@ -75,17 +77,27 @@ fun NativeVideoPlayer(
 
     Box(
         modifier = modifier.fillMaxSize()
-            .pointerInput(Unit) {
+            .pointerInput(controlsLocked) {
                 detectTapGestures(
-                    onTap = { hudVisible = !hudVisible },
+                    onTap = {
+                        if (controlsLocked) {
+                            controlsLocked = false
+                            hudVisible = true
+                        } else {
+                            hudVisible = !hudVisible
+                        }
+                    },
                     onDoubleTap = { offset ->
-                        if (offset.x < size.width / 2f) player.seekBack() else player.seekForward()
-                        hudVisible = true
+                        if (!controlsLocked) {
+                            if (offset.x < size.width / 2f) player.seekBack() else player.seekForward()
+                            hudVisible = true
+                        }
                     }
                 )
             }
-            .pointerInput(Unit) {
+            .pointerInput(controlsLocked) {
                 detectVerticalDragGestures { change, amount ->
+                    if (controlsLocked) return@detectVerticalDragGestures
                     change.consume()
                     val fraction = (amount / 900f).coerceIn(-0.08f, 0.08f)
                     if (change.position.x < size.width / 2f) {
@@ -110,12 +122,14 @@ fun NativeVideoPlayer(
             }
             .transformable(
                 rememberTransformableState { zoom, _, _ ->
-                    resizeMode = when {
-                        zoom > 1.03f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        zoom < 0.97f -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        else -> resizeMode
+                    if (!controlsLocked) {
+                        resizeMode = when {
+                            zoom > 1.03f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            zoom < 0.97f -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            else -> resizeMode
+                        }
+                        hudVisible = true
                     }
-                    hudVisible = true
                 }
             )
     ) {
@@ -146,7 +160,7 @@ fun NativeVideoPlayer(
         if (hudVisible) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("← Back", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = onBack) { Text("← Back", style = MaterialTheme.typography.titleMedium) }
                     Text("Stream", style = MaterialTheme.typography.titleMedium)
                     Text(downloadQuality.label, style = MaterialTheme.typography.titleMedium)
                 }
@@ -161,7 +175,7 @@ fun NativeVideoPlayer(
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         TextButton(onClick = { downloadQuality = when (downloadQuality) { com.mangalens.download.DownloadQuality.P480 -> com.mangalens.download.DownloadQuality.P720; com.mangalens.download.DownloadQuality.P720 -> com.mangalens.download.DownloadQuality.P1080; com.mangalens.download.DownloadQuality.P1080 -> com.mangalens.download.DownloadQuality.P1440; com.mangalens.download.DownloadQuality.P1440 -> com.mangalens.download.DownloadQuality.P2160; com.mangalens.download.DownloadQuality.P2160 -> com.mangalens.download.DownloadQuality.P480 } }) { Text("Quality") }
-                        TextButton(onClick = {}) { Text("🔒 Lock") }
+                        TextButton(onClick = { controlsLocked = true; hudVisible = false }) { Text("🔒 Lock") }
                         TextButton(onClick = { liveTranslationEnabled = !liveTranslationEnabled }) { Text(if (liveTranslationEnabled) "Live OCR on" else "Live OCR off") }
                         TextButton(onClick = {
                             scope.launch {
@@ -176,9 +190,31 @@ fun NativeVideoPlayer(
                                 AspectRatioFrameLayout.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                                 else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                             }
-                        }) { Text("⛶ Fullscreen") }
+                        }) { Text("Scale") }
+                    }
+                    downloadStatus?.let {
+                        Text(
+                            it,
+                            modifier = Modifier.padding(top = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
+            }
+        }
+
+        if (controlsLocked) {
+            Surface(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Text(
+                    "🔒 Controls locked • tap to unlock",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }
