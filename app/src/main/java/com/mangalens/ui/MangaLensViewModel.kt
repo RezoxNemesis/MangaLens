@@ -59,6 +59,7 @@ data class MangaLensUiState(
     val translationTotal: Int = 0,
     val translationEnabled: Boolean = false,
     val overlays: Map<Int, List<TranslationOverlay>> = emptyMap(),
+    val promoPages: Set<Int> = emptySet(),
     val error: String? = null,
     val translationError: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.DARK,
@@ -523,6 +524,13 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             if (requireText) error("No readable text was detected on this page. Try a clearer, higher-resolution image.")
             return // Artwork-only slices are normal in continuous chapters.
         }
+        val detectedPageText = advancedRegions.joinToString("\n") { it.source }
+        if (com.mangalens.core.reader.ReaderPromoPolicy.isLikelyPromo(detectedPageText)) {
+            _state.value = _state.value.copy(promoPages = _state.value.promoPages + page.index)
+            return
+        } else if (page.index in _state.value.promoPages) {
+            _state.value = _state.value.copy(promoPages = _state.value.promoPages - page.index)
+        }
         val style = currentTranslationStyle()
         val chapterContext = _state.value.overlays.values.flatten().takeLast(12)
             .joinToString("\n") { it.translatedText }
@@ -698,7 +706,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun clearTranslations() {
         translationJob?.cancel()
-        _state.value = _state.value.copy(translating = false, translationPaused = false, translationDone = 0, translationTotal = 0, translationEnabled = false, translationError = false, overlays = emptyMap())
+        _state.value = _state.value.copy(translating = false, translationPaused = false, translationDone = 0, translationTotal = 0, translationEnabled = false, translationError = false, overlays = emptyMap(), promoPages = emptySet())
     }
 
     private fun currentTranslationStyle(): TranslationStyleProfile =
