@@ -251,8 +251,10 @@ class SocialMediaDownloadWorker(
     }
 
     private fun safeName(value: String): String {
+        val forbidden = "/\\\\:*?\\\"<>|"
         val name = value
-            .replace(Regex("[\\u0000-\\u001f\\u007f/\\\\:*?\\"<>|]"), "_")
+            .map { ch -> if (ch.code < 32 || ch.code == 127 || ch in forbidden) '_' else ch }
+            .joinToString("")
             .trim()
             .take(180)
         return name.ifBlank { "MangaLens-media.mp4" }
