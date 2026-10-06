@@ -47,10 +47,13 @@ class OrezAiViewModel @JvmOverloads constructor(
     private val brain = OrezBrain(db, app) { q -> OrezLiveSearchConnector().search(q, 6) }
     private val modelManager = OrezModelManager(app)
     private val agentRuntime = OrezAgentRuntime()
+    private val taskStore = OrezTaskStore(db.tasks())
     private val enginePrefs = app.getSharedPreferences("orez_engine", android.content.Context.MODE_PRIVATE)
 
     val modelState get() = modelManager.state
     val messages = dao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val activeTasks = db.tasks().observeActive()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _engineMode = MutableStateFlow(readMode())
     val engineMode: StateFlow<OrezEngineMode> = _engineMode.asStateFlow()
@@ -118,6 +121,7 @@ class OrezAiViewModel @JvmOverloads constructor(
                         hasLibrary = libraryContext.isNotBlank()
                     )
                 )
+                agentDecision.plan?.let { taskStore.checkpoint(it, it.status) }
                 if (!agentDecision.continueToBrain) {
                     thinkingStage = if (agentDecision.requiresApproval) "Waiting for approval…" else "Executing MangaLens action…"
                     dao.insert(
@@ -250,6 +254,7 @@ fun OrezAiScreen(
     val messages by vm.messages.collectAsState()
     val modelState by vm.modelState.collectAsState()
     val engineMode by vm.engineMode.collectAsState()
+    val activeTasks by vm.activeTasks.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
     var showEngine by rememberSaveable { mutableStateOf(true) }
     var selectedMessage by remember { mutableStateOf<OrezMessageEntity?>(null) }
@@ -330,6 +335,29 @@ fun OrezAiScreen(
                     com.mangalens.R.drawable.orez_portrait,
                     "Translate a chapter"
                 ) { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }
+            }
+
+            if (activeTasks.isNotEmpty()) {
+                item {
+                    Panel(Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Orez tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    activeTasks.first().objective.take(110),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2
+                                )
+                            }
+                            NeonStatusPill(activeTasks.size.toString() + " active", positive = true)
+                        }
+                    }
+                }
             }
 
             item {
