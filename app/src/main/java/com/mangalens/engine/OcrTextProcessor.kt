@@ -50,16 +50,28 @@ class OcrTextProcessor {
                 continue
             }
             val previous = current.last()
+            val typicalHeight = maxOf(previous.bounds.height(), block.bounds.height()).coerceAtLeast(1f)
             val verticalGap = block.bounds.top - previous.bounds.bottom
-            val sameLine = abs(block.bounds.centerY() - previous.bounds.centerY()) <= previous.bounds.height().coerceAtLeast(1f) * .7f
-            val maxGap = previous.bounds.height().coerceAtLeast(1f) * 1.35f
-            if (sameLine || verticalGap <= maxGap) current += block else groups += mutableListOf(block)
+            val sameLine = abs(block.bounds.centerY() - previous.bounds.centerY()) <= typicalHeight * .7f
+            val horizontalGap = block.bounds.left - previous.bounds.right
+            val sameLineClose = sameLine && horizontalGap in (-typicalHeight)..(typicalHeight * 3f)
+
+            val union = RectF().also { rect -> current.forEach { rect.union(it.bounds) } }
+            val horizontalOverlap =
+                (minOf(union.right, block.bounds.right) - maxOf(union.left, block.bounds.left))
+                    .coerceAtLeast(0f) / minOf(union.width(), block.bounds.width()).coerceAtLeast(1f)
+            val centreDistance = abs(block.bounds.centerX() - union.centerX())
+            val stacked = verticalGap in (-typicalHeight * .35f)..(typicalHeight * 1.15f) &&
+                (horizontalOverlap >= .2f || centreDistance <= maxOf(union.width(), block.bounds.width()) * .38f)
+
+            if (sameLineClose || stacked) current += block else groups += mutableListOf(block)
         }
         return groups
     }
 
     fun paragraphText(group: List<CleanOcrBlock>): String =
-        group.sortedBy { it.bounds.left }.joinToString(" ") { it.cleaned }
+        group.sortedWith(compareBy<CleanOcrBlock> { it.bounds.top }.thenBy { it.bounds.left })
+            .joinToString(" ") { it.cleaned }
             .replace(Regex("\\s+([,.!?;:])"), "$1")
             .replace(Regex("\\s+"), " ")
             .trim()
