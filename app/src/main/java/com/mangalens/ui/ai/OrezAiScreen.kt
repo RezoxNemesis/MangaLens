@@ -25,6 +25,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangalens.engine.OrezLiveSearchConnector
 import com.mangalens.orez.*
+import com.mangalens.orez.agent.OrezAgentContext
+import com.mangalens.orez.agent.OrezAgentRuntime
 import com.mangalens.ui.components.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -44,6 +46,7 @@ class OrezAiViewModel @JvmOverloads constructor(
     private val dao = db.messages()
     private val brain = OrezBrain(db, app) { q -> OrezLiveSearchConnector().search(q, 6) }
     private val modelManager = OrezModelManager(app)
+    private val agentRuntime = OrezAgentRuntime()
     private val enginePrefs = app.getSharedPreferences("orez_engine", android.content.Context.MODE_PRIVATE)
 
     val modelState get() = modelManager.state
@@ -108,6 +111,29 @@ class OrezAiViewModel @JvmOverloads constructor(
         replyJob = viewModelScope.launch {
             try {
                 dao.insert(OrezMessageEntity(role = "YOU", text = input))
+                val agentDecision = agentRuntime.decide(
+                    input,
+                    OrezAgentContext(
+                        hasActiveChapter = chapterText.isNotBlank(),
+                        hasLibrary = libraryContext.isNotBlank()
+                    )
+                )
+                if (!agentDecision.continueToBrain) {
+                    thinkingStage = if (agentDecision.requiresApproval) "Waiting for approval…" else "Executing MangaLens action…"
+                    dao.insert(
+                        OrezMessageEntity(
+                            role = "OREZ",
+                            text = agentDecision.message.ifBlank { "I prepared the requested MangaLens action." }
+                        )
+                    )
+                    val route = agentDecision.immediateRoute
+                    if (route != null) onRoute(agentDecision.routeValue, route)
+                    return@launch
+                }
+
+                // Compatibility path for legacy direct URL commands not yet represented by the
+                // structured Orez tool planner. This keeps existing 2.2 behavior while the agent
+                // runtime grows capability-by-capability.
                 val command = OrezCommandRouter().route(input)
                 if (command.route != OrezRoute.CHAT) {
                     thinkingStage = "Opening the right MangaLens tool…"

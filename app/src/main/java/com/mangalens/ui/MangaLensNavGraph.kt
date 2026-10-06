@@ -125,9 +125,13 @@ fun MangaLensNavGraph(
                         OrezRoute.MANGA_READER -> { onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") }
                         OrezRoute.VIDEO_PLAYER -> { onModeSelected(ContentType.VIDEO_STREAM); onIngest(); navController.navigate("video") }
                         OrezRoute.WEB_VIEW -> { onModeSelected(ContentType.GENERIC_WEB); navController.navigate("web") }
+                        OrezRoute.DOWNLOADS -> navController.navigate("downloads")
+                        OrezRoute.LIBRARY -> navController.navigate("library")
+                        OrezRoute.SETTINGS -> navController.navigate("settings")
                         OrezRoute.TRANSLATE_MANGA -> { onModeSelected(ContentType.IMAGE_CHAPTER); onIngestAndTranslate(); navController.navigate("reader") }
                         OrezRoute.TRANSLATE_VIDEO -> { onModeSelected(ContentType.VIDEO_STREAM); onVideoTranslationChanged(true); onIngest(); navController.navigate("video") }
                         OrezRoute.TRANSLATE_WEB -> { onModeSelected(ContentType.GENERIC_WEB); onWebTranslationChanged(true); navController.navigate("web") }
+                        OrezRoute.TRANSLATE_ACTIVE_CHAPTER -> { onTranslateChapter(); navController.navigate("reader") }
                         OrezRoute.CHAT -> Unit
                     }
                 }
