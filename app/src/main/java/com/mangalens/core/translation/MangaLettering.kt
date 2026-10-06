@@ -272,7 +272,7 @@ object MangaLettering {
             }
         }
 
-        val dilation = max(2, min(4, padding / 2 + 1))
+        val dilation = if (uniformSurface) max(4, min(8, padding + 2)) else max(2, min(5, padding / 2 + 1))
         repeat(dilation) {
             val grown = masked.clone()
             for (y in 1 until height - 1) {
@@ -348,6 +348,11 @@ object MangaLettering {
                     )
                 }
                 result[index] = when {
+                    // On a clean balloon/document surface, nearest-neighbour reconstruction
+                    // can sample another antialiased source glyph and leave the grey "ghost"
+                    // fragments seen in real translated pages. A robust border median is the
+                    // safer source of truth for this deliberately uniform surface.
+                    uniformSurface -> fallback
                     horizontal != null && vertical != null && diagonal != null ->
                         mix(mix(horizontal, vertical, .5f), diagonal, .34f)
                     horizontal != null && vertical != null ->
@@ -535,15 +540,22 @@ object MangaLettering {
         height: Int,
         textScale: Float = 1f
     ): StaticLayout {
-        val contentWidth = max(1, (width * .95f).toInt())
-        val contentHeight = max(1, (height * .95f).toInt())
-        val family = when {
-            text.any { it in '\u0900'..'\u097f' } && style.family == "cursive" -> "sans-serif"
-            else -> style.family
-        }
+        val hasDevanagari = text.any { it in '\u0900'..'\u097f' }
+        // Devanagari needs more vertical breathing room for matras and conjuncts than
+        // condensed Latin comic lettering. Keep translated Hindi away from balloon borders.
+        val contentWidth = max(1, (width * if (hasDevanagari) .86f else .93f).toInt())
+        val contentHeight = max(1, (height * if (hasDevanagari) .84f else .91f).toInt())
+        val family = if (hasDevanagari) "sans-serif" else style.family
+        val face = if (hasDevanagari) {
+            when (style.face) {
+                Typeface.ITALIC -> Typeface.NORMAL
+                Typeface.BOLD_ITALIC -> Typeface.BOLD
+                else -> style.face
+            }
+        } else style.face
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = style.color
-            typeface = Typeface.create(family, style.face)
+            typeface = Typeface.create(family, face)
         }
 
         fun build(size: Float): StaticLayout {
@@ -551,7 +563,7 @@ object MangaLettering {
             return StaticLayout.Builder.obtain(text, 0, text.length, paint, contentWidth)
                 .setAlignment(style.alignment)
                 .setIncludePad(true)
-                .setLineSpacing(0f, 1.02f)
+                .setLineSpacing(0f, if (hasDevanagari) 1.08f else 1.02f)
                 .build()
         }
 
@@ -567,14 +579,17 @@ object MangaLettering {
         return build(lo)
     }
 
-    fun draw(
+    fun drawBackground(canvas: Canvas, patch: Patch) {
+        canvas.drawBitmap(patch.background, patch.bounds.left.toFloat(), patch.bounds.top.toFloat(), null)
+    }
+
+    fun drawText(
         canvas: Canvas,
         patch: Patch,
         text: String,
         textScale: Float = 1f,
         cachedLayout: StaticLayout? = null
     ) {
-        canvas.drawBitmap(patch.background, patch.bounds.left.toFloat(), patch.bounds.top.toFloat(), null)
         val layout = cachedLayout ?: layout(
             text,
             patch.style,
@@ -589,5 +604,16 @@ object MangaLettering {
         canvas.translate(x, y)
         layout.draw(canvas)
         canvas.restore()
+    }
+
+    fun draw(
+        canvas: Canvas,
+        patch: Patch,
+        text: String,
+        textScale: Float = 1f,
+        cachedLayout: StaticLayout? = null
+    ) {
+        drawBackground(canvas, patch)
+        drawText(canvas, patch, text, textScale, cachedLayout)
     }
 }
