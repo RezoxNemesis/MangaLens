@@ -54,7 +54,7 @@ class MediaLinkResolver {
             val body = response.body ?: return null
             val contentLength = body.contentLength()
             if (contentLength > MAX_HTML_BYTES) return null
-            val html = body.source().readUtf8(MAX_HTML_BYTES)
+            val html = readBoundedUtf8(body) ?: return null
             val provider = providerFor(clean)
             val title = Regex("""(?is)<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)""")
                 .find(html)?.groupValues?.getOrNull(1)?.let(::unescape)
@@ -105,6 +105,20 @@ class MediaLinkResolver {
                 qualityFit + if (candidate.mimeType == "video/mp4") 50 else 0
             }
         }
+    }
+
+    private fun readBoundedUtf8(body: okhttp3.ResponseBody): String? {
+        val source = body.source()
+        val sink = okio.Buffer()
+        var total = 0L
+        while (total <= MAX_HTML_BYTES) {
+            val remaining = (MAX_HTML_BYTES + 1L - total).coerceAtLeast(1L)
+            val read = source.read(sink, minOf(64L * 1024L, remaining))
+            if (read == -1L) break
+            total += read
+            if (total > MAX_HTML_BYTES) return null
+        }
+        return sink.readUtf8()
     }
 
     private fun providerFor(url: String): String {
