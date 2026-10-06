@@ -60,17 +60,21 @@ class OrezAiViewModel @JvmOverloads constructor(
 
     init {
         modelManager.refresh()
-        // Do not pin the 650 MB model in RAM when the user merely opens Orez.
-        // It loads on demand for an answer and is released again after a short idle period.
-        thinkingStage = if (modelManager.state.value.installed)
-            "Local model installed • loads on demand"
-        else "Ready"
+        // Do not load the local model merely because the Orez screen opened.
+        val localState = modelManager.state.value
+        thinkingStage = when {
+            localState.optimized -> "Optimized local model installed • warm on demand"
+            localState.legacyInstalled -> "Legacy 650 MB model detected • optimization available"
+            else -> "Ready"
+        }
         viewModelScope.launch {
             androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow("orez-model").collect {
                 val before = modelManager.state.value.installed
                 modelManager.refresh()
                 if (!before && modelManager.state.value.installed) {
-                    thinkingStage = "Local model installed • loads on demand"
+                    thinkingStage = if (modelManager.state.value.optimized)
+                        "Optimized local model installed • warm on demand"
+                    else "Legacy local model detected"
                 }
             }
         }
@@ -273,7 +277,7 @@ fun OrezAiScreen(
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 16.dp)) {
-        BrandHeader("OREZ AI 2.1", "YOUR READING COMPANION") {
+        BrandHeader("OREZ AI 2.2", "YOUR READING COMPANION") {
             IconButton({ showEngine = !showEngine }) { Icon(Icons.Outlined.Tune, "OREZ engine") }
         }
 
@@ -285,7 +289,7 @@ fun OrezAiScreen(
         ) {
             item {
                 ArtworkHero(
-                    "Orez 2.1 is ready",
+                    "Orez 2.2 recovery",
                     "Hybrid reasoning, OCR repair, chapter help and subtitle assistance in one place.",
                     com.mangalens.R.drawable.orez_portrait,
                     "Translate a chapter"
@@ -327,15 +331,23 @@ fun OrezAiScreen(
                             Column(Modifier.weight(1f)) {
                                 Text("OREZ Engine", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                                 Text(
-                                    if (modelState.installed) "Local model optimized • ${OrezModelManager.MODEL_BYTES / 1_000_000L} MB"
-                                    else if (modelState.downloading) "Installing local model • ${(modelState.progress * 100).toInt()}%"
-                                    else "Optional local model • ${OrezModelManager.MODEL_BYTES / 1_000_000L} MB",
+                                    when {
+                                        modelState.downloading -> "Installing optimized model • ${(modelState.progress * 100).toInt()}%"
+                                        modelState.optimized -> "Optimized local model • ${OrezModelManager.MODEL_BYTES / 1_000_000L} MB"
+                                        modelState.legacyInstalled -> "Legacy local model • ${OrezModelManager.LEGACY_MODEL_BYTES / 1_000_000L} MB • upgrade recommended"
+                                        else -> "Optional optimized model • ${OrezModelManager.MODEL_BYTES / 1_000_000L} MB"
+                                    },
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             NeonStatusPill(
-                                if (modelState.installed) "Model healthy" else if (modelState.downloading) "Installing" else "Cloud + app logic",
-                                positive = modelState.installed
+                                when {
+                                    modelState.downloading -> "Installing"
+                                    modelState.optimized -> "Optimized"
+                                    modelState.legacyInstalled -> "Legacy pack"
+                                    else -> "App + web logic"
+                                },
+                                positive = modelState.optimized
                             )
                         }
 
@@ -372,11 +384,11 @@ fun OrezAiScreen(
                         )
                         TextButton(onClick = { confirmClear = true }) { Text("Clear conversation") }
 
-                        if (!modelState.installed && !modelState.downloading) {
+                        if (!modelState.downloading && !modelState.optimized) {
                             Button(vm::downloadLocalModel, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
-                                Text("Download optimized local model")
+                                Text(if (modelState.legacyInstalled) "Replace legacy pack with optimized model" else "Download optimized local model")
                             }
-                        } else if (modelState.installed) {
+                        } else if (modelState.optimized) {
                             TextButton(vm::refreshLocalModel) { Text("Recheck model health →") }
                         }
                     }
@@ -404,7 +416,7 @@ fun OrezAiScreen(
                         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(
-                                    if (message.role == "YOU") "YOU" else "OREZ AI 2.1",
+                                    if (message.role == "YOU") "YOU" else "OREZ AI 2.2",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.Bold
