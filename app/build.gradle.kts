@@ -15,7 +15,7 @@ android {
         versionCode = 6
         versionName = "1.5.0-rc1"
         val gitSha = System.getenv("GITHUB_SHA")?.take(12) ?: "local"
-        buildConfigField("String", "GIT_SHA", "\\\"$gitSha\\\"")
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
