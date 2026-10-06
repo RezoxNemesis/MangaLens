@@ -316,7 +316,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
 
     private fun buildLiveAnswer(query:String, live:LiveSearchAnswer):String {
         val snippets = live.results.asSequence()
-            .map { it.snippet.replace(Regex("""\\s+"""), " ").trim() }
+            .map { it.snippet.replace(Regex("""\s+"""), " ").trim() }
             .filter { it.length >= 20 }
             .filterNot { value ->
                 val lower = value.lowercase(Locale.ROOT)
@@ -333,7 +333,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             return "I found sources, but their readable text was not clean enough to answer reliably. Try a more specific question."
         }
         val sentences = snippets.joinToString(" ")
-            .split(Regex("""(?<=[.!?])\\s+"""))
+            .split(Regex("""(?<=[.!?])\s+"""))
             .map { it.trim() }
             .filter { it.length >= 15 }
             .distinct()
