@@ -299,11 +299,6 @@ class SocialMediaDownloadWorker(
         return ForegroundInfo(NOTIFICATION_ID, notification)
     }
 
-    override fun onStopped() {
-        inputData.getString(KEY_ID)?.let(YoutubeDL::destroyProcessById)
-        super.onStopped()
-    }
-
     companion object {
         const val KEY_ID = "social_download_id"
         const val KEY_URL = "social_download_url"
