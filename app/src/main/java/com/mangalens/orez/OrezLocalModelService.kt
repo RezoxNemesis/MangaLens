@@ -22,13 +22,15 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     private val loadMutex = Mutex()
     @Volatile private var temporarilyUnavailableUntil = 0L
     @Volatile private var idleReleaseJob: kotlinx.coroutines.Job? = null
+    @Volatile private var loadedModelPath: String? = null
 
     suspend fun warmUp(): Boolean = withContext(Dispatchers.Default) {
-        val file = manager.modelFile
-        if (!manager.isReady()) return@withContext false
-        if (!hasMemoryHeadroom(file)) return@withContext false
+        val file = chooseRuntimeModel() ?: return@withContext false
         ensureLoaded(file, 7_000L).also { if (it) scheduleIdleRelease() }
     }
+
+    private fun chooseRuntimeModel(): File? =
+        manager.runtimeModelFiles().firstOrNull(::hasMemoryHeadroom)
 
     private fun hasMemoryHeadroom(file: File): Boolean {
         val info = android.app.ActivityManager.MemoryInfo()
@@ -38,23 +40,35 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     }
 
     private suspend fun ensureLoaded(file: File, budgetMs: Long): Boolean {
-        if (engine.isLoaded) return true
+        if (engine.isLoaded && loadedModelPath == file.absolutePath) return true
         val now = android.os.SystemClock.elapsedRealtime()
         if (now < temporarilyUnavailableUntil) return false
+
         val loaded = withTimeoutOrNull(budgetMs) {
             loadMutex.withLock {
-                if (engine.isLoaded) true else engine.load(file.absolutePath)
+                if (engine.isLoaded && loadedModelPath == file.absolutePath) {
+                    true
+                } else {
+                    if (engine.isLoaded) {
+                        engine.cancelGenerations()
+                        engine.close()
+                        loadedModelPath = null
+                    }
+                    engine.load(file.absolutePath).also { success ->
+                        if (success) loadedModelPath = file.absolutePath
+                    }
+                }
             }
         } ?: false
+
         if (!loaded) temporarilyUnavailableUntil = now + 30_000L
         return loaded
     }
 
     suspend fun answer(prompt: String, recent: List<OrezMessageEntity>): String? = withContext(Dispatchers.Default) {
         idleReleaseJob?.cancel()
-        val file: File = manager.modelFile
+        val file: File = chooseRuntimeModel() ?: return@withContext null
         if (!manager.isReady()) return@withContext null
-        if (!engine.isLoaded && !hasMemoryHeadroom(file)) return@withContext null
         if (!ensureLoaded(file, 7_000L)) return@withContext null
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
@@ -148,6 +162,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             // chat turns. Context memory is already freed after each generation; keep only
             // the mmap'd model warm for a bounded conversational idle window.
             delay(90_000L)
+            loadedModelPath = null
             engine.cancelGenerations()
             engine.close()
         }
@@ -155,6 +170,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
 
     fun releaseMemory() {
         idleReleaseJob?.cancel()
+        loadedModelPath = null
         engine.cancelGenerations()
         cleanupScope.launch { engine.close() }
     }
