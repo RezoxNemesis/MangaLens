@@ -1,8 +1,5 @@
 package com.mangalens.ui.settings
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -10,13 +7,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.mangalens.orez.OrezResourcePackManager
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.ui.MangaLensUiState
 import com.mangalens.ui.theme.ThemeMode
@@ -25,25 +20,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,onMangaTranslationChanged:(Boolean)->Unit,onVideoTranslationChanged:(Boolean)->Unit,onWebTranslationChanged:(Boolean)->Unit,onTranslationStyleChanged:(String)->Unit,onCustomTranslationStyleChanged:(String)->Unit,onAdBlockEnabledChanged:(Boolean)->Unit,onResetAdBlockStats:()->Unit){
     val context=LocalContext.current
-    val resourceManager=remember{OrezResourcePackManager(context)}
-    val resourceState by resourceManager.state.collectAsState()
-    var packSelectionError by remember { mutableStateOf<String?>(null) }
-    val localPackLauncher=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->
-        if(uri!=null){
-            packSelectionError=null
-            runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
-            runCatching{resourceManager.enqueueUri(uri)}
-                .onFailure{packSelectionError=it.message ?: "Unable to queue this data pack."}
-        }
-    }
-    var advancedImport by rememberSaveable { mutableStateOf(false) }
     var showBlockEvents by remember { mutableStateOf(false) }
-    var resourceUrl by remember{mutableStateOf("")}
-    LaunchedEffect(resourceManager){
-        androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(OrezResourcePackManager.TAG).collect {
-            resourceManager.refresh()
-        }
-    }
     var storage by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var cacheBytes by remember { mutableLongStateOf(0L) }
     var adaptiveMediaBytes by remember { mutableLongStateOf(0L) }
@@ -72,7 +49,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
     LazyColumn(Modifier.fillMaxWidth().statusBarsPadding().imePadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
             com.mangalens.ui.components.BrandHeader("MangaLens 2.2", "RUNTIME RECOVERY • AI • PROTECTION")
-            Text("Appearance, translation modules, OREZ data and network protection.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Appearance, translation modules, OREZ intelligence and network protection.",color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
             Text("Translation modules", style = MaterialTheme.typography.titleMedium)
@@ -216,22 +193,20 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                 }
             }
         }
-        item { TextButton({ advancedImport = !advancedImport }) { Text(if (advancedImport) "Hide advanced data import" else "Advanced / Data import →") } }
-        if (advancedImport) item{
-            Text("OREZ Conversation Master Pack",fontWeight=FontWeight.Bold)
-            Card(Modifier.fillMaxWidth()){
-                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                    Text("Import your conversation and reasoning data",style=MaterialTheme.typography.titleLarge)
-                    Text("Select a .jsonl, .jsonl.gz file, or a downloaded GitHub artifact ZIP from Files. The app streams the selected file directly (no second full-size copy), reads compressed data, and imports a bounded batch into the private OREZ vault.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(enabled=!resourceState.active,onClick={localPackLauncher.launch(arrayOf("*/*"))}){Text(if(resourceState.active)"IMPORTING…" else "SELECT OREZ DATA PACK FROM FILES")}
-                    packSelectionError?.let{Text("Pack selection error: "+it,color=MaterialTheme.colorScheme.error)}
-                    OutlinedTextField(value=resourceUrl,onValueChange={resourceUrl=it},modifier=Modifier.fillMaxWidth(),singleLine=true,label={Text("HTTPS conversation pack URL")})
-                    Button(enabled=!resourceState.active&&(resourceUrl.startsWith("http://")||resourceUrl.startsWith("https://")),onClick={runCatching{resourceManager.enqueue(resourceUrl);resourceUrl=""}}){Text(if(resourceState.active)"SYNCING…" else "SYNC REMOTE PACK")}
-                    if(resourceState.active){LinearProgressIndicator(progress={resourceState.progress},modifier=Modifier.fillMaxWidth());Text(formatBytes(resourceState.bytes)+" / "+if(resourceState.total>0)formatBytes(resourceState.total) else "processing")}
-                    resourceState.error?.let{Text("Pack error: "+it,color=MaterialTheme.colorScheme.error)}
-                    resourceState.message?.let{Text(it,color=MaterialTheme.colorScheme.primary)}
-                    Text("Large archives are streamed in bounded batches. Import continues while device storage is available.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)
-                }
+        item {
+            Text("OREZ intelligence",fontWeight=FontWeight.Bold)
+            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()){
+                Text("Automatic model delivery",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
+                Text(
+                    "Large OREZ intelligence models stay outside the APK and are installed through the in-app Model Manager with resumable downloads and integrity verification. Manual JSON or conversation-pack import is not required for normal use.",
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "Open OREZ to choose Lite or Core local intelligence. MangaLens keeps the application package lean while allowing much larger AI packs on capable devices.",
+                    color=MaterialTheme.colorScheme.onSurfaceVariant,
+                    style=MaterialTheme.typography.bodySmall
+                )
             }
         }
         item{Text("OCR and translation use on-device ML where available; OREZ adds normalization, dialogue grouping, confidence scoring and reconstruction logic.",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
