@@ -20,6 +20,7 @@ import com.mangalens.core.model.MangaChapter
 import com.mangalens.download.MediaDownloadManager
 import com.mangalens.core.translation.TranslationService
 import com.mangalens.core.verification.CaptchaBridge
+import com.mangalens.core.verification.VerificationSessionStore
 import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.ui.reader.TranslationOverlay
 import com.mangalens.ui.theme.ThemeMode
@@ -66,6 +67,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val chapterCatalog = MangaChapterCatalogScraper(application)
     private val translator = TranslationService()
     val captchaBridge = CaptchaBridge()
+    private val verificationSessions = VerificationSessionStore(application)
 
     private val _state = MutableStateFlow(
         MangaLensUiState(
@@ -161,23 +163,58 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         ingestionJob = viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, error = null)
             try {
-                when (router.classifyUrl(target)) {
+                when (_state.value.mode) {
                     ContentType.VIDEO_STREAM -> _state.value = _state.value.copy(mode = ContentType.VIDEO_STREAM, videoUrl = target, loading = false)
                     ContentType.IMAGE_CHAPTER -> {
                         repository.clearChapterCache()
                         _state.value = _state.value.copy(pages = emptyList(), overlays = emptyMap(), translationEnabled = false)
                         val chapters = runCatching { chapterCatalog.extract(target) }.getOrDefault(emptyList())
                         _state.value = _state.value.copy(chapters = chapters.map { MangaChapter(it.title, it.url) })
-                        val result = acquirer.discoverWithCookie(target, 15_000L, null)
-                        if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls)
-                        if (result.imageUrls.isEmpty()) {
+                        val savedSession = verificationSessions.get(target)
+                        val result = acquirer.discoverWithCookie(
+                            target,
+                            18_000L,
+                            savedSession?.cookie,
+                            savedSession?.userAgent
+                        )
+                        val sessionCookie = result.cookieHeader ?: savedSession?.cookie
+                        val sessionUserAgent = result.userAgent ?: savedSession?.userAgent
+
+                        if (result.imageUrls.isNotEmpty()) {
+                            repository.persistDiscoveredPages(
+                                result.imageUrls,
+                                referer = result.finalUrl,
+                                cookie = sessionCookie,
+                                userAgent = sessionUserAgent
+                            )
+                        }
+
+                        if (repository.pages.value.isEmpty()) {
                             val fallback = chapterScraper.extract(target)
-                            if (fallback.isNotEmpty()) repository.persistDiscoveredPages(fallback)
+                            if (fallback.isNotEmpty()) {
+                                repository.persistDiscoveredPages(
+                                    fallback,
+                                    referer = target,
+                                    cookie = sessionCookie,
+                                    userAgent = sessionUserAgent
+                                )
+                            }
                         }
-                        if (result.imageUrls.isEmpty() && result.videoStreamUrls.isEmpty() && repository.pages.value.isEmpty()) {
-                            captchaBridge.requestVerification(target, target.substringAfter("//").substringBefore("/").substringBefore(":").ifBlank { "unknown" }, "Security verification or inaccessible chapter detected.")
+
+                        val hasPages = repository.pages.value.isNotEmpty()
+                        if (!hasPages && result.videoStreamUrls.isEmpty()) {
+                            if (savedSession != null) verificationSessions.clear(target)
+                            captchaBridge.requestVerification(
+                                target,
+                                target.substringAfter("//").substringBefore("/").substringBefore(":").ifBlank { "unknown" },
+                                "Security verification or inaccessible chapter detected."
+                            )
                         }
-                        _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false, error = result.navigationError)
+                        _state.value = _state.value.copy(
+                            mode = ContentType.IMAGE_CHAPTER,
+                            loading = false,
+                            error = if (hasPages) null else result.navigationError
+                        )
                     }
                     ContentType.GENERIC_WEB -> _state.value = _state.value.copy(mode = ContentType.GENERIC_WEB, loading = false)
                 }
@@ -199,16 +236,57 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun ingestWithCookie(cookie: String) {
+    fun ingestWithCookie(cookie: String, userAgent: String) {
         ingestionJob?.cancel()
         val target = _state.value.url
         ingestionJob = viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, error = null)
             try {
-                val result = acquirer.discoverWithCookie(target, 20_000L, cookie)
-                if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls)
-                _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false, error = result.navigationError)
-                captchaBridge.completeVerification(cookie, "Android")
+                val result = acquirer.discoverWithCookie(
+                    target,
+                    22_000L,
+                    cookie,
+                    userAgent
+                )
+                if (result.imageUrls.isNotEmpty()) {
+                    repository.persistDiscoveredPages(
+                        result.imageUrls,
+                        referer = result.finalUrl,
+                        cookie = result.cookieHeader ?: cookie,
+                        userAgent = result.userAgent ?: userAgent
+                    )
+                }
+                if (repository.pages.value.isEmpty()) {
+                    val fallback = chapterScraper.extract(target)
+                    if (fallback.isNotEmpty()) {
+                        repository.persistDiscoveredPages(
+                            fallback,
+                            referer = target,
+                            cookie = result.cookieHeader ?: cookie,
+                            userAgent = result.userAgent ?: userAgent
+                        )
+                    }
+                }
+
+                val hasPages = repository.pages.value.isNotEmpty()
+                if (!hasPages) {
+                    error(result.navigationError ?: "Verification completed, but no chapter pages were discovered.")
+                }
+
+                verificationSessions.save(
+                    target,
+                    result.cookieHeader ?: cookie,
+                    result.userAgent ?: userAgent
+                )
+                _state.value = _state.value.copy(
+                    mode = ContentType.IMAGE_CHAPTER,
+                    loading = false,
+                    error = null
+                )
+                captchaBridge.completeVerification(
+                    result.cookieHeader ?: cookie,
+                    result.userAgent ?: userAgent
+                )
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
