@@ -43,6 +43,7 @@ class MediaDownloadManager(private val context: Context) {
                     title = finalTitle,
                     mimeType = mime,
                     progressPercent = 0f,
+                    requestedQualityHeight = quality.height,
                     state = DownloadState.QUEUED
                 )
             )
@@ -82,7 +83,13 @@ class MediaDownloadManager(private val context: Context) {
         when {
             isSocialPage(item.sourceUrl) -> {
                 dao.upsert(item.copy(state = DownloadState.QUEUED, progressPercent = 0f, error = null))
-                startSocial(id, item.sourceUrl, item.title, DownloadQuality.P2160)
+                startSocial(
+                    id,
+                    item.sourceUrl,
+                    item.title,
+                    DownloadQuality.selectable.firstOrNull { it.height == item.requestedQualityHeight }
+                        ?: DownloadQuality.P2160
+                )
             }
             isAdaptive(item.sourceUrl) -> {
                 MangaLensDownloadService.resumeAdaptive(context, id)
