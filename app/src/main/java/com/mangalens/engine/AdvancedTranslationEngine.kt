@@ -84,7 +84,6 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         }.addOnFailureListener { failure ->
             if (continuation.isActive) continuation.resumeWithException(failure)
         }
-        continuation.invokeOnCancellation { task.cancel() }
     }
 
     suspend fun recognizeFast(bitmap: Bitmap): List<TranslationRegion> {
