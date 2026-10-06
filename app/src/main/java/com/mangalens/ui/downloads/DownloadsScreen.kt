@@ -1,5 +1,8 @@
 package com.mangalens.ui.downloads
 
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
@@ -23,12 +26,22 @@ class DownloadsViewModel(app: android.app.Application) : AndroidViewModel(app) {
     val items = manager.downloads.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     var error by mutableStateOf<String?>(null)
         private set
+    var enqueueing by mutableStateOf(false)
+        private set
 
-    fun enqueue(url: String, quality: DownloadQuality) = viewModelScope.launch {
-        error = runCatching {
-            manager.enqueue(url, "MangaLens media", quality = quality)
-        }.exceptionOrNull()?.message
-    }
+    fun enqueue(url: String, quality: DownloadQuality, onQueued: () -> Unit = {}) =
+        viewModelScope.launch {
+            enqueueing = true
+            error = null
+            try {
+                manager.enqueue(url, quality = quality)
+                onQueued()
+            } catch (failure: Throwable) {
+                error = failure.message ?: "Unable to queue this download."
+            } finally {
+                enqueueing = false
+            }
+        }
 
     fun pause(id: String) = viewModelScope.launch { runCatching { manager.pause(id) }.onFailure { error = it.message } }
     fun resume(id: String) = viewModelScope.launch { runCatching { manager.resume(id) }.onFailure { error = it.message } }
@@ -57,10 +70,40 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
 
         OutlinedTextField(
             value = url,
-            onValueChange = { url = it },
+            onValueChange = {
+                url = it
+                vm.clearError()
+            },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            label = { Text("Video / image / page URL") }
+            label = { Text("YouTube / Instagram / media URL") },
+            trailingIcon = {
+                TextButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        val clip = clipboard?.primaryClip
+                        if (
+                            clip != null &&
+                            clip.itemCount > 0 &&
+                            (
+                                clip.description?.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) == true ||
+                                    clip.description?.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML) == true
+                                )
+                        ) {
+                            val raw = clip.getItemAt(0).coerceToText(context).toString()
+                            val detected = Regex("""https?://\S+""")
+                                .find(raw)
+                                ?.value
+                                ?.trimEnd('.', ',', ')', ']', '}', '>')
+                                ?: raw.trim()
+                            if (detected.startsWith("http://") || detected.startsWith("https://")) {
+                                url = detected
+                                vm.clearError()
+                            }
+                        }
+                    }
+                ) { Text("PASTE") }
+            }
         )
 
         Spacer(Modifier.height(10.dp))
@@ -86,12 +129,24 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
 
         Button(
             onClick = {
-                vm.enqueue(url.trim(), quality)
-                url = ""
+                val requestedUrl = url.trim()
+                vm.enqueue(requestedUrl, quality) { url = "" }
             },
-            enabled = url.trim().startsWith("http://") || url.trim().startsWith("https://"),
+            enabled = !vm.enqueueing &&
+                (url.trim().startsWith("http://") || url.trim().startsWith("https://")),
             modifier = Modifier.fillMaxWidth()
-        ) { Text("DOWNLOAD") }
+        ) {
+            if (vm.enqueueing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("PREPARING…")
+            } else {
+                Text("DOWNLOAD BEST UP TO " + quality.label.uppercase())
+            }
+        }
 
         vm.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
