@@ -16,7 +16,8 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
     private val prefs = appContext.getSharedPreferences("orez_model", Context.MODE_PRIVATE)
 
     override suspend fun doWork(): Result {
-        val finalFile = File(applicationContext.filesDir, "orez_models/qwen2.5-0.5b-q6_k.gguf").apply { parentFile?.mkdirs() }
+        val modelManager = OrezModelManager(applicationContext)
+        val finalFile = modelManager.optimizedModelFile.apply { parentFile?.mkdirs() }
         val part = File(finalFile.parentFile, finalFile.name + ".part")
         return try {
             prefs.edit().putBoolean("downloading", true).putString("error", null).apply()
@@ -26,7 +27,13 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
             check(sha256(part) == OrezModelManager.MODEL_SHA256) { "OREZ model integrity check failed" }
             if (finalFile.exists()) finalFile.delete()
             check(part.renameTo(finalFile)) { "Unable to finalize OREZ model" }
-            prefs.edit().putBoolean("downloading", false).putLong("bytes", finalFile.length()).putLong("total", OrezModelManager.MODEL_BYTES).apply()
+            // The optimized Q4 pack replaces the older 650 MB Q6 pack after integrity
+            // verification, avoiding nearly 1.2 GB of duplicate local model storage.
+            modelManager.legacyModelFile.takeIf { it.exists() }?.delete()
+            prefs.edit().putBoolean("downloading", false)
+                .putLong("bytes", finalFile.length())
+                .putLong("total", OrezModelManager.MODEL_BYTES)
+                .apply()
             Result.success()
         } catch (t: kotlinx.coroutines.CancellationException) {
             prefs.edit().putBoolean("downloading", false).apply()
@@ -44,7 +51,7 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
             connectTimeout = 30_000
             readTimeout = 60_000
             instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "MangaLens/12")
+            setRequestProperty("User-Agent", "MangaLens/2.2")
             if (offset > 0L) setRequestProperty("Range", "bytes=" + offset + "-")
         }
         try {
