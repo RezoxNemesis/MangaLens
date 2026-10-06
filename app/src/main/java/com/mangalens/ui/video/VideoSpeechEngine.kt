@@ -12,6 +12,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.BufferOverflow
@@ -66,19 +67,52 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                 if (closed || !enabled || chunk.generation != generation) continue
                 try {
                     val started = android.os.SystemClock.elapsedRealtime()
-                    val segments = lock.withLock {
-                        if (!enabled || chunk.generation != generation || handle == 0L) emptyArray()
-                        else {
-                            val requestedLanguage = if (language == "auto") detectedSourceLanguage ?: "auto" else language
-                            native.infer(handle, chunk.audio, requestedLanguage, Runtime.getRuntime().availableProcessors().coerceIn(1, 4)).also {
-                                if (language == "auto" && detectedSourceLanguage == null && handle != 0L) {
-                                    detectedSourceLanguage = runCatching { native.detectedLanguage(handle) }
-                                        .getOrNull()?.takeIf { detected -> detected.isNotBlank() && detected != "auto" }
-                                }
+                    val timedOut = AtomicBoolean(false)
+                    val inferenceGeneration = chunk.generation
+                    val watchdog = scope.launch(Dispatchers.Default) {
+                        delay(LIVE_INFERENCE_BUDGET_MS)
+                        if (!closed && enabled && generation == inferenceGeneration) {
+                            timedOut.set(true)
+                            synchronized(handleGuard) {
+                                if (handle != 0L) native.cancel(handle)
                             }
                         }
                     }
+                    val segments = try {
+                        lock.withLock {
+                            if (!enabled || chunk.generation != generation || handle == 0L) emptyArray()
+                            else {
+                                val requestedLanguage = if (language == "auto") detectedSourceLanguage ?: "auto" else language
+                                val translateToEnglish = requestedLanguage != "en"
+                                native.infer(
+                                    handle,
+                                    chunk.audio,
+                                    requestedLanguage,
+                                    translateToEnglish,
+                                    Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+                                ).also {
+                                    if (!timedOut.get() && language == "auto" && detectedSourceLanguage == null && handle != 0L) {
+                                        detectedSourceLanguage = runCatching { native.detectedLanguage(handle) }
+                                            .getOrNull()?.takeIf { detected -> detected.isNotBlank() && detected != "auto" }
+                                    }
+                                }
+                            }
+                        }
+                    } finally {
+                        watchdog.cancel()
+                    }
                     if (closed || !enabled || chunk.generation != generation) continue
+                    if (timedOut.get()) {
+                        chunkSeconds = 3
+                        mutable.update { current ->
+                            current.copy(
+                                inferenceMs = android.os.SystemClock.elapsedRealtime() - started,
+                                processedWindows = current.processedWindows + 1,
+                                status = "Speech processing exceeded 20 s • switched to Low latency"
+                            )
+                        }
+                        continue
+                    }
                     val cues = segments.mapNotNull { line ->
                         val parts = line.split('\t', limit = 3)
                         val text = parts.getOrNull(2)?.trim().orEmpty()
@@ -276,6 +310,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                 handle,
                 samples,
                 requestedLanguage,
+                requestedLanguage != "en",
                 Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
             ).also {
                 if (sourceLanguage == "auto" && detectedSourceLanguage == null && handle != 0L) {
@@ -344,6 +379,10 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     private fun timestamp(ms: Long): String {
         val t = ms.coerceAtLeast(0); return "%02d:%02d:%02d,%03d".format(t / 3600000, t / 60000 % 60, t / 1000 % 60, t % 1000)
     }
+    private companion object {
+        const val LIVE_INFERENCE_BUDGET_MS = 20_000L
+    }
+
     inner class SpeechAudioProcessor : BaseAudioProcessor() {
         private var rate = 48000
         private var channels = 2
