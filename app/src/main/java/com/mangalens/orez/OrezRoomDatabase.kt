@@ -39,6 +39,20 @@ data class OrezTranslationEntity(
     val scope: String = "global"
 )
 
+@Entity(
+    tableName = "orez_tasks",
+    indices = [Index("status"), Index("updatedAt")]
+)
+data class OrezTaskEntity(
+    @PrimaryKey val id: String,
+    val objective: String,
+    val status: String,
+    val planJson: String,
+    val createdAt: Long,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val lastError: String? = null
+)
+
 @Dao
 interface OrezMessageDao {
     @Query("SELECT * FROM (SELECT * FROM orez_messages ORDER BY id DESC LIMIT 200) ORDER BY id ASC")
@@ -79,14 +93,35 @@ interface OrezDatasetDao {
     @Query("DELETE FROM orez_translations") suspend fun clearTranslations()
 }
 
+@Dao
+interface OrezTaskDao {
+    @Query("SELECT * FROM orez_tasks WHERE status IN ('PLANNED','WAITING_APPROVAL','RUNNING') ORDER BY updatedAt DESC")
+    fun observeActive(): Flow<List<OrezTaskEntity>>
+
+    @Query("SELECT * FROM orez_tasks WHERE id = :id LIMIT 1")
+    suspend fun get(id: String): OrezTaskEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(task: OrezTaskEntity)
+
+    @Query("DELETE FROM orez_tasks WHERE status IN ('COMPLETED','FAILED','CANCELLED') AND updatedAt < :before")
+    suspend fun pruneFinished(before: Long)
+}
+
 @Database(
-    entities = [OrezMessageEntity::class, OrezConversationEntity::class, OrezTranslationEntity::class],
-    version = 2,
+    entities = [
+        OrezMessageEntity::class,
+        OrezConversationEntity::class,
+        OrezTranslationEntity::class,
+        OrezTaskEntity::class
+    ],
+    version = 3,
     exportSchema = false
 )
 abstract class OrezRoomDatabase : RoomDatabase() {
     abstract fun messages(): OrezMessageDao
     abstract fun datasets(): OrezDatasetDao
+    abstract fun tasks(): OrezTaskDao
 
     companion object {
         @Volatile private var INSTANCE: OrezRoomDatabase? = null
@@ -103,12 +138,29 @@ abstract class OrezRoomDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS orez_tasks (" +
+                        "id TEXT NOT NULL, objective TEXT NOT NULL, status TEXT NOT NULL, " +
+                        "planJson TEXT NOT NULL, createdAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL, lastError TEXT, PRIMARY KEY(id))"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_orez_tasks_status ON orez_tasks (status)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_orez_tasks_updatedAt ON orez_tasks (updatedAt)"
+                )
+            }
+        }
+
         fun get(context: Context): OrezRoomDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 OrezRoomDatabase::class.java,
                 "orez_v10.db"
-            ).addMigrations(MIGRATION_1_2).build().also { INSTANCE = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { INSTANCE = it }
         }
     }
 
