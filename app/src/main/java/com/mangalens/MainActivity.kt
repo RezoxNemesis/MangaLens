@@ -12,6 +12,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -23,9 +26,19 @@ import com.mangalens.ui.MangaLensViewModel
 import com.mangalens.ui.theme.MangaLensTheme
 
 class MainActivity : ComponentActivity() {
+    private var widgetRequest by mutableStateOf<Pair<String, Long>?>(null)
+    private fun readWidgetIntent(value: android.content.Intent?) {
+        if (value?.action != "com.mangalens.WIDGET" || value.data?.host != "widget") return
+        val route = value.data?.lastPathSegment ?: return
+        if (route in setOf("translate", "orez", "library", "downloads")) widgetRequest = route to android.os.SystemClock.elapsedRealtimeNanos()
+    }
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent); setIntent(intent); readWidgetIntent(intent)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) readWidgetIntent(intent)
 
         if (
             Build.VERSION.SDK_INT >= 33 &&
@@ -44,6 +57,16 @@ class MainActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             MangaLensTheme(themeMode = state.themeMode) {
                 val navController = rememberNavController()
+                val widgetImporter = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+                    if (uris.isNotEmpty()) { viewModel.importLocalImages(uris); navController.navigate("reader") }
+                }
+                LaunchedEffect(widgetRequest) {
+                    val request = widgetRequest ?: return@LaunchedEffect
+                    widgetRequest = null
+                    if (request.first == "translate") widgetImporter.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES)
+                    else navController.navigate(request.first) { launchSingleTop = true }
+                }
                 val verification by viewModel.captchaBridge.state.collectAsState()
                 MangaLensNavGraph(
                     navController = navController,
@@ -80,8 +103,16 @@ class MainActivity : ComponentActivity() {
                     onMangaTranslationChanged = viewModel::setMangaTranslationEnabled,
                     onVideoTranslationChanged = viewModel::setVideoTranslationEnabled,
                     onWebTranslationChanged = viewModel::setWebTranslationEnabled,
+                    onAdBlockEnabledChanged = viewModel::setAdBlockEnabled,
                     onResetAdBlockStats = viewModel::resetAdBlockStats,
-                    onImportImages = viewModel::importLocalImages
+                    onDeleteSavedChapter = viewModel::deleteSavedChapter,
+                    onOpenSavedChapter = viewModel::openSavedChapter,
+                    onReadingPositionChanged = viewModel::saveReadingPosition,
+                    onChapterDetails = viewModel::setChapterDetails,
+                    onTranslationPaused = viewModel::pauseTranslation,
+                    onTranslationCancelled = viewModel::cancelTranslation,
+                    onImportImages = viewModel::importLocalImages,
+                    onResolvedVideo = viewModel::acceptResolvedVideo
                 )
                 val verificationRequest = verification.request
                 if (

@@ -1,0 +1,40 @@
+name: Verify OREZ model provenance
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/model-provenance.yml'
+      - 'app/src/main/java/com/mangalens/orez/OrezModelManager.kt'
+permissions:
+  contents: read
+jobs:
+  publisher-metadata:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read publisher metadata and compare the application's pin
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, re, urllib.request
+          from pathlib import Path
+          source = Path("app/src/main/java/com/mangalens/orez/OrezModelManager.kt").read_text()
+          model_url = re.search(r'const val MODEL_URL = "([^"]+)"', source)[1]
+          revision = model_url.split("/resolve/", 1)[1].split("/", 1)[0]
+          assert re.fullmatch(r"[a-f0-9]{40}", revision), "Model URL must pin an immutable publisher revision"
+          url = "https://huggingface.co/api/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/revision/" + revision + "?blobs=true"
+          request = urllib.request.Request(url, headers={"User-Agent": "MangaLens-QA"})
+          with urllib.request.urlopen(request, timeout=45) as response:
+              metadata = json.load(response)
+          filename = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+          entry = next(row for row in metadata["siblings"] if row["rfilename"] == filename)
+          lfs = entry["lfs"]
+          report = {"revision": metadata["sha"], "filename": filename, "bytes": lfs["size"],
+                    "sha256": lfs.get("sha256", lfs.get("oid"))}
+          print("MANGALENS_MODEL_PROVENANCE " + json.dumps(report), flush=True)
+          source = Path("app/src/main/java/com/mangalens/orez/OrezModelManager.kt").read_text()
+          expected_bytes = int(re.search(r"const val MODEL_BYTES = ([0-9]+)L", source)[1])
+          expected_hash = re.search(r'const val MODEL_SHA256 = "([a-f0-9]+)"', source)[1]
+          assert expected_bytes == report["bytes"], "Model size pin differs from publisher metadata"
+          assert expected_hash == report["sha256"], "Model hash pin differs from publisher metadata"
+          PY

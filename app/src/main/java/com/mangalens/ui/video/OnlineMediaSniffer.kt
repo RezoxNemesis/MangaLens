@@ -8,7 +8,15 @@ import android.webkit.WebView
 import com.mangalens.core.adblock.AdBlockWebViewClient
 import java.util.concurrent.CopyOnWriteArraySet
 
-data class SniffedMedia(val url: String, val headers: Map<String, String>, val kind: String)
+data class SniffedMedia(
+    val url: String,
+    val headers: Map<String, String>,
+    val kind: String,
+    val audioUrl: String? = null,
+    val audioHeaders: Map<String, String> = emptyMap(),
+    val title: String? = null,
+    val provider: String? = null
+)
 
 class OnlineMediaSniffer(private val context: Context) {
     private val urls = CopyOnWriteArraySet<String>()
@@ -30,9 +38,9 @@ class OnlineMediaSniffer(private val context: Context) {
             webViewClient = object : AdBlockWebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? {
                     val u = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
-                    if (looksLikeMedia(u)) {
+                    if (VideoSourcePolicy.isLikelyMediaRequest(u, request.requestHeaders)) {
                         urls += u
-                        onMedia(urls.map { SniffedMedia(it, request.requestHeaders, kind(it)) })
+                        onMedia(urls.map { candidate -> SniffedMedia(candidate, request.requestHeaders, kind(candidate)) })
                     }
                     return super.shouldInterceptRequest(view, request)
                 }
@@ -53,11 +61,6 @@ class OnlineMediaSniffer(private val context: Context) {
             }
             loadUrl(pageUrl)
         }
-    }
-
-    private fun looksLikeMedia(url: String): Boolean {
-        val x = url.lowercase()
-        return listOf(".m3u8", ".mpd", ".mp4", ".m4v", ".webm", ".ts").any(x::contains)
     }
 
     private fun kind(url: String): String = when {

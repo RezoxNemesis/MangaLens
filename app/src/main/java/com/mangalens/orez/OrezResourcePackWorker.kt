@@ -47,7 +47,8 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
                     "regexRows" to stats.regexRows
                 ))
             }else{
-            val builder=Request.Builder().url(url!!).header("User-Agent","MangaLens/14 OREZ-Pack").header("Accept","application/x-ndjson,application/json,text/plain,*/*")
+            val remoteUrl = url ?: error("No remote resource pack URL was supplied.")
+            val builder=Request.Builder().url(remoteUrl).header("User-Agent","MangaLens/14 OREZ-Pack").header("Accept","application/x-ndjson,application/json,text/plain,*/*")
             if (done > 0L) builder.header("Range", "bytes=$done-")
 
             client.newCall(builder.build()).execute().use { response ->
@@ -128,7 +129,7 @@ class OrezResourcePackWorker(appContext: Context, params: WorkerParameters) : Co
             .setProgress(if(determinate)100 else 0,percent,!determinate)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(10004,notification)
+        return ForegroundInfo(10004,notification, if (android.os.Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
     }
 
     private fun formatBytes(bytes:Long):String="%.1f MB".format(bytes/1048576.0)

@@ -2,6 +2,7 @@ package com.mangalens.core.adblock
 
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -55,11 +56,19 @@ class AdBlockEngineTest {
     }
 
     @Test
-    fun testMediaOnBlockedHostIsAlwaysAllowed() {
+    fun testMediaOnKnownAdHostIsBlocked() {
         val response = adBlockEngine.shouldBlockRequest(
-            "https://cdn.doubleclick.net/manga/page01.jpg?token=abc123"
+            "https://cdn.doubleclick.net/preroll/ad-video.mp4?token=abc123"
         )
-        assertNull("Valid media must always pass through", response)
+        assertNotNull("Known ad-network media must be blocked too", response)
+    }
+
+    @Test
+    fun testOrdinaryFirstPartyMediaStillPasses() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://video.example.com/media/movie.mp4?token=abc123"
+        )
+        assertNull("First-party media must keep playing", response)
     }
 
     @Test
@@ -69,4 +78,41 @@ class AdBlockEngineTest {
         )
         assertNull("Unrelated navigation should be allowed", response)
     }
+    @Test
+    fun testFirstPartyPrerollMediaIsBlocked() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://video.example.com/ads/preroll/ad-01.mp4"
+        )
+        assertNotNull("Explicit first-party preroll paths must be blocked", response)
+    }
+
+
+    @Test
+    fun testAdditionalProgrammaticAdNetworkIsBlocked() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://ads.example.rubiconproject.com/a/api/fastlane.json"
+        )
+        assertNotNull("Known programmatic ad network should be blocked", response)
+    }
+
+    @Test
+    fun testOrdinaryFirstPartyVideoWithAdWordInTitleStillPasses() {
+        val response = adBlockEngine.shouldBlockRequest(
+            "https://media.example.com/video/road-adventure-4k.mp4?token=abc"
+        )
+        assertNull("Normal first-party video titles must not be overblocked", response)
+    }
+
+
+    @Test
+    fun socialVideoAdSelectorsArePresentWithoutBlockingSharedMediaCdn() {
+        val script = adBlockEngine.getElementHidingScript()
+        assertTrue(script.contains("ytd-display-ad-renderer"))
+        assertTrue(script.contains("instagram"))
+        assertNull(
+            "YouTube video CDN must not be blanket-blocked because it also carries real playback.",
+            adBlockEngine.shouldBlockRequest("https://rr1---sn.example.googlevideo.com/videoplayback?id=1&mime=video%2Fmp4")
+        )
+    }
+
 }

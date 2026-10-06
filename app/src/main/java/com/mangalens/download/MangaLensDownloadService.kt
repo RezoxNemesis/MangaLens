@@ -9,18 +9,27 @@ import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.DataSource
+import java.util.concurrent.Executor
 import androidx.media3.exoplayer.offline.*
 import androidx.media3.exoplayer.scheduler.Scheduler
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import okhttp3.OkHttpClient
+import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -41,18 +50,24 @@ class MangaLensDownloadService : DownloadService(
     override fun getScheduler(): Scheduler? = null
 
     override fun getForegroundNotification(downloads: List<Download>, notMetRequirements: Int): Notification {
+        Holder.persistProgress(this, downloads)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "MangaLens media downloads", NotificationManager.IMPORTANCE_LOW)
             )
         }
-        val active = downloads.firstOrNull()
+        val active = downloads.firstOrNull { it.state == Download.STATE_DOWNLOADING } ?: downloads.firstOrNull()
         val percent = active?.percentDownloaded?.takeIf { it >= 0f }?.toInt() ?: 0
+        val activeTitle = active?.request?.id?.let { id ->
+            runCatching { DownloadRequestContextStore(this).readMedia(id)?.title }
+                .getOrNull()
+                ?.takeIf(String::isNotBlank)
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("MangaLens downloads")
-            .setContentText(active?.request?.id ?: "Media download manager")
+            .setContentText(activeTitle ?: active?.request?.id ?: "Media download manager")
             .setProgress(100, percent, active?.percentDownloaded?.let { it < 0f } ?: false)
             .setOngoing(true)
             .build()
@@ -61,7 +76,6 @@ class MangaLensDownloadService : DownloadService(
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 10003
         private const val CHANNEL_ID = "mangalens_media_downloads"
-        private const val MAX_CACHE_BYTES = 1024L * 1024L * 1024L
 
         fun addAdaptive(context: Context, id: String, uri: Uri, mime: String?) {
             val request = DownloadRequest.Builder(id, uri)
@@ -97,57 +111,111 @@ class MangaLensDownloadService : DownloadService(
 
     object Holder {
         @Volatile private var manager: DownloadManager? = null
+        @Volatile private var downloadCache: SimpleCache? = null
+        @Volatile private var databaseProvider: StandaloneDatabaseProvider? = null
         private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val callbackMutex = Mutex()
+
+        // DownloadService invokes this with live progress at its notification interval.
+        // Byte-only writes cannot undo pause/cancel/failure/completion or move progress backwards.
+        internal fun persistProgress(context: Context, downloads: List<Download>) = callbackScope.launch {
+            callbackMutex.withLock {
+                val dao = DownloadDatabase.get(context).downloads()
+                for (download in downloads) if (download.state == Download.STATE_DOWNLOADING) {
+                    dao.adaptiveProgressIfActive(download.request.id, download.bytesDownloaded, download.contentLength)
+                }
+            }
+        }
+
+        private suspend fun persistState(dao: DownloadDao, download: Download, message: String?) {
+            val state = when (download.state) {
+                Download.STATE_COMPLETED -> DownloadState.COMPLETED
+                Download.STATE_FAILED -> DownloadState.FAILED
+                Download.STATE_STOPPED -> DownloadState.PAUSED
+                Download.STATE_DOWNLOADING -> DownloadState.DOWNLOADING
+                else -> DownloadState.QUEUED
+            }
+            val total = if (state == DownloadState.COMPLETED && download.contentLength < 0) download.bytesDownloaded else download.contentLength
+            dao.adaptiveStateIfActive(download.request.id, download.bytesDownloaded, total, state, message)
+        }
+
+        @Synchronized
+        private fun storage(context: Context): Pair<StandaloneDatabaseProvider, SimpleCache> {
+            val app = context.applicationContext
+            val provider = databaseProvider ?: StandaloneDatabaseProvider(app).also { databaseProvider = it }
+            val cache = downloadCache ?: run {
+                val directory = File(app.filesDir, "media_download_cache").apply { mkdirs() }
+                // Explicit user downloads are durable offline data, not an evictable streaming cache.
+                SimpleCache(directory, NoOpCacheEvictor(), provider).also { downloadCache = it }
+            }
+            return provider to cache
+        }
+
+        @Synchronized
+        fun cache(context: Context): SimpleCache = storage(context).second
 
         @Synchronized
         fun manager(context: Context): DownloadManager {
             manager?.let { return it }
             val app = context.applicationContext
-            val directory = File(app.filesDir, "media_download_cache").apply { mkdirs() }
-            val provider = StandaloneDatabaseProvider(app)
-            val cache = SimpleCache(directory, LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES), provider)
             val dataSource = DefaultHttpDataSource.Factory()
                 .setUserAgent("MangaLens/13")
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(20_000)
                 .setReadTimeoutMs(60_000)
-            val created = DownloadManager(
-                app,
-                provider,
-                cache,
-                dataSource,
-                Executors.newSingleThreadExecutor()
-            )
+            return createManager(app, dataSource, Executors.newSingleThreadExecutor()).also { manager = it }
+        }
+
+        // Shared construction lets instrumentation exercise real Media3 callbacks with a
+        // fixture-only HTTPS client. Production always uses the system-trusted factory above.
+        internal fun createManager(context: Context, dataSource: DataSource.Factory, executor: Executor): DownloadManager {
+            val app = context.applicationContext
+            val (provider, cache) = storage(app)
+            val contexts = DownloadRequestContextStore(app)
+            val created = DownloadManager(app, DefaultDownloadIndex(provider), DownloaderFactory { request ->
+                val requestContext = contexts.read(request.id)
+                val upstream = if (requestContext == null) dataSource else {
+                    OkHttpDataSource.Factory(
+                        OkHttpClient.Builder().connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                            .addNetworkInterceptor(scopedDownloadHeaders(requestContext) { url -> android.webkit.CookieManager.getInstance().getCookie(url) }).build()
+                    )
+                }
+                DefaultDownloaderFactory(
+                    CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(upstream), executor
+                ).createDownloader(request)
+            })
             created.maxParallelDownloads = 1
 
             val dao = DownloadDatabase.get(app).downloads()
             created.addListener(object : DownloadManager.Listener {
+                override fun onInitialized(downloadManager: DownloadManager) {
+                    // Completed entries are absent from currentDownloads. Restore completion
+                    // and byte checkpoints without replaying stale queued/failed state over a retry.
+                    callbackScope.launch(start = CoroutineStart.UNDISPATCHED) { callbackMutex.withLock {
+                        withContext(Dispatchers.IO) { downloadManager.downloadIndex.getDownloads().use { cursor ->
+                            while (cursor.moveToNext()) {
+                                val download = cursor.download
+                                if (download.state == Download.STATE_COMPLETED || download.state == Download.STATE_STOPPED) {
+                                    persistState(dao, download, null)
+                                } else if (download.state == Download.STATE_DOWNLOADING || download.state == Download.STATE_QUEUED) {
+                                    dao.adaptiveProgressIfActive(download.request.id, download.bytesDownloaded, download.contentLength)
+                                }
+                            }
+                        } }
+                    } }
+                }
                 override fun onDownloadChanged(
                     downloadManager: DownloadManager,
                     download: Download,
                     finalException: Exception?
                 ) {
-                    callbackScope.launch {
-                        val current = dao.get(download.request.id) ?: return@launch
-                        val state = when (download.state) {
-                            Download.STATE_COMPLETED -> DownloadState.COMPLETED
-                            Download.STATE_FAILED -> DownloadState.FAILED
-                            Download.STATE_STOPPED -> DownloadState.PAUSED
-                            Download.STATE_DOWNLOADING -> DownloadState.DOWNLOADING
-                            else -> DownloadState.QUEUED
-                        }
-                        dao.upsert(
-                            current.copy(
-                                bytesDownloaded = download.bytesDownloaded,
-                                totalBytes = download.contentLength,
-                                state = state,
-                                error = finalException?.message
-                            )
-                        )
-                    }
+                    // Enter the fair mutex in listener order before dispatching suspended Room work.
+                    callbackScope.launch(start = CoroutineStart.UNDISPATCHED) { callbackMutex.withLock {
+                        persistState(dao, download, finalException?.message)
+                    } }
                 }
             })
-            manager = created
             return created
         }
     }

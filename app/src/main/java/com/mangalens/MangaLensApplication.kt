@@ -11,6 +11,11 @@ class MangaLensApplication : Application() {
         if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             runCatching { Coil.imageLoader(this).memoryCache?.clear() }
         }
+        if (level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            com.mangalens.oreznative.OrezNativeEngine.trimMemory()
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

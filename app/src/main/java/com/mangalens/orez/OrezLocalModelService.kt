@@ -2,27 +2,72 @@ package com.mangalens.orez
 
 import com.mangalens.oreznative.OrezNativeEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import java.io.File
 
 class OrezLocalModelService(private val manager: OrezModelManager) {
     private val engine = OrezNativeEngine()
     private val packStore by lazy { OrezConversationPackStore(manager.context) }
+    private val loadMutex = Mutex()
+    @Volatile private var temporarilyUnavailableUntil = 0L
+    @Volatile private var idleReleaseJob: kotlinx.coroutines.Job? = null
+
+    suspend fun warmUp(): Boolean = withContext(Dispatchers.Default) {
+        val file = manager.modelFile
+        if (!manager.isReady()) return@withContext false
+        if (!hasMemoryHeadroom(file)) return@withContext false
+        ensureLoaded(file, 7_000L).also { if (it) scheduleIdleRelease() }
+    }
+
+    private fun hasMemoryHeadroom(file: File): Boolean {
+        val info = android.app.ActivityManager.MemoryInfo()
+        val activity = manager.context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        activity.getMemoryInfo(info)
+        return !info.lowMemory && info.availMem >= file.length() + 224L * 1024 * 1024
+    }
+
+    private suspend fun ensureLoaded(file: File, budgetMs: Long): Boolean {
+        if (engine.isLoaded) return true
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < temporarilyUnavailableUntil) return false
+        val loaded = withTimeoutOrNull(budgetMs) {
+            loadMutex.withLock {
+                if (engine.isLoaded) true else engine.load(file.absolutePath)
+            }
+        } ?: false
+        if (!loaded) temporarilyUnavailableUntil = now + 30_000L
+        return loaded
+    }
 
     suspend fun answer(prompt: String, recent: List<OrezMessageEntity>): String? = withContext(Dispatchers.Default) {
+        idleReleaseJob?.cancel()
         val file: File = manager.modelFile
-        if (!file.exists() || file.length() < OrezModelManager.MODEL_BYTES) return@withContext null
-        if (!engine.load(file.absolutePath)) return@withContext null
+        if (!manager.isReady()) return@withContext null
+        if (!engine.isLoaded && !hasMemoryHeadroom(file)) return@withContext null
+        if (!ensureLoaded(file, 7_000L)) return@withContext null
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
-            val role = if (message.role.equals("assistant", true)) "assistant" else "user"
+            val role = if (message.role.equals("assistant", true) || message.role.equals("OREZ", true)) "assistant" else "user"
             "<|im_start|>$role\n${message.text}\n<|im_end|>"
-        }.takeLast(9000)
+        }.takeLast(4200)
 
-        val examples = runCatching { packStore.search(prompt, 3) }.getOrDefault(emptyList())
+        val examples = try { packStore.search(prompt, 2) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { emptyList() }
         val retrieval = examples.joinToString("\n\n") {
             "REFERENCE EXAMPLE [" + it.domain + "]:\nUser: " + it.prompt.take(1200) + "\nAssistant: " + it.response.take(1800)
-        }.take(6000)
+        }.take(2600)
 
         val system = """
             You are OREZ, the private local AI inside MangaLens.
@@ -56,8 +101,37 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             append("<|im_start|>assistant\n")
         }
 
-        val raw = engine.generate(promptText, 512).trim()
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val tokenBudget = when {
+            prompt.contains("Return only the translation", ignoreCase = true) -> 192
+            prompt.length < 400 -> 224
+            else -> 288
+        }
+        val raw = withTimeoutOrNull(12_000L) { generate(promptText, tokenBudget) }
+            ?.trim()
+            ?: run {
+                scheduleIdleRelease()
+                return@withContext null
+            }
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        scheduleIdleRelease()
         sanitize(raw).takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun generate(prompt: String, maxTokens: Int): String = suspendCancellableCoroutine { continuation ->
+        val request = engine.newGeneration()
+        continuation.invokeOnCancellation { request.cancel() }
+        // Native cleanup must finish even when the caller's coroutine is cancelled.
+        cleanupScope.launch(Dispatchers.Default) {
+            try {
+                val result = engine.generate(prompt, maxTokens.coerceIn(96, 320), request)
+                if (continuation.isActive) continuation.resume(result)
+            } catch (failure: Exception) {
+                if (continuation.isActive) continuation.resumeWithException(failure)
+            } finally {
+                request.close()
+            }
+        }
     }
 
     private fun sanitize(text: String): String =
@@ -67,5 +141,28 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
 
-    fun close() = engine.close()
+    private fun scheduleIdleRelease() {
+        idleReleaseJob?.cancel()
+        idleReleaseJob = cleanupScope.launch {
+            // Avoid repeatedly mmap/unmapping a half-gigabyte model between consecutive
+            // chat turns. Context memory is already freed after each generation; keep only
+            // the mmap'd model warm for a bounded conversational idle window.
+            delay(90_000L)
+            engine.cancelGenerations()
+            engine.close()
+        }
+    }
+
+    fun releaseMemory() {
+        idleReleaseJob?.cancel()
+        engine.cancelGenerations()
+        cleanupScope.launch { engine.close() }
+    }
+
+    // A generation holds JNI/engine locks. Screen disposal must not wait for them on Main.
+    fun close() { releaseMemory() }
+
+    companion object {
+        private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
 }
