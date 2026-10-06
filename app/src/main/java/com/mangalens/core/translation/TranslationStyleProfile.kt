@@ -1,5 +1,7 @@
 package com.mangalens.core.translation
 
+import java.security.MessageDigest
+
 data class TranslationStyleProfile(
     val id: String,
     val name: String,
@@ -8,10 +10,15 @@ data class TranslationStyleProfile(
     val preserveNames: Boolean = true,
     val naturalDialogue: Boolean = true
 ) {
+    val memoryKey: String
+        get() = if (id != "custom") id else "custom:" + stableHash(instruction).take(20)
+
     companion object {
+        const val MAX_CUSTOM_INSTRUCTION_CHARS = 1200
+
         val NATURAL = TranslationStyleProfile(
             "natural", "Natural",
-            "Use fluent, natural dialogue that sounds like a professionally localized manga/manhwa while preserving the original intent."
+            "Use fluent, natural dialogue that sounds professionally localized while preserving intent, relationship and emotional register. Do not add respect, politeness or honorificity that the source does not express."
         )
         val FAITHFUL = TranslationStyleProfile(
             "faithful", "Faithful",
@@ -33,7 +40,7 @@ data class TranslationStyleProfile(
         fun custom(instruction: String): TranslationStyleProfile = TranslationStyleProfile(
             id = "custom",
             name = "Custom",
-            instruction = instruction.trim().ifBlank { NATURAL.instruction }
+            instruction = instruction.trim().take(MAX_CUSTOM_INSTRUCTION_CHARS).ifBlank { NATURAL.instruction }
         )
 
         fun fromId(id: String): TranslationStyleProfile = when (id.lowercase()) {
@@ -43,5 +50,10 @@ data class TranslationStyleProfile(
             WEBTOON.id -> WEBTOON
             else -> NATURAL
         }
+
+        private fun stableHash(value: String): String =
+            MessageDigest.getInstance("SHA-256")
+                .digest(value.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
     }
 }

@@ -22,15 +22,17 @@ class MangaChapterScraper(
             suspendCancellableCoroutine { continuation ->
                 val web = WebView(context.applicationContext)
                 var finished = false
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
                 fun finish(values: List<String>) {
                     if (finished) return
                     finished = true
+                    handler.removeCallbacksAndMessages(null)
                     web.stopLoading()
                     web.destroy()
-                    continuation.resume(values.distinct())
+                    if (continuation.isActive) continuation.resume(values.distinct())
                 }
 
-                web.settings.javaScriptEnabled = true
+                com.mangalens.core.web.SafeWebView.configure(web)
                 web.settings.domStorageEnabled = true
                 web.webViewClient = object : AdBlockWebViewClient(adBlock) {
                     override fun onPageFinished(view: WebView?, pageUrl: String?) {
@@ -68,12 +70,10 @@ class MangaChapterScraper(
                         }
                     }
                 }
-                val handler = android.os.Handler(android.os.Looper.getMainLooper())
                 handler.postDelayed({ finish(emptyList()) }, timeoutMs)
-                continuation.invokeOnCancellation {
-                    web.stopLoading()
-                    web.destroy()
-                }
+                continuation.invokeOnCancellation { handler.post {
+                    if (!finished) { finished = true; handler.removeCallbacksAndMessages(null); web.stopLoading(); web.destroy() }
+                } }
                 web.loadUrl(url)
             }
         }

@@ -1,58 +1,124 @@
 package com.mangalens.ui.home
 
-import android.content.ClipDescription
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.content.ClipboardManager
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.mangalens.R
 import com.mangalens.core.model.ContentType
 import com.mangalens.ui.MangaLensUiState
+import com.mangalens.ui.components.*
 
 @Composable
-fun HomeScreen(state:MangaLensUiState,onUrlChanged:(String)->Unit,onPaste:()->Unit,onModeSelected:(ContentType)->Unit,onIngest:()->Unit,onOpenReader:()->Unit,onOpenVideo:()->Unit,onOpenDownloads:()->Unit,onOpenChapter:(String)->Unit,onImportImages:(List<Uri>)->Unit){
-    val context=LocalContext.current
-    val imagePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){uris->
-        if(uris.isNotEmpty()){
-            uris.forEach{uri->runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}}
-            onImportImages(uris)
-        }
-    }
-    fun safePaste(){
-        runCatching{
-            val clipboard=context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return@runCatching
-            val clip=clipboard.primaryClip ?: return@runCatching
-            if(clip.itemCount>0 && (clip.description?.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)==true || clip.description?.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML)==true)){
-                val text=clip.getItemAt(0).coerceToText(context).toString().trim()
-                if(text.isNotBlank()) onUrlChanged(text)
+fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste: () -> Unit,
+    onModeSelected: (ContentType) -> Unit, onIngest: () -> Unit, onOpenReader: () -> Unit,
+    onOpenVideo: () -> Unit, onOpenDownloads: () -> Unit, onOpenChapter: (String) -> Unit,
+    onImportImages: (List<Uri>) -> Unit, onOpenSavedChapter: (String) -> Unit,
+    onOpenOrez: () -> Unit, onOpenLibrary: () -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var tab by rememberSaveable { mutableStateOf("For you") }
+    var showLink by rememberSaveable { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImportImages(it) }
+    val chapters = state.library.filter { it.title.contains(query, true) && (tab != "Bookmarks" || it.bookmarked) }
+    if (showLink) AlertDialog(onDismissRequest = { showLink = false }, title = { Text("Open a link") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(state.url, onUrlChanged, singleLine = true, placeholder = { Text("Chapter, video or web URL") }, trailingIcon = { TextButton(onPaste) { Text("Paste") } })
+            listOf(ContentType.IMAGE_CHAPTER to "Manga / Manhwa", ContentType.VIDEO_STREAM to "Video", ContentType.GENERIC_WEB to "Web page").forEach { (mode, label) ->
+                Row { RadioButton(state.mode == mode, { onModeSelected(mode) }); Text(label, Modifier.padding(top = 13.dp)) }
             }
         }
-    }
-    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
-            Column{Text("MANGALENS",color=MaterialTheme.colorScheme.primary,fontWeight=FontWeight.Black,style=MaterialTheme.typography.headlineSmall);Text("Universal media translation hub",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
-            AssistChip(onClick={},label={Text("AD-BLOCK ON")})
+    }, confirmButton = { Button({ showLink = false; onIngest() }, enabled = state.url.isNotBlank() && !state.loading) { Text("Open content") } }, dismissButton = { TextButton({ showLink = false }) { Text("Cancel") } })
+    LazyColumn(
+        Modifier.fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = .055f),
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .statusBarsPadding(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item { BrandHeader("MangaLens 2.1", "READ BEYOND LANGUAGE", action = {
+            IconButton({ showLink = true }) { Icon(Icons.Outlined.Link, "Open link") }
+            IconButton(onOpenOrez) { Icon(Icons.Outlined.SmartToy, "Ask Orez") }
+        }) }
+        item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
+            leadingIcon = { Icon(Icons.Outlined.Search, null) }, placeholder = { Text("Search your manga & chapters") }, shape = RoundedCornerShape(18.dp)) }
+        item { LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(listOf("For you", "Recent", "Bookmarks")) { label -> FilterChip(tab == label, { tab = label }, label = { Text(label) }) }
+        } }
+        if (query.isBlank() && tab == "For you") item { ArtworkHero("Your next chapter awaits", "Import your stories. Read and translate on your device.", R.drawable.home_artwork, "Import & read") { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) } }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                NeonActionTile("Open link", "Paste URL to read or play", Icons.Outlined.Link, Modifier.weight(1f)) { showLink = true }
+                NeonActionTile("Downloads", "Saved files & media", Icons.Outlined.FileDownload, Modifier.weight(1f), onClick = onOpenDownloads)
+            }
         }
-        OutlinedTextField(value=state.url,onValueChange=onUrlChanged,modifier=Modifier.fillMaxWidth(),singleLine=true,placeholder={Text("Paste a chapter, video or web URL")},trailingIcon={Button(onClick={safePaste();onPaste()}){Text("PASTE")}})
-        Text("OPEN AS",fontWeight=FontWeight.Bold)
-        LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){items(listOf(ContentType.IMAGE_CHAPTER to "Manga",ContentType.VIDEO_STREAM to "Video",ContentType.GENERIC_WEB to "Web")){(mode,label)->FilterChip(selected=state.mode==mode,onClick={onModeSelected(mode)},label={Text(label)})}}
-        Button(onClick=onIngest,enabled=state.url.isNotBlank()&&!state.loading,modifier=Modifier.fillMaxWidth()){if(state.loading)CircularProgressIndicator(modifier=Modifier.height(18.dp))else Text("OPEN")}
-        OutlinedButton(onClick={imagePicker.launch(arrayOf("image/*"))},modifier=Modifier.fillMaxWidth()){Text("IMPORT IMAGES • OCR + TRANSLATE")}
-        OutlinedButton(onClick=onOpenDownloads,modifier=Modifier.fillMaxWidth()){Text("UNIVERSAL DOWNLOADER • 480P → 4K")}
-        if(state.chapters.isNotEmpty()){Text("CHAPTERS",fontWeight=FontWeight.Bold);state.chapters.take(20).forEach{chapter->ElevatedCard(onClick={onOpenChapter(chapter.url)},modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){Text(chapter.title.ifBlank{"Chapter"});Text(chapter.url,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)}}}}
-        Text("RECENT",fontWeight=FontWeight.Bold)
-        if(state.pages.isNotEmpty()){ElevatedCard(onClick=onOpenReader,modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Text("Chapter reader");Text(state.pages.size.toString()+" pages available",color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
-        state.videoUrl?.let{Card(onClick=onOpenVideo,modifier=Modifier.fillMaxWidth()){Text("Video stream",modifier=Modifier.padding(16.dp))}}
-        state.error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        Spacer(Modifier.height(8.dp))
+        state.library.firstOrNull()?.takeIf { query.isBlank() && tab == "For you" }?.let { chapter ->
+            item { Column(verticalArrangement = Arrangement.spacedBy(9.dp)) { Text("Continue reading", style = MaterialTheme.typography.titleMedium); ContinueCard(chapter) { onOpenSavedChapter(chapter.id) } } }
+        }
+        item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(if (tab == "Bookmarks") "Your bookmarks" else "Recently saved", style = MaterialTheme.typography.titleMedium)
+            TextButton(onOpenLibrary, contentPadding = PaddingValues(0.dp)) { Text("View all →") }
+        } }
+        if (chapters.isNotEmpty()) item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(chapters.take(20), key = { it.id }) { chapter ->
+                    ChapterCover(chapter, { onOpenSavedChapter(chapter.id) }, Modifier.width(112.dp))
+                }
+            }
+        } else item {
+            Panel {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Outlined.CollectionsBookmark, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(34.dp))
+                    Column {
+                        Text(if (query.isNotBlank()) "No matching chapters" else if (tab == "Bookmarks") "Bookmark a story you love" else "Bring your first story", style = MaterialTheme.typography.titleMedium)
+                        Text("Your library becomes richer as you read.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Text("Images, ZIP, CBZ and PDF chapters are supported. Your saved pages appear here.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button({ picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }, shape = RoundedCornerShape(14.dp)) { Text("Import chapter →") }
+            }
+        }
+        if (state.chapters.isNotEmpty()) item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Chapters from your source", style = MaterialTheme.typography.titleMedium)
+            state.chapters.take(20).forEach { chapter -> TextButton({ onOpenChapter(chapter.url) }) { Text(chapter.title.ifBlank { "Chapter" }) } }
+        } }
+        item {
+            Panel {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
+                    Column {
+                        Text("Meet Orez 2.1", style = MaterialTheme.typography.titleMedium)
+                        Text("Hybrid story assistant, OCR helper and web-backed companion.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Button(onOpenOrez, shape = RoundedCornerShape(14.dp)) { Text("Talk to Orez →") }
+            }
+        }
+        state.videoUrl?.let {
+            item {
+                NeonActionTile("Resume video", "Continue in MangaLens Video", Icons.Outlined.PlayCircle, Modifier.fillMaxWidth(), onClick = onOpenVideo)
+            }
+        }
+        state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+        if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Preparing chapter…") }
     }
 }

@@ -1,0 +1,9 @@
+.gradle/
+**/build/
+**/.cxx/
+local.properties
+*.hprof
+.kotlin/
+# Generated controlled CI media (created by the fixture script).
+app/src/androidTest/assets/video/ocr-frame.mp4.base64
+app/src/androidTest/assets/video/mux-audio.m4a.base64

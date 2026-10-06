@@ -35,7 +35,8 @@ data class RenderedPageSet(
  */
 class RenderedBrowserAcquirer(
     private val context: Context,
-    private val adBlockEngine: AdBlockEngine = AdBlockEngine()
+    private val adBlockEngine: AdBlockEngine = AdBlockEngine(),
+    private val adBlockEnabled: () -> Boolean = { true }
 ) {
     private companion object {
         const val MAX_IMAGE_URLS = 3000
@@ -56,28 +57,23 @@ class RenderedBrowserAcquirer(
             val handler = Handler(Looper.getMainLooper())
 
             val webView = WebView(context.applicationContext).apply {
-                settings.javaScriptEnabled = true
+                com.mangalens.core.web.SafeWebView.configure(this)
                 settings.domStorageEnabled = true
-                settings.mediaPlaybackRequiresUserGesture = false
-                settings.userAgentString =
-                    "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                settings.mediaPlaybackRequiresUserGesture = true
+
             }
 
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(webView, true)
+            cookieManager.setAcceptThirdPartyCookies(webView, false)
 
-            if (!cookie.isNullOrBlank()) {
-                cookieManager.setCookie(url, cookie)
-                cookieManager.flush()
-            }
 
             fun finishAcquisition(result: RenderedPageSet) {
                 if (finished.compareAndSet(false, true)) {
                     handler.removeCallbacksAndMessages(null)
                     webView.stopLoading()
                     webView.destroy()
-                    continuation.resume(result)
+                    if (continuation.isActive) continuation.resume(result)
                 }
             }
 
@@ -103,15 +99,15 @@ class RenderedBrowserAcquirer(
                 )
             }, timeoutMs.coerceIn(5_000L, 20_000L))
 
-            continuation.invokeOnCancellation {
+            continuation.invokeOnCancellation { handler.post {
                 if (finished.compareAndSet(false, true)) {
                     handler.removeCallbacksAndMessages(null)
                     webView.stopLoading()
                     webView.destroy()
                 }
-            }
+            } }
 
-            webView.webViewClient = object : AdBlockWebViewClient(adBlockEngine) {
+            webView.webViewClient = object : AdBlockWebViewClient(adBlockEngine, adBlockEnabled) {
 
                 override fun shouldInterceptRequest(
                     view: WebView?,
@@ -201,8 +197,11 @@ class RenderedBrowserAcquirer(
 
                             val parsedUrls = parseJsonArray(decoded)
                             for (candidate in parsedUrls) {
-                                if (discoveredDomUrls.size >= MAX_IMAGE_URLS) break
-                                if (isImageCandidate(candidate)) discoveredDomUrls.add(candidate)
+                                if (isVideoCandidate(candidate)) {
+                                    if (networkVideos.size < MAX_VIDEO_URLS) networkVideos.add(candidate)
+                                } else if (isImageCandidate(candidate) && discoveredDomUrls.size < MAX_IMAGE_URLS) {
+                                    discoveredDomUrls.add(candidate)
+                                }
                             }
 
                             val finalImages = if (discoveredDomUrls.isNotEmpty()) {
@@ -238,13 +237,27 @@ class RenderedBrowserAcquirer(
         if (listOf(".js", ".css", ".html", ".json", ".xml", ".woff", ".svg").any { lower.endsWith(it) }) {
             return false
         }
+        if (listOf(
+                "google.com/recaptcha",
+                "gstatic.com/recaptcha",
+                "hcaptcha.com/",
+                "challenges.cloudflare.com/",
+                "/cdn-cgi/challenge-platform/",
+                "cf-chl-",
+                "/captcha/",
+                "captcha.php"
+            ).any { lower.contains(it) }
+        ) return false
         return listOf(".jpg", ".jpeg", ".png", ".webp", ".avif", "chapter", "page", "upload", "manga", "cdn")
             .any { lower.contains(it) }
     }
 
     private fun isVideoCandidate(url: String): Boolean {
         val lower = url.lowercase()
-        return listOf(".m3u8", ".mp4", ".ts", "/hls/", "/manifest/").any { lower.contains(it) }
+        return listOf(
+            ".m3u8", ".mpd", ".mp4", ".m4v", ".webm", ".mkv", ".mov", ".ts",
+            "/hls/", "/dash/", "/manifest/"
+        ).any { lower.contains(it) }
     }
 
     private fun parseJsonArray(json: String): List<String> {

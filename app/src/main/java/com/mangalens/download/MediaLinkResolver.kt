@@ -1,11 +1,15 @@
 package com.mangalens.download
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 enum class DownloadQuality(val height: Int, val label: String) {
+    BEST(10_000, "Best available"),
     P480(480, "480p"),
     P720(720, "720p"),
     P1080(1080, "1080p"),
@@ -20,16 +24,47 @@ data class ResolvedMediaLink(
     val mimeType: String?,
     val provider: String = "generic",
     val detectedHeight: Int? = null,
-    val title: String? = null
+    val title: String? = null,
+    val sourcePageUrl: String? = null,
+    val headers: Map<String, String> = emptyMap(),
+    val audioUrl: String? = null,
+    val audioHeaders: Map<String, String> = emptyMap(),
+    val requestedHeight: Int? = null
 )
 
-class MediaLinkResolver {
-    private val client = OkHttpClient.Builder().followRedirects(true).followSslRedirects(true).build()
+class MediaLinkResolver(
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(true).followSslRedirects(true)
+        .callTimeout(45, TimeUnit.SECONDS).build(),
+    private val siteExtractor: SiteMediaExtractor? = null
+) {
 
-    fun resolve(input: String, quality: DownloadQuality = DownloadQuality.P2160): ResolvedMediaLink? {
+    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? =
+        runInterruptible(Dispatchers.IO) { resolve(input, quality) }
+
+    fun resolve(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? {
         val clean = input.trim()
-        require(clean.startsWith("http://") || clean.startsWith("https://")) { "Only HTTP(S) links are supported." }
+        val inputUri = runCatching { URI(clean) }.getOrNull()
+        require(inputUri?.scheme in setOf("http", "https") && !inputUri?.host.isNullOrBlank() && inputUri?.userInfo == null) {
+            "Only HTTP(S) links without embedded credentials are supported."
+        }
         val lower = clean.substringBefore("?").lowercase()
+        // Video/watch pages are sent through yt-dlp before generic HTML scraping. This prevents a
+        // poster, preview clip or advertising MP4 from winning merely because it appears first in
+        // the markup. Generic scraping remains the bounded fallback when an extractor is stale.
+        var extractorFailure: Exception? = null
+        val provider = providerFor(clean)
+        val pathLooksLikeVideo = inputUri.path.orEmpty().split('/').any {
+            it.lowercase() in setOf("video", "videos", "watch", "reel", "reels", "embed", "player")
+        }
+        val dedicated = !isDirect(lower) && siteExtractor != null && (provider != "generic" || pathLooksLikeVideo)
+        if (dedicated) {
+            try { siteExtractor?.extract(clean, quality)?.let { return it } }
+            catch (failure: Exception) {
+                if (failure is InterruptedException) throw failure
+                extractorFailure = failure
+            }
+        }
 
         if (isDirect(lower)) {
             return ResolvedMediaLink(
@@ -49,21 +84,38 @@ class MediaLinkResolver {
             .header("Referer", clean)
             .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
-            val body = response.body ?: return null
+        val genericResult = try { client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val body = response.body ?: return@use null
+            val contentType = response.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
+            if (contentType?.startsWith("video/") == true || contentType in setOf(
+                    "application/vnd.apple.mpegurl", "application/x-mpegurl", "application/dash+xml")) {
+                return@use ResolvedMediaLink(response.request.url.toString(), contentType, "direct")
+            }
             val contentLength = body.contentLength()
-            if (contentLength > MAX_HTML_BYTES) return null
-            val html = body.source().readUtf8(MAX_HTML_BYTES)
+            if (contentLength > MAX_HTML_BYTES) return@use null
+            val source = body.source()
+            // readUtf8(byteCount) requires exactly that many bytes and throws on ordinary short pages.
+            // Request one byte beyond the limit so unknown-length/chunked responses stay bounded too.
+            source.request(MAX_HTML_BYTES + 1L)
+            if (source.buffer.size > MAX_HTML_BYTES) return@use null
+            val html = source.readUtf8()
             val provider = providerFor(clean)
             val title = Regex("""(?is)<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)""")
                 .find(html)?.groupValues?.getOrNull(1)?.let(::unescape)
                 ?: Regex("""(?is)<title[^>]*>(.*?)</title>""").find(html)?.groupValues?.getOrNull(1)?.let(::stripTags)
 
             val candidates = linkedSetOf<String>()
-            Regex("""(?is)<meta[^>]+property=["']og:(?:video|image)["'][^>]+content=["']([^"']+)""")
+            Regex("""(?is)<meta[^>]+property=["']og:(?:video(?::(?:url|secure_url))?|image)["'][^>]+content=["']([^"']+)""")
+                .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
+            Regex("""(?is)<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:(?:video(?::(?:url|secure_url))?|image)["']""")
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
             Regex("""(?is)<(?:video|source|img)[^>]+(?:src|data-src|data-original|poster)=["']([^"']+)""")
+                .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
+            // KVS-style sites such as Rule34Video expose the actual MP4 variants as download
+            // anchors rather than <source> nodes. Keep these as playable candidates and preserve
+            // the page Referer when Media3 requests them.
+            Regex("""(?is)<a[^>]+href=["']([^"']+(?:download=true|\.mp4(?:\?|/))[^"']*)["'][^>]*>""")
                 .findAll(html).forEach { candidates += unescape(it.groupValues[1]) }
             Regex("""(?is)srcset=["']([^"']+)["']""")
                 .findAll(html).forEach { match ->
@@ -79,19 +131,25 @@ class MediaLinkResolver {
                 .findAll(html).forEach { candidates += unescape(it.value) }
 
             val resolved = candidates.mapNotNull { normalize(it, clean) }
-                .filter { isDirect(it.substringBefore("?").lowercase()) }
+                .filter { isDirect(it.substringBefore("?").lowercase()) && !isObviousAd(it) }
                 .map {
                     ResolvedMediaLink(
                         it,
                         guessMime(it.substringBefore("?").lowercase()),
                         provider,
                         detectHeight(it),
-                        title
+                        title,
+                        sourcePageUrl = response.request.url.toString(),
+                        headers = mapOf(
+                            "User-Agent" to USER_AGENT,
+                            "Referer" to response.request.url.toString(),
+                            "Accept" to "*/*"
+                        )
                     )
                 }
                 .toList()
 
-            if (resolved.isEmpty()) return null
+            if (resolved.isEmpty()) return@use null
             val videoCandidates = resolved.filter {
                 it.mimeType?.startsWith("video/") == true ||
                     it.mimeType == "application/x-mpegURL" ||
@@ -99,28 +157,51 @@ class MediaLinkResolver {
             }
             val pool = if (videoCandidates.isNotEmpty()) videoCandidates else resolved
 
-            return pool.maxByOrNull { candidate ->
+            pool.maxByOrNull { candidate ->
                 val height = candidate.detectedHeight ?: 0
                 val qualityFit = if (height <= quality.height) height * 1000 else -abs(height - quality.height)
                 qualityFit + if (candidate.mimeType == "video/mp4") 50 else 0
             }
+        } } catch (failure: java.io.IOException) {
+            if (siteExtractor == null) throw failure
+            null
         }
+        val videoPage = runCatching { URI(clean).path.orEmpty() }.getOrDefault("")
+            .split('/').any { it.lowercase() in setOf("video", "videos", "watch", "reel", "reels", "player") }
+        // A social/adult player thumbnail is not a successful video download.
+        val result = genericResult.takeUnless { videoPage && it?.mimeType?.startsWith("image/") == true }
+        result?.let { return it }
+        if (extractorFailure != null) throw extractorFailure
+        return if (dedicated) null else siteExtractor?.extract(clean, quality)
+    }
+
+    private fun isObviousAd(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return true
+        val host = uri.host.orEmpty().lowercase()
+        if (listOf("doubleclick.net", "googlesyndication.com", "trafficjunky.net", "exoclick.com", "juicyads.com").any { matchesHost(host, it) }) return true
+        return Regex("(?i)(?:^|[/_.-])(ads?|advertisement|preroll|pre-roll|vast)(?:$|[/_.-])").containsMatchIn(uri.path.orEmpty())
     }
 
     private fun providerFor(url: String): String {
         val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
         return when {
-            host.contains("youtube.com") || host == "youtu.be" -> "youtube"
-            host.contains("instagram.com") -> "instagram"
-            host.contains("facebook.com") || host.contains("fb.watch") -> "facebook"
-            host.contains("twitter.com") || host.contains("x.com") -> "x"
-            host.contains("tiktok.com") -> "tiktok"
+            matchesHost(host, "youtube.com") || host == "youtu.be" -> "youtube"
+            matchesHost(host, "instagram.com") -> "instagram"
+            matchesHost(host, "facebook.com") || matchesHost(host, "fb.watch") -> "facebook"
+            matchesHost(host, "twitter.com") || matchesHost(host, "x.com") -> "x"
+            matchesHost(host, "tiktok.com") -> "tiktok"
+            matchesHost(host, "rule34video.com") -> "rule34video"
+            matchesHost(host, "spankbang.com") -> "spankbang"
+            matchesHost(host, "vimeo.com") -> "vimeo"
             else -> "generic"
         }
     }
 
+    private fun matchesHost(host: String, domain: String) = host == domain || host.endsWith(".$domain")
+
     private fun detectHeight(url: String): Int? {
         val normalized = url.replace("%2F", "/").replace("%3A", ":")
+        if (Regex("""(?i)(?:^|[/_.-])4k(?:60fps|30fps|p)?(?:$|[/_.?&#-])""").containsMatchIn(normalized)) return 2160
         val match = Regex("""(?i)(?:height|quality|resolution|res|size)[=_:-]?(2160|1440|1080|720|480)(?:p)?""").find(normalized)
             ?: Regex("""(?i)(2160|1440|1080|720|480)p""").find(normalized)
         return match?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -137,28 +218,33 @@ class MediaLinkResolver {
             .getOrNull()
             ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
 
-    private fun isDirect(value: String): Boolean =
-        value.endsWith(".m3u8") || value.endsWith(".mpd") || value.endsWith(".mp4") ||
-            value.endsWith(".webm") || value.endsWith(".mkv") || value.endsWith(".mov") ||
-            value.endsWith(".jpg") || value.endsWith(".jpeg") || value.endsWith(".png") ||
-            value.endsWith(".webp") || value.endsWith(".avif") || value.endsWith(".gif") ||
-            value.endsWith(".bmp") || value.endsWith(".heic")
+    private fun isDirect(value: String): Boolean {
+        val clean = value.trimEnd('/')
+        return clean.endsWith(".m3u8") || clean.endsWith(".mpd") || clean.endsWith(".mp4") ||
+            clean.endsWith(".webm") || clean.endsWith(".mkv") || clean.endsWith(".mov") ||
+            clean.endsWith(".jpg") || clean.endsWith(".jpeg") || clean.endsWith(".png") ||
+            clean.endsWith(".webp") || clean.endsWith(".avif") || clean.endsWith(".gif") ||
+            clean.endsWith(".bmp") || clean.endsWith(".heic")
+    }
 
-    private fun guessMime(value: String): String? = when {
-        value.endsWith(".m3u8") -> "application/x-mpegURL"
-        value.endsWith(".mpd") -> "application/dash+xml"
-        value.endsWith(".mp4") -> "video/mp4"
-        value.endsWith(".webm") -> "video/webm"
-        value.endsWith(".mkv") -> "video/x-matroska"
-        value.endsWith(".mov") -> "video/quicktime"
-        value.endsWith(".jpg") || value.endsWith(".jpeg") -> "image/jpeg"
-        value.endsWith(".png") -> "image/png"
-        value.endsWith(".webp") -> "image/webp"
-        value.endsWith(".avif") -> "image/avif"
-        value.endsWith(".gif") -> "image/gif"
-        value.endsWith(".bmp") -> "image/bmp"
-        value.endsWith(".heic") -> "image/heic"
-        else -> null
+    private fun guessMime(value: String): String? {
+        val clean = value.trimEnd('/')
+        return when {
+            clean.endsWith(".m3u8") -> "application/x-mpegURL"
+            clean.endsWith(".mpd") -> "application/dash+xml"
+            clean.endsWith(".mp4") -> "video/mp4"
+            clean.endsWith(".webm") -> "video/webm"
+            clean.endsWith(".mkv") -> "video/x-matroska"
+            clean.endsWith(".mov") -> "video/quicktime"
+            clean.endsWith(".jpg") || clean.endsWith(".jpeg") -> "image/jpeg"
+            clean.endsWith(".png") -> "image/png"
+            clean.endsWith(".webp") -> "image/webp"
+            clean.endsWith(".avif") -> "image/avif"
+            clean.endsWith(".gif") -> "image/gif"
+            clean.endsWith(".bmp") -> "image/bmp"
+            clean.endsWith(".heic") -> "image/heic"
+            else -> null
+        }
     }
 
     companion object {

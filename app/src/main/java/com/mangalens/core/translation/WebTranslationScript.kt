@@ -11,13 +11,15 @@ object WebTranslationScript {
                 if (window.__mangalensTranslationOff) window.__mangalensTranslationOff();
                 const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
                 const nodes = [];
-                while (walker.nextNode()) {
+                while (nodes.length < 160 && walker.nextNode()) {
                     const node = walker.currentNode;
                     const text = (node.nodeValue || '').trim();
                     const parent = node.parentElement;
                     if (text.length > 1 && parent &&
                         !['SCRIPT','STYLE','NOSCRIPT','TEXTAREA','INPUT','CODE','PRE'].includes(parent.tagName) &&
-                        !parent.closest('[data-mangalens-translation-ignore]')) {
+                        !parent.closest('[data-mangalens-translation-ignore]') &&
+                        parent.getClientRects().length > 0 &&
+                        getComputedStyle(parent).visibility !== 'hidden') {
                         nodes.push(node);
                     }
                 }

@@ -3,23 +3,49 @@ package com.mangalens.ui.web
 import android.annotation.SuppressLint
 import android.view.MotionEvent
 import android.webkit.WebView
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mangalens.core.adblock.AdBlockEngine
 import com.mangalens.core.adblock.AdBlockWebViewClient
 import com.mangalens.core.translation.TranslationService
 import com.mangalens.core.translation.WebTranslationScript
+import com.mangalens.download.DownloadQuality
 import com.mangalens.download.MediaDownloadManager
+import com.mangalens.download.MediaLinkResolver
+import com.mangalens.download.YtDlpSiteMediaExtractor
+import com.mangalens.ui.video.SniffedMedia
+import com.mangalens.ui.video.VideoSourcePolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONTokener
@@ -30,14 +56,80 @@ import kotlin.coroutines.resume
 fun AdBlockedWebScreen(
     url: String,
     translationEnabled: Boolean,
+    adBlockEnabled: Boolean = true,
     modifier: Modifier = Modifier,
-    targetLanguage: String = "hi"
+    targetLanguage: String = "hi",
+    onOpenManga: (String) -> Unit = {},
+    onOpenVideo: (SniffedMedia, String) -> Unit = { _, _ -> },
+    onClose: (() -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val engine = remember { AdBlockEngine() }
+    val speech = remember { com.mangalens.ui.video.VideoSpeechEngine(context.applicationContext, scope) }
+    val speechState by speech.state.collectAsState()
+    val captureActive by WebAudioCaptureService.active.collectAsState()
+    val captureStatus by WebAudioCaptureService.status.collectAsState()
+    var speechSettings by remember { mutableStateOf(false) }
+    val projectionManager = remember { context.getSystemService(android.media.projection.MediaProjectionManager::class.java) }
+    val projectionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            WebAudioCaptureService.windowSeconds = { speech.chunkSeconds }
+            WebAudioCaptureService.clock = { speech.positionMs = it }
+            WebAudioCaptureService.sink = { samples, start ->
+                speech.positionMs = start + samples.size * 1000L / 16000
+                speech.submitPcm16k(samples, start)
+            }
+            androidx.core.content.ContextCompat.startForegroundService(context,
+                android.content.Intent(context, WebAudioCaptureService::class.java).putExtra("token", result.data))
+        }
+    }
+    val audioPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
+    LaunchedEffect(speech) { speech.loadInstalled() }
+    LaunchedEffect(captureActive) {
+        // Bind the subtitle engine to real Android playback capture, not merely to a UI toggle.
+        // This removes the old false "Active" state when permission is denied or capture fails.
+        speech.setEnabled(captureActive)
+    }
+    LaunchedEffect(speechState.enabled) {
+        if (!speechState.enabled && captureActive) context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
+    }
+    DisposableEffect(speech) { onDispose {
+        context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
+        WebAudioCaptureService.sink = null
+        WebAudioCaptureService.windowSeconds = null
+        WebAudioCaptureService.clock = null
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { speech.close() }
+    } }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, speech) {
+        val listener = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
+                speech.setEnabled(false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(listener)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(listener) }
+    }
+    val engine = remember { AdBlockEngine(com.mangalens.core.adblock.AdBlockStatsStore.shared) }
     val translator = remember { TranslationService() }
+    val mediaResolver = remember {
+        MediaLinkResolver(
+            siteExtractor = YtDlpSiteMediaExtractor(context, allowSeparateStreams = true)
+        )
+    }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var currentUrl by remember { mutableStateOf(url) }
+    var pageTitle by remember { mutableStateOf("") }
+    var loadProgress by remember { mutableIntStateOf(0) }
+    var canGoBack by remember { mutableStateOf(false) }
+    var canGoForward by remember { mutableStateOf(false) }
+    var navigationEpoch by remember { mutableIntStateOf(0) }
+    var clearSiteDialog by remember { mutableStateOf(false) }
     var pageReady by remember { mutableStateOf(false) }
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
@@ -46,9 +138,95 @@ fun AdBlockedWebScreen(
     var translatedCount by remember { mutableIntStateOf(0) }
     var totalTranslatable by remember { mutableIntStateOf(0) }
     var translationStatus by remember { mutableStateOf<String?>(null) }
+    var detectedMedia by remember { mutableStateOf<SniffedMedia?>(null) }
     var hudVisible by remember { mutableStateOf(true) }
+    var siteAdBlockEnabled by remember { mutableStateOf(adBlockEnabled) }
+    val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
+    val latestSiteAdBlockEnabled by rememberUpdatedState(siteAdBlockEnabled)
+
+    fun enrichSniffedMedia(media: SniffedMedia): SniffedMedia {
+        val cookie = runCatching {
+            android.webkit.CookieManager.getInstance().getCookie(media.url)
+        }.getOrNull().orEmpty()
+        val headers = buildMap {
+            putAll(media.headers)
+            if (cookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", cookie)
+            if (keys.none { it.equals("Referer", true) }) put("Referer", currentUrl)
+            if (keys.none { it.equals("User-Agent", true) }) {
+                put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+            }
+            if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+        }
+        return media.copy(headers = headers)
+    }
+
+    fun openCurrentVideo() {
+        scope.launch {
+            translationStatus = "Resolving the best playable media source…"
+            val resolved = withContext(Dispatchers.IO) {
+                runCatching { mediaResolver.resolveCancellable(currentUrl, DownloadQuality.BEST) }.getOrNull()
+            }
+            if (resolved != null) {
+                val videoCookie = runCatching {
+                    android.webkit.CookieManager.getInstance().getCookie(resolved.url)
+                }.getOrNull().orEmpty()
+                val videoHeaders = buildMap {
+                    putAll(resolved.headers)
+                    if (videoCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", videoCookie)
+                    if (keys.none { it.equals("Referer", true) }) put("Referer", currentUrl)
+                    if (keys.none { it.equals("User-Agent", true) }) {
+                        put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+                    }
+                    if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+                }
+                val audioHeaders = resolved.audioUrl?.let { audio ->
+                    val audioCookie = runCatching {
+                        android.webkit.CookieManager.getInstance().getCookie(audio)
+                    }.getOrNull().orEmpty()
+                    buildMap {
+                        putAll(resolved.audioHeaders)
+                        if (audioCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", audioCookie)
+                        if (keys.none { it.equals("Referer", true) }) put("Referer", currentUrl)
+                        if (keys.none { it.equals("User-Agent", true) }) {
+                            put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
+                        }
+                        if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+                    }
+                }.orEmpty()
+                onOpenVideo(
+                    SniffedMedia(
+                        url = resolved.url,
+                        headers = videoHeaders,
+                        kind = when (resolved.mimeType) {
+                            "application/x-mpegURL" -> "HLS"
+                            "application/dash+xml" -> "DASH"
+                            else -> "RESOLVED"
+                        },
+                        audioUrl = resolved.audioUrl,
+                        audioHeaders = audioHeaders,
+                        title = resolved.title ?: pageTitle.takeIf(String::isNotBlank),
+                        provider = resolved.provider
+                    ),
+                    currentUrl
+                )
+                translationStatus = null
+                return@launch
+            }
+
+            val fallback = detectedMedia?.let(::enrichSniffedMedia)
+            if (fallback != null && !isYoutubePage(currentUrl)) {
+                onOpenVideo(fallback, currentUrl)
+                translationStatus = null
+            } else {
+                translationStatus = if (isYoutubePage(currentUrl))
+                    "YouTube did not expose a fresh playable source. Reload the page and retry."
+                else "No concrete video request has been detected yet. Start the video, then retry."
+            }
+        }
+    }
 
     LaunchedEffect(translationEnabled) { translated = translationEnabled }
+    LaunchedEffect(adBlockEnabled) { siteAdBlockEnabled = adBlockEnabled }
     LaunchedEffect(autoScroll, speed, webView) {
         while (autoScroll && webView != null) {
             webView?.evaluateJavascript("window.scrollBy(0, " + (2.5f * speed) + ");", null)
@@ -61,16 +239,34 @@ fun AdBlockedWebScreen(
             hudVisible = false
         }
     }
-    DisposableEffect(translator) { onDispose { translator.close() } }
+    DisposableEffect(translator) { onDispose {
+        webView?.apply { stopLoading(); webChromeClient = null; webViewClient = android.webkit.WebViewClient(); destroy() }
+        webView = null
+        translator.close()
+    } }
+    BackHandler(canGoBack) { webView?.goBack() }
+    if (clearSiteDialog) AlertDialog(
+        onDismissRequest = { clearSiteDialog = false }, title = { Text("Clear all website data?") },
+        text = { Text("This signs you out of websites and removes their stored data.") },
+        confirmButton = { TextButton(onClick = {
+            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+            android.webkit.CookieManager.getInstance().flush()
+            android.webkit.WebStorage.getInstance().deleteAllData()
+            com.mangalens.core.verification.VerificationSessionStore(context).clearAll()
+            webView?.clearCache(true)
+            clearSiteDialog = false
+            webView?.reload()
+        }) { Text("Clear") } }, dismissButton = { TextButton(onClick = { clearSiteDialog = false }) { Text("Cancel") } })
 
     LaunchedEffect(url, webView) {
         val view = webView ?: return@LaunchedEffect
         if (url.isBlank()) return@LaunchedEffect
         pageReady = false
-        view.loadUrl(url)
+        if (com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) view.loadUrl(url)
+        else translationStatus = "Enter a complete HTTP or HTTPS URL."
     }
 
-    LaunchedEffect(pageReady, translated, webView, targetLanguage, url) {
+    LaunchedEffect(pageReady, translated, webView, targetLanguage, navigationEpoch) {
         val view = webView ?: return@LaunchedEffect
         if (!pageReady) return@LaunchedEffect
         if (!translated) {
@@ -88,7 +284,12 @@ fun AdBlockedWebScreen(
             val texts = parseJavascriptStringArray(raw).take(MAX_WEB_TEXT_NODES)
             totalTranslatable = texts.count { it.trim().length >= 2 && it.any(Char::isLetter) }
             if (texts.isEmpty()) {
-                translationStatus = "No readable page text found."
+                val host = runCatching { java.net.URI(currentUrl).host.orEmpty().lowercase() }.getOrDefault("")
+                translationStatus = if (
+                    host.endsWith("youtube.com") || host.endsWith("instagram.com") ||
+                    host.endsWith("x.com") || host.endsWith("twitter.com")
+                ) "Dynamic media page • use English CC, Video mode or Live OCR for media content."
+                else "No readable page text found."
                 return@LaunchedEffect
             }
             for ((index, original) in texts.withIndex()) {
@@ -119,21 +320,125 @@ fun AdBlockedWebScreen(
         }
     }
 
+    if (speechSettings) androidx.compose.ui.window.Dialog(onDismissRequest = { speechSettings = false }) {
+        Surface(shape = MaterialTheme.shapes.large) {
+            Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.mangalens.ui.video.LiveAudioSubtitleSettings(speech, showEnableControl = false)
+                if (captureStatus.isNotBlank()) Text(captureStatus)
+                if (captureActive) {
+                    Text(
+                        "Captured audio: " + "%.1f".format(speechState.capturedAudioMs / 1000f) +
+                            " s • processed windows: " + speechState.processedWindows,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (speechState.capturedAudioMs > 0) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error
+                    )
+                }
+                Text("Android asks for audio and capture permission. Site/device capture restrictions may require Open in Video. Only MangaLens playback is captured; audio stays on your device.", style = MaterialTheme.typography.bodySmall)
+                Button(onClick = {
+                    if (captureActive) {
+                        context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java)); speech.setEnabled(false)
+                    } else if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        audioPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                    speechSettings = false
+                }, enabled = speechState.ready && !speechState.busy && android.os.Build.VERSION.SDK_INT >= 29) {
+                    Text(if (captureActive) "Stop web capture" else "Start web audio capture")
+                }
+                if (android.os.Build.VERSION.SDK_INT < 29) Text("Web audio capture requires Android 10+. Use Open in Video on this device.")
+                TextButton(onClick = { speechSettings = false }) { Text("Close") }
+            }
+        }
+    }
+
+    val browserChromeVisible = hudVisible || loadProgress < 100
+    val browserTopInset by animateDpAsState(
+        targetValue = if (browserChromeVisible) 66.dp else 0.dp,
+        animationSpec = tween(220),
+        label = "webTopInset"
+    )
+
     Box(modifier.fillMaxSize()) {
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(top = browserTopInset),
             factory = { ctx ->
                 WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
+                    com.mangalens.core.web.SafeWebView.configure(this)
                     settings.domStorageEnabled = true
-                    settings.mediaPlaybackRequiresUserGesture = false
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onProgressChanged(view: WebView?, progress: Int) { loadProgress = progress }
+                        override fun onReceivedTitle(view: WebView?, title: String?) { pageTitle = title.orEmpty() }
+
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: android.os.Message?
+                        ): Boolean {
+                            if (latestAdBlockEnabled && latestSiteAdBlockEnabled) {
+                                translationStatus = "Blocked a popup window."
+                                return false
+                            }
+                            return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+                        }
+                    }
                     setOnTouchListener { _, event ->
                         if (event.actionMasked == MotionEvent.ACTION_UP) hudVisible = true
                         false
                     }
-                    webViewClient = object : AdBlockWebViewClient(engine) {
+                    webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && latestSiteAdBlockEnabled }) {
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): android.webkit.WebResourceResponse? {
+                            val mediaUrl = request?.url?.toString()
+                            if (mediaUrl != null && VideoSourcePolicy.isLikelyMediaRequest(mediaUrl, request?.requestHeaders.orEmpty())) {
+                                val allowed = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
+                                val headers = request?.requestHeaders.orEmpty()
+                                    .filter { (name, value) -> name.lowercase() in allowed && value.length <= 16_384 }
+                                val candidate = SniffedMedia(
+                                    mediaUrl,
+                                    headers,
+                                    when {
+                                        ".m3u8" in mediaUrl.lowercase() -> "HLS"
+                                        ".mpd" in mediaUrl.lowercase() -> "DASH"
+                                        else -> "WEB"
+                                    },
+                                    title = pageTitle.takeIf(String::isNotBlank),
+                                    provider = runCatching { java.net.URI(mediaUrl).host?.removePrefix("www.") }.getOrNull()
+                                )
+                                view?.post {
+                                    val current = detectedMedia
+                                    if (
+                                        current == null ||
+                                        VideoSourcePolicy.mediaScore(candidate.url, candidate.headers) >=
+                                            VideoSourcePolicy.mediaScore(current.url, current.headers)
+                                    ) {
+                                        detectedMedia = candidate
+                                    }
+                                }
+                            }
+                            return super.shouldInterceptRequest(view, request)
+                        }
+
+                        override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
+                            super.onPageStarted(view, pageUrl, favicon)
+                            pageReady = false
+                            detectedMedia = null
+                            speech.invalidate(clear = true)
+                            navigationEpoch++
+                            currentUrl = pageUrl ?: currentUrl
+                            translationStatus = null
+                        }
+                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                            if (request?.isForMainFrame == true) translationStatus = "Page could not load. Check your connection and retry."
+                        }
                         override fun onPageFinished(view: WebView?, pageUrl: String?) {
                             super.onPageFinished(view, pageUrl)
+                            currentUrl = pageUrl ?: currentUrl
+                            canGoBack = view?.canGoBack() == true
+                            canGoForward = view?.canGoForward() == true
                             pageReady = true
                         }
                     }
@@ -143,25 +448,166 @@ fun AdBlockedWebScreen(
             update = { view -> if (webView !== view) webView = view }
         )
 
+        AnimatedVisibility(
+            visible = browserChromeVisible,
+            enter = fadeIn(tween(160)) + slideInVertically(tween(220)) { -it / 2 },
+            exit = fadeOut(tween(140)) + slideOutVertically(tween(190)) { -it / 2 },
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+        Surface(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 5.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xF20A0D14),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .42f)),
+            shadowElevation = 8.dp
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(pageTitle.ifBlank { "Web" }, maxLines = 1, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        runCatching { java.net.URI(currentUrl).host?.removePrefix("www.") }.getOrNull().orEmpty(),
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = { webView?.goBack() }, enabled = canGoBack, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("‹") }
+                TextButton(onClick = { webView?.goForward() }, enabled = canGoForward, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("›") }
+                TextButton(
+                    onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() },
+                    contentPadding = PaddingValues(horizontal = 7.dp)
+                ) { Text(if (loadProgress < 100) "■" else "↻") }
+                if (detectedMedia != null || VideoSourcePolicy.isSourcePage(currentUrl)) {
+                    TextButton(
+                        onClick = { openCurrentVideo() },
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) { Text("Video") }
+                }
+                TextButton(
+                    onClick = {
+                        siteAdBlockEnabled = !siteAdBlockEnabled
+                        webView?.reload()
+                    },
+                    enabled = adBlockEnabled,
+                    contentPadding = PaddingValues(horizontal = 7.dp)
+                ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ads ✓" else "Ads") }
+                TextButton(onClick = { hudVisible = true }, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("•••") }
+            }
+            if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
+        }
+        }
+        if (captureActive) com.mangalens.ui.video.LiveAudioSubtitleOverlay(speech,
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (hudVisible) 125.dp else 24.dp, start = 16.dp, end = 16.dp))
         if (hudVisible || translating) {
             Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
-                tonalElevation = 6.dp,
-                shape = MaterialTheme.shapes.large
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
+                tonalElevation = 2.dp,
+                shadowElevation = 14.dp,
+                color = Color(0xF00C1018),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .58f)),
+                shape = RoundedCornerShape(22.dp)
             ) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = {
-                            translated = !translated
-                            hudVisible = true
-                        }, enabled = !translating) { Text(if (translating) "Translating…" else if (translated) "Translated ✓" else "Translate") }
-                        Button(onClick = {
-                            scope.launch {
-                                runCatching { MediaDownloadManager(context).enqueue(url, "MangaLens web page") }
-                                    .onFailure { translationStatus = "Download failed: " + (it.message ?: "unknown error") }
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = if (translating) "Translating…" else if (translated) "Translated" else "Translate",
+                            status = if (translated) targetLanguage.uppercase() else "OCR / text",
+                            selected = translated,
+                            enabled = pageReady,
+                            onClick = {
+                                translated = !translated
+                                hudVisible = true
                             }
-                        }) { Text("Download") }
-                        Button(onClick = { autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause" else "Scroll") }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "Open in Video",
+                            status = when {
+                                detectedMedia != null -> "Media detected"
+                                VideoSourcePolicy.isSourcePage(currentUrl) -> "Resolve best source"
+                                else -> "Native player"
+                            },
+                            enabled = pageReady,
+                            onClick = { openCurrentVideo() }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "Download",
+                            status = "Resolve best media",
+                            onClick = {
+                                scope.launch {
+                                    translationStatus = "Resolving the best accessible media source…"
+                                    val manager = MediaDownloadManager(context)
+                                    try {
+                                        manager.enqueue(
+                                            currentUrl,
+                                            title = pageTitle.takeIf(String::isNotBlank),
+                                            quality = com.mangalens.download.DownloadQuality.BEST,
+                                            sourcePageUrl = currentUrl,
+                                            headers = detectedMedia?.headers.orEmpty()
+                                        )
+                                        translationStatus = "Download queued from " +
+                                            (runCatching { java.net.URI(currentUrl).host?.removePrefix("www.") }.getOrNull() ?: "source")
+                                    } catch (pageFailure: Throwable) {
+                                        if (pageFailure is kotlinx.coroutines.CancellationException) throw pageFailure
+                                        val media = detectedMedia
+                                        if (media == null) {
+                                            translationStatus = "Download failed: " +
+                                                (pageFailure.message ?: "unable to resolve media")
+                                        } else {
+                                            translationStatus = "Page extractor unavailable • using detected video stream…"
+                                            if (isYoutubePage(currentUrl)) {
+                                                translationStatus =
+                                                    "YouTube source refresh failed. Reload the video page, play it briefly, then retry."
+                                            } else {
+                                                val enriched = enrichSniffedMedia(media)
+                                                runCatching {
+                                                    manager.enqueueResolvedMedia(
+                                                        url = enriched.url,
+                                                        title = pageTitle.takeIf(String::isNotBlank),
+                                                        mimeType = sniffedMime(enriched),
+                                                        quality = DownloadQuality.BEST,
+                                                        sourcePageUrl = currentUrl,
+                                                        headers = enriched.headers,
+                                                        provider = enriched.provider ?: "web-sniff"
+                                                    )
+                                                }.onSuccess {
+                                                    translationStatus = "Detected media queued with the current website session."
+                                                }.onFailure {
+                                                    translationStatus = "Download failed after page + stream fallback: " +
+                                                        (it.message ?: pageFailure.message ?: "unavailable media")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "English CC",
+                            status = if (captureActive) "Live audio" else "Speech",
+                            selected = captureActive,
+                            onClick = { speechSettings = true }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "Manga",
+                            status = "Reader",
+                            enabled = pageReady,
+                            onClick = { onOpenManga(currentUrl) }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = "Site data",
+                            status = "Cookies / cache",
+                            onClick = { clearSiteDialog = true }
+                        )
+                        com.mangalens.ui.video.VideoDockAction(
+                            label = if (autoScroll) "Pause scroll" else "Auto scroll",
+                            status = if (autoScroll) "${speed.toInt()}x" else null,
+                            selected = autoScroll,
+                            onClick = { autoScroll = !autoScroll }
+                        )
                         if (autoScroll) Slider(value = speed, onValueChange = { speed = it }, valueRange = 1f..5f, steps = 3, modifier = Modifier.width(90.dp))
                     }
                     translationStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -192,6 +638,19 @@ private fun parseJavascriptStringArray(raw: String?): List<String> {
         val array = JSONArray(payload)
         (0 until array.length()).mapNotNull { index -> array.optString(index).takeIf { it.isNotBlank() } }
     }.getOrDefault(emptyList())
+}
+
+
+private fun isYoutubePage(value: String): Boolean = runCatching {
+    val host = java.net.URI(value).host.orEmpty().lowercase()
+    host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com")
+}.getOrDefault(false)
+
+private fun sniffedMime(media: SniffedMedia): String = when (media.kind.uppercase()) {
+    "HLS" -> "application/x-mpegURL"
+    "DASH" -> "application/dash+xml"
+    "MPEG-TS" -> "video/mp2t"
+    else -> "video/mp4"
 }
 
 private const val MAX_WEB_TEXT_NODES = 160

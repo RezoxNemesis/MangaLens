@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,36 +25,32 @@ data class TranslationOverlay(
     val fontSizePx: Float = 18f,
     val maxWidthPx: Float = 320f,
     val imageWidthPx: Int = 0,
-    val imageHeightPx: Int = 0
+    val imageHeightPx: Int = 0,
+    val patch: com.mangalens.core.translation.MangaLettering.Patch? = null
 )
 
 @Composable
 fun MangaTranslationOverlay(
     overlays: List<TranslationOverlay>,
+    textScale: Float = 1f,
     modifier: Modifier = Modifier
 ) {
-    BoxWithConstraints(modifier) {
-        overlays.forEach { overlay ->
-            val sourceWidth = overlay.imageWidthPx.takeIf { it > 0 }?.toFloat() ?: 1080f
-            val scale = (maxWidth.value / sourceWidth).coerceIn(0.0001f, 4f)
-            val left = overlay.region.left.coerceAtLeast(0).toFloat() * scale
-            val top = overlay.region.top.coerceAtLeast(0).toFloat() * scale
-            val regionWidth = (overlay.region.right - overlay.region.left).coerceAtLeast(1) * scale
-            val textColor = Color(overlay.textColorArgb)
-            val backgroundColor = Color(overlay.backgroundColorArgb).copy(alpha = 0.90f)
-            Text(
-                text = overlay.translatedText,
-                color = textColor,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = (overlay.fontSizePx * scale).coerceIn(8f, 28f).sp
-                ),
-                modifier = Modifier
-                    .offset(x = left.dp, y = top.dp)
-                    .widthIn(max = regionWidth.coerceIn(28f, maxWidth.value).dp)
-                    .background(backgroundColor)
-                    .padding(horizontal = 3.dp, vertical = 1.dp)
-            )
+    val layouts = remember(overlays, textScale) {
+        overlays.map { overlay -> overlay.patch?.let { patch ->
+            com.mangalens.core.translation.MangaLettering.layout(overlay.translatedText, patch.style,
+                patch.bounds.width(), patch.bounds.height(), textScale)
+        } }
+    }
+    androidx.compose.foundation.Canvas(modifier) {
+        overlays.forEachIndexed { index, overlay ->
+            val patch = overlay.patch ?: return@forEachIndexed
+            val scale = size.width / overlay.imageWidthPx.coerceAtLeast(1)
+            drawContext.canvas.nativeCanvas.apply {
+                save()
+                scale(scale, scale)
+                com.mangalens.core.translation.MangaLettering.draw(this, patch, overlay.translatedText, textScale, layouts[index])
+                restore()
+            }
         }
     }
 }

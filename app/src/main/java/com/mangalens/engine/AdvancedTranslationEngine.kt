@@ -15,6 +15,8 @@ import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.TextRecognizer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -29,10 +31,13 @@ data class TranslationRegion(
     val sourceLanguage: LocalSourceLanguage,
     val textColor: Int,
     val backgroundColor: Int,
-    val textSize: Float
+    val textSize: Float,
+    val lineBounds: List<RectF> = listOf(bounds),
+    val recognitionConfidence: Float = 0f
 )
 
 class AdvancedTranslationEngine(private val context: Context? = null) {
+    internal var tileObserver: ((Int, List<TranslationRegion>) -> Unit)? = null
     suspend fun recognize(bitmap: Bitmap): List<TranslationRegion> {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         return try {
@@ -46,28 +51,103 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         suspendCancellableCoroutine { continuation ->
             recognizer.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnSuccessListener { result ->
+                    if (!continuation.isActive) return@addOnSuccessListener
                     val regions = mutableListOf<TranslationRegion>()
                     result.textBlocks.forEach { block ->
-                        block.lines.forEach { line ->
-                            val box = line.boundingBox ?: return@forEach
-                            val source = line.text.trim()
-                            if (source.isNotBlank()) {
-                                regions += TranslationRegion(
-                                    source = source,
-                                    translated = source,
-                                    bounds = RectF(box),
-                                    sourceLanguage = detect(source),
-                                    textColor = contrastText(sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat())),
-                                    backgroundColor = sample(bitmap, box.centerX().toFloat(), box.centerY().toFloat()),
-                                    textSize = maxOf(12f, box.height() * 0.72f)
-                                )
-                            }
+                        val box = block.boundingBox
+                        val source = block.text.trim()
+                        if (box != null && source.isNotBlank()) {
+                            regions += TranslationRegion(source, source, RectF(box), detect(source),
+                                Color.BLACK, Color.WHITE,
+                                block.lines.mapNotNull { it.boundingBox?.height()?.toFloat() }.average().toFloat().coerceAtLeast(12f),
+                                block.lines.mapNotNull { it.boundingBox?.let(::RectF) },
+                                block.lines.map { it.confidence }.filter { it.isFinite() && it > 0f }.average().toFloat().let { if (it.isFinite()) it else 0f })
                         }
                     }
-                    if (continuation.isActive) continuation.resume(regions)
+                    if (continuation.isActive) continuation.resume(mergeLikelySameBalloon(regions))
                 }
                 .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
         }
+
+    /**
+     * ML Kit can split one speech balloon into two text blocks. Translating those blocks
+     * independently is what creates the "one normal line + one microscopic paragraph"
+     * failure seen on real webtoon pages. Merge only tightly stacked, centre-aligned blocks
+     * with comparable lettering before translation and typesetting.
+     */
+    internal fun mergeLikelySameBalloon(regions: List<TranslationRegion>): List<TranslationRegion> {
+        if (regions.size < 2) return regions
+        val sorted = regions.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
+        val merged = mutableListOf<TranslationRegion>()
+
+        fun compatible(a: TranslationRegion, b: TranslationRegion): Boolean {
+            if (a.sourceLanguage != b.sourceLanguage &&
+                a.sourceLanguage != LocalSourceLanguage.UNKNOWN &&
+                b.sourceLanguage != LocalSourceLanguage.UNKNOWN) return false
+
+            val maxText = maxOf(a.textSize, b.textSize).coerceAtLeast(8f)
+            val minText = minOf(a.textSize, b.textSize).coerceAtLeast(1f)
+            if (minText / maxText < .62f) return false
+
+            val fragment = minOf(a.source.trim().length, b.source.trim().length) <= 18 ||
+                minOf(a.lineBounds.size, b.lineBounds.size) <= 1
+            val gap = b.bounds.top - a.bounds.bottom
+            val maxGap = maxText * if (fragment) 1.45f else .95f
+            if (gap < -maxText * .30f || gap > maxGap) return false
+
+            val minWidth = minOf(a.bounds.width(), b.bounds.width()).coerceAtLeast(1f)
+            val centreDistance = kotlin.math.abs(a.bounds.centerX() - b.bounds.centerX())
+            val overlap = minOf(a.bounds.right, b.bounds.right) - maxOf(a.bounds.left, b.bounds.left)
+            val aligned = centreDistance <= minWidth * (if (fragment) .44f else .34f) + maxText * .35f
+            val overlapping = overlap >= minWidth * (if (fragment) .28f else .40f)
+            if (!aligned || !overlapping) return false
+
+            val lineCount = a.lineBounds.size + b.lineBounds.size
+            if (lineCount > if (fragment) 9 else 7) return false
+
+            val unionTop = minOf(a.bounds.top, b.bounds.top)
+            val unionBottom = maxOf(a.bounds.bottom, b.bounds.bottom)
+            val tallest = maxOf(a.bounds.height(), b.bounds.height()).coerceAtLeast(1f)
+            return unionBottom - unionTop <= tallest * (if (fragment) 3.4f else 2.75f) + maxText
+        }
+
+        fun combine(a: TranslationRegion, b: TranslationRegion): TranslationRegion {
+            val source = listOf(a.source.trim(), b.source.trim()).filter(String::isNotBlank).joinToString("\n")
+            val charsA = a.source.length.coerceAtLeast(1)
+            val charsB = b.source.length.coerceAtLeast(1)
+            val confidence = when {
+                a.recognitionConfidence <= 0f -> b.recognitionConfidence
+                b.recognitionConfidence <= 0f -> a.recognitionConfidence
+                else -> (a.recognitionConfidence * charsA + b.recognitionConfidence * charsB) / (charsA + charsB)
+            }
+            return TranslationRegion(
+                source = source,
+                translated = source,
+                bounds = RectF(
+                    minOf(a.bounds.left, b.bounds.left),
+                    minOf(a.bounds.top, b.bounds.top),
+                    maxOf(a.bounds.right, b.bounds.right),
+                    maxOf(a.bounds.bottom, b.bounds.bottom)
+                ),
+                sourceLanguage = detect(source),
+                textColor = a.textColor,
+                backgroundColor = a.backgroundColor,
+                textSize = (a.textSize * charsA + b.textSize * charsB) / (charsA + charsB),
+                lineBounds = (a.lineBounds + b.lineBounds).sortedWith(compareBy<RectF> { it.top }.thenBy { it.left }),
+                recognitionConfidence = confidence
+            )
+        }
+
+        for (region in sorted) {
+            val previous = merged.lastOrNull()
+            if (previous != null && compatible(previous, region)) {
+                merged[merged.lastIndex] = combine(previous, region)
+            } else {
+                merged += region
+            }
+        }
+        return merged
+    }
 
     suspend fun recognizeFast(bitmap: Bitmap): List<TranslationRegion> {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
@@ -81,27 +161,155 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     }
 
     suspend fun recognizeScriptAware(bitmap: Bitmap): List<TranslationRegion> {
+        // Long webtoon pages must keep glyph resolution; use overlapping vertical OCR tiles.
+        if (bitmap.height <= 2048) return recognizeTile(bitmap)
+        val output = mutableListOf<TranslationRegion>()
+        val margins = mutableListOf<Float>()
+        var y = 0
+        while (y < bitmap.height) {
+            val height = minOf(2048, bitmap.height - y)
+            val tile = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, height)
+            try {
+                val recognized = recognizeTile(tile)
+                tileObserver?.invoke(y, recognized)
+                recognized.forEach { region ->
+                    val margin = minOf(region.bounds.top, height - region.bounds.bottom).coerceAtLeast(0f)
+                    val shifted = region.copy(bounds = RectF(region.bounds).apply { offset(0f, y.toFloat()) },
+                        lineBounds = region.lineBounds.map { RectF(it).apply { offset(0f, y.toFloat()) } })
+                    val duplicate = output.indexOfFirst { previous ->
+                        val intersection = RectF(previous.bounds)
+                        intersection.intersect(shifted.bounds) && intersection.width() * intersection.height() >
+                            minOf(previous.bounds.width() * previous.bounds.height(), shifted.bounds.width() * shifted.bounds.height()) * .5f
+                    }
+                    if (duplicate < 0) {
+                        output += shifted
+                        margins += margin
+                    } else {
+                        val previous = output[duplicate]
+                        val clipped = margin < maxOf(2f, region.textSize * .12f)
+                        val previousClipped = margins[duplicate] < maxOf(2f, previous.textSize * .12f)
+                        val strongerConfidence = shifted.recognitionConfidence > previous.recognitionConfidence + .10f
+                        val fullerCoverage = shifted.bounds.width() * shifted.bounds.height() >
+                            previous.bounds.width() * previous.bounds.height() * 1.3f &&
+                            shifted.recognitionConfidence >= previous.recognitionConfidence - .15f
+                        // Keep a complete first reading unless evidence improves it. Extra OCR letters aren't quality.
+                        if ((previousClipped && !clipped) ||
+                            (previousClipped == clipped && (strongerConfidence || fullerCoverage))) {
+                            output[duplicate] = shifted
+                            margins[duplicate] = margin
+                        }
+                    }
+                }
+            } finally { tile.recycle() }
+            if (y + height >= bitmap.height) break
+            y += 1792
+        }
+        return output.sortedBy { it.bounds.top }
+    }
+
+    private suspend fun recognizeTile(bitmap: Bitmap): List<TranslationRegion> {
         val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
         val script = prefs?.getString("script", "AUTO") ?: "AUTO"
         val highAccuracy = prefs?.getBoolean("high_accuracy", true) ?: true
-        val candidates = if (script != "AUTO" && !highAccuracy) listOf(createRecognizer(script)) else listOf(
+        val candidates = if (script != "AUTO") listOf(createRecognizer(script)) else if (!highAccuracy) listOf(createRecognizer("LATIN")) else listOf(
             createRecognizer("LATIN"), createRecognizer("DEVANAGARI"),
             createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
         )
         return try {
+            val failures = mutableListOf<Throwable>()
             val results = candidates.map { recognizer ->
                 try {
                     recognizeWith(recognizer, bitmap)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Throwable) {
+                } catch (failure: Exception) {
+                    failures += failure
                     emptyList()
                 }
             }
-            results.maxByOrNull { it.sumOf { region -> region.source.length } } ?: emptyList()
+            if (failures.size == candidates.size) throw failures.first()
+            var best = results.maxByOrNull(::recognitionScore) ?: emptyList()
+            // A larger pile of hallucinated letters is not a better OCR result. Retry faint/small
+            // lettering at a bounded higher resolution, then map geometry back to the source.
+            if (highAccuracy && (best.isEmpty() || best.any { it.textSize < 24f })) {
+                currentCoroutineContext().ensureActive()
+                val factor = minOf(2f, 2560f / bitmap.width, 4096f / bitmap.height)
+                if (factor > 1.1f) {
+                    val enhanced = Bitmap.createScaledBitmap(bitmap,
+                        (bitmap.width * factor).toInt(), (bitmap.height * factor).toInt(), true)
+                    try {
+                        val retry = createRecognizer(if (script == "AUTO") dominantScript(best) else script)
+                        val reread = try { recognizeWith(retry, enhanced) } finally { retry.close() }
+                        val mapped = reread.map { region -> region.copy(
+                            bounds = RectF(region.bounds.left / factor, region.bounds.top / factor,
+                                region.bounds.right / factor, region.bounds.bottom / factor),
+                            lineBounds = region.lineBounds.map { RectF(it.left / factor, it.top / factor, it.right / factor, it.bottom / factor) },
+                            textSize = region.textSize / factor
+                        ) }
+                        if (recognitionScore(mapped) > recognitionScore(best)) best = mapped
+                    } finally { enhanced.recycle() }
+                }
+            }
+            val accepted = if (script == "AUTO") best.filter(::isPlausibleRegion) else best
+            accepted.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
         } finally {
             candidates.forEach { it.close() }
         }
+    }
+
+    private fun recognitionScore(regions: List<TranslationRegion>): Double = regions.sumOf { region ->
+        val letters = region.source.count(Char::isLetterOrDigit)
+        val confidence = region.recognitionConfidence.takeIf { it > 0f } ?: .65f
+        val garbage = region.source.count { !it.isLetterOrDigit() && !it.isWhitespace() && it !in ".,!?…:;\"'‘’“”()[]-—、。！？「」" }
+        val implausible = if (isPlausibleRegion(region)) 0.0 else 12.0
+        letters.coerceAtMost(240) * confidence.toDouble() - garbage * 2.0 - implausible
+    }
+
+    /**
+     * ML Kit occasionally interprets decorative borders/runes as a short Latin word.
+     * Keep real dialogue permissive, but reject low-confidence garbage and narrow vertical
+     * Latin pseudo-words that produce floating replacement labels over character artwork.
+     */
+    private fun isPlausibleRegion(region: TranslationRegion): Boolean {
+        val value = region.source.trim()
+        if (value.isBlank()) return false
+        val letters = value.count(Char::isLetterOrDigit)
+        if (letters == 0) return false
+        val confidence = region.recognitionConfidence
+        if (region.sourceLanguage == LocalSourceLanguage.ENGLISH &&
+            confidence > 0f && confidence < .30f) return false
+        if (region.textSize < 6f) return false
+
+        val acceptedPunctuation = ".,!?…:;\"'‘’“”()[]-—、。！？「」~"
+        val readable = value.count {
+            it.isLetterOrDigit() ||
+                it.isWhitespace() ||
+                it in acceptedPunctuation ||
+                it.category == kotlin.text.CharCategory.NON_SPACING_MARK ||
+                it.category == kotlin.text.CharCategory.COMBINING_SPACING_MARK ||
+                it.category == kotlin.text.CharCategory.ENCLOSING_MARK
+        }
+        if (readable < value.length * .70f) return false
+
+        val singleToken = value.none(Char::isWhitespace)
+        val verticalLatinPseudoWord =
+            region.sourceLanguage == LocalSourceLanguage.ENGLISH &&
+                singleToken &&
+                value.length >= 4 &&
+                region.bounds.height() > region.bounds.width() * 1.20f
+        if (verticalLatinPseudoWord) return false
+
+        return !(value.length <= 2 && confidence in .0001f..0.54f)
+    }
+
+    private fun dominantScript(regions: List<TranslationRegion>): String = when (
+        regions.groupBy { it.sourceLanguage }.maxByOrNull { entry -> entry.value.sumOf { it.source.length } }?.key
+    ) {
+        LocalSourceLanguage.JAPANESE -> "JAPANESE"
+        LocalSourceLanguage.KOREAN -> "KOREAN"
+        LocalSourceLanguage.CHINESE -> "CHINESE"
+        LocalSourceLanguage.HINDI -> "DEVANAGARI"
+        else -> "LATIN"
     }
 
     private fun createRecognizer(script: String): TextRecognizer = when (script.uppercase(Locale.ROOT)) {
@@ -116,19 +324,9 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
         regions.forEach { region ->
-            val background = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = region.backgroundColor }
-            canvas.drawRoundRect(region.bounds, region.bounds.height() * .18f, region.bounds.height() * .18f, background)
-            val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = region.textColor
-                textSize = region.textSize
-                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
-            }
-            val lines = wrap(region.translated, text, region.bounds.width())
-            val lineHeight = text.fontMetrics.descent - text.fontMetrics.ascent
-            val startY = region.bounds.centerY() - (lines.size - 1) * lineHeight / 2f - (text.fontMetrics.ascent + text.fontMetrics.descent) / 2f
-            lines.forEachIndexed { index, value ->
-                canvas.drawText(value, region.bounds.centerX() - text.measureText(value) / 2f, startY + index * lineHeight, text)
-            }
+            val patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source)
+            try { com.mangalens.core.translation.MangaLettering.draw(canvas, patch, region.translated) }
+            finally { patch.background.recycle() }
         }
         return output
     }
@@ -145,31 +343,6 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             text.any(Char::isLetter) -> LocalSourceLanguage.ENGLISH
             else -> LocalSourceLanguage.UNKNOWN
         }
-    }
-
-    private fun contrastText(background: Int): Int {
-        val luminance = (0.2126f * Color.red(background) + 0.7152f * Color.green(background) + 0.0722f * Color.blue(background)) / 255f
-        return if (luminance > 0.55f) Color.BLACK else Color.WHITE
-    }
-
-    private fun sample(bitmap: Bitmap, x: Float, y: Float): Int {
-        val px = bitmap.getPixel(x.toInt().coerceIn(0, bitmap.width - 1), y.toInt().coerceIn(0, bitmap.height - 1))
-        val luminance = (0.2126f * Color.red(px) + 0.7152f * Color.green(px) + 0.0722f * Color.blue(px)) / 255f
-        return if (luminance > .72f) Color.WHITE else Color.rgb((Color.red(px) + 255) / 2, (Color.green(px) + 255) / 2, (Color.blue(px) + 255) / 2)
-    }
-
-    private fun wrap(value: String, paint: Paint, width: Float): List<String> {
-        val lines = mutableListOf<String>()
-        var line = ""
-        value.split(Regex("\\s+")).forEach { word ->
-            val candidate = if (line.isEmpty()) word else "$line $word"
-            if (paint.measureText(candidate) > width && line.isNotEmpty()) {
-                lines += line
-                line = word
-            } else line = candidate
-        }
-        if (line.isNotEmpty()) lines += line
-        return lines
     }
 
     fun close() = Unit

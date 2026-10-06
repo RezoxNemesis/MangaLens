@@ -17,7 +17,6 @@ class EnterpriseAdBlockEngine(
     ): WebResourceResponse? {
         val safeRequest = request ?: return null
         val destination = safeRequest.requestHeaders["Sec-Fetch-Dest"].orEmpty().lowercase()
-        if (destination in setOf("beacon", "object", "track")) return emptyResponse()
         return base.shouldBlockRequest(safeRequest.url.toString())
     }
 
@@ -42,12 +41,18 @@ class EnterpriseAdBlockEngine(
         (function() {
           if (window.__mangalensEnterpriseAdGuard) return;
           window.__mangalensEnterpriseAdGuard = true;
-          const deny = /(batery|battery|esbal|casino|slot|gambl|popup|popunder|interstitial|advert|sponsor)/i;
+          const deny = /(casino|slot|gambl|popup|popunder|clickunder|interstitial|advert|sponsor|doubleclick|googlesyndication|exoclick|trafficjunky|popads|popcash|clickadu|hilltopads|admaven|trafficstars|juicyads)/i;
           const selectors = [
-            '[id*="ad" i]','[class*="ad-" i]','[class*="-ad" i]',
+            '[id="ad" i]','[id^="ad-" i]','[class~="ad" i]','[class~="ads" i]','[class*="ad-banner" i]',
             '[class*="popup" i]','[class*="popunder" i]',
             '[class*="interstitial" i]','[class*="overlay-ad" i]',
-            'iframe[src*="ad" i]','iframe[src*="bet" i]'
+            'iframe[src*="doubleclick.net" i]','iframe[src*="googlesyndication.com" i]',
+            'iframe[src*="exoclick" i]','iframe[src*="trafficjunky" i]',
+            'iframe[src*="popads" i]','iframe[src*="clickadu" i]',
+            'iframe[src*="hilltopads" i]','iframe[src*="trafficstars" i]',
+            'ytd-display-ad-renderer','ytd-ad-slot-renderer',
+            'ytd-promoted-sparkles-web-renderer','ytm-promoted-sparkles-web-renderer',
+            '.ytp-ad-overlay-container','.ytp-ad-message-container'
           ];
           function remove(root) {
             if (!root || root.nodeType !== 1) return;
@@ -56,11 +61,27 @@ class EnterpriseAdBlockEngine(
             matched.concat(descendants).forEach(function(el) {
               if (el.tagName !== 'IMG' && el.tagName !== 'VIDEO') el.remove();
             });
-            if (root.textContent && deny.test(root.textContent) && root.children.length < 8) {
-              const rect = root.getBoundingClientRect();
-              if (rect.width > 120 && rect.height > 40 && rect.height < window.innerHeight * .75) root.remove();
-            }
+            try {
+              if (/(^|\.)instagram\.com$/i.test(location.hostname)) {
+                const candidates = root.matches && root.matches('article') ? [root] :
+                  (root.querySelectorAll ? Array.from(root.querySelectorAll('article')) : []);
+                candidates.forEach(function(article) {
+                  const sponsored = Array.from(article.querySelectorAll('span,a')).some(function(node) {
+                    return /^sponsored$/i.test((node.textContent || '').trim());
+                  });
+                  if (sponsored) article.remove();
+                });
+              }
+            } catch (_) {}
           }
+          const nativeOpen = window.open;
+          window.open = function(url, name, features) {
+            try {
+              const absolute = new URL(String(url || ''), location.href).href;
+              if (deny.test(absolute)) return null;
+            } catch (_) {}
+            return nativeOpen.call(window, url, name, features);
+          };
           remove(document.documentElement);
           const observer = new MutationObserver(function(mutations) {
             mutations.forEach(function(m) {
@@ -72,7 +93,7 @@ class EnterpriseAdBlockEngine(
             const target = e.target && e.target.closest ? e.target.closest('a') : null;
             if (!target) return;
             const href = target.href || '';
-            if (/popunder|clickunder|redirect.*ad|casino|bet|gambl/i.test(href)) {
+            if (/popunder|clickunder|redirect.*ad|casino|bet|gambl|exoclick|trafficjunky|popads|clickadu|hilltopads|trafficstars/i.test(href)) {
               e.preventDefault();
               e.stopImmediatePropagation();
             }

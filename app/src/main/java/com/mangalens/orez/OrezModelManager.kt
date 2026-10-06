@@ -12,7 +12,7 @@ data class OrezModelState(
     val installed: Boolean = false,
     val downloading: Boolean = false,
     val bytes: Long = 0L,
-    val total: Long = 505736512L,
+    val total: Long = 650379104L,
     val error: String? = null
 ) {
     val progress: Float get() = if (total <= 0L) 0f else (bytes.toFloat() / total).coerceIn(0f, 1f)
@@ -55,8 +55,8 @@ class OrezModelManager(val context: Context) {
     )
 
     companion object {
-        const val MODEL_BYTES = 505736512L
-        const val MODEL_SHA256 = "526ade7343ce34f493ff03c6231e82d78f1eab59284541c3530fc4285911d641"
-        const val MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q6_k.gguf?download=true"
+        const val MODEL_BYTES = 650379104L
+        const val MODEL_SHA256 = "2f82233630c349ccf6b8daccf48f9a7865713d9f08a2eadfa456cebe9b97c7f5"
+        const val MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q6_k.gguf?download=true"
     }
 }

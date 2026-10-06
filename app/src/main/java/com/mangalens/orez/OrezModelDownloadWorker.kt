@@ -28,7 +28,11 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
             check(part.renameTo(finalFile)) { "Unable to finalize OREZ model" }
             prefs.edit().putBoolean("downloading", false).putLong("bytes", finalFile.length()).putLong("total", OrezModelManager.MODEL_BYTES).apply()
             Result.success()
+        } catch (t: kotlinx.coroutines.CancellationException) {
+            prefs.edit().putBoolean("downloading", false).apply()
+            throw t
         } catch (t: Throwable) {
+            if (part.length() >= OrezModelManager.MODEL_BYTES) part.delete()
             prefs.edit().putBoolean("downloading", false).putString("error", t.message ?: "OREZ model download failed").apply()
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
@@ -43,15 +47,21 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
             setRequestProperty("User-Agent", "MangaLens/12")
             if (offset > 0L) setRequestProperty("Range", "bytes=" + offset + "-")
         }
+        try {
         connection.connect()
         if (offset > 0L && connection.responseCode == HttpURLConnection.HTTP_OK) {
             part.delete()
             offset = 0L
         }
+        if (offset > 0L && connection.responseCode == 206) {
+            check(connection.getHeaderField("Content-Range")?.startsWith("bytes $offset-") == true) { "Model server returned an invalid resume range" }
+        }
         check(connection.responseCode in 200..299) { "Model server HTTP " + connection.responseCode }
         val announced = connection.contentLengthLong
         val total = if (announced > 0L) offset + announced else OrezModelManager.MODEL_BYTES
         var done = offset
+        var lastPublishBytes = done
+        var lastPublishAt = android.os.SystemClock.elapsedRealtime()
         setForeground(notification("OREZ local model", done, total))
         connection.inputStream.use { input ->
             java.io.FileOutputStream(part, offset > 0L).use { output ->
@@ -60,13 +70,23 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
                     currentCoroutineContext().ensureActive()
                     val n = input.read(buffer)
                     if (n < 0) break
+                    check(done + n <= OrezModelManager.MODEL_BYTES) { "Model transfer exceeded expected size" }
                     output.write(buffer, 0, n)
                     done += n
-                    publish(done, total)
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (
+                        done - lastPublishBytes >= PROGRESS_BYTES ||
+                        now - lastPublishAt >= PROGRESS_INTERVAL_MS ||
+                        done >= total
+                    ) {
+                        publish(done, total)
+                        lastPublishBytes = done
+                        lastPublishAt = now
+                    }
                 }
             }
         }
-        connection.disconnect()
+        } finally { connection.disconnect() }
     }
 
     private suspend fun publish(done: Long, total: Long) {
@@ -89,10 +109,10 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
             .setProgress(100, percent, false)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(10002, n)
+        return ForegroundInfo(10002, n, if (android.os.Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
     }
 
-    private fun format(v: Long): String = "%.0f MB".format(v / 1048576.0)
+    private fun format(v: Long): String = "%.0f MB".format(v / 1_000_000.0)
 
     private fun sha256(file: File): String {
         val d = MessageDigest.getInstance("SHA-256")
@@ -107,5 +127,9 @@ class OrezModelDownloadWorker(appContext: Context, params: WorkerParameters) : C
         return d.digest().joinToString("") { "%02x".format(it) }
     }
 
-    companion object { const val KEY_ID = "id" }
+    companion object {
+        const val KEY_ID = "id"
+        private const val PROGRESS_BYTES = 8L * 1024L * 1024L
+        private const val PROGRESS_INTERVAL_MS = 1_000L
+    }
 }
