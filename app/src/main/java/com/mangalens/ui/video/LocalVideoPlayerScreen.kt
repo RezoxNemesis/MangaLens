@@ -4,10 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -222,19 +220,6 @@ fun LocalVideoPlayerScreen(
                             }
                         }) { Text("Audio") }
                     }
-                    Button(onClick = {
-                        val current = vm.player.currentMediaItem?.localConfiguration?.uri ?: return@Button
-                        val sub = subtitle
-                        if (sub == null) subtitlePicker.launch(arrayOf("text/*", "application/x-subrip"))
-                        else {
-                            vm.player.setMediaItem(androidx.media3.common.MediaItem.Builder().setUri(current).setSubtitleConfigurations(
-                                listOf(androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(sub)
-                                    .setMimeType(if (sub.toString().lowercase().endsWith(".srt")) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
-                                    .setLanguage("und").build())
-                            ).build(), vm.player.currentPosition)
-                            vm.player.prepare(); vm.player.playWhenReady = true
-                        }
-                    }, Modifier.fillMaxWidth()) { Text(if (subtitle == null) "Choose SRT / VTT" else "Apply subtitles") }
                     Button(onClick = {
                         val current = vm.player.currentMediaItem?.localConfiguration?.uri ?: return@Button
                         val sub = subtitle
