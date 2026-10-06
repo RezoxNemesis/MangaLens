@@ -17,7 +17,26 @@ class AdvancedOcrTranslationEngine {
     fun detectLanguage(text:String):LocalSourceLanguage { val l=text.lowercase(Locale.ROOT); return when {text.any{it in '\u3040'..'\u30ff'}->LocalSourceLanguage.JAPANESE;text.any{it in '\uac00'..'\ud7af'}->LocalSourceLanguage.KOREAN;text.any{it in '\u4e00'..'\u9fff'}->LocalSourceLanguage.CHINESE;text.any{it in '\u0900'..'\u097f'}->LocalSourceLanguage.HINDI;hinglishMarkers.count{Regex("\\b"+Regex.escape(it)+"\\b").containsMatchIn(l)}>=2->LocalSourceLanguage.HINDI;Regex("\\b(el|la|los|las|que|una|por|para)\\b").containsMatchIn(l)->LocalSourceLanguage.SPANISH;Regex("\\b(le|les|des|une|avec|pour|est)\\b").containsMatchIn(l)->LocalSourceLanguage.FRENCH;l.any(Char::isLetter)->LocalSourceLanguage.ENGLISH;else->LocalSourceLanguage.UNKNOWN}}
     fun containsHinglish(text:String)=text.lowercase(Locale.ROOT).split(Regex("\\W+")).count{it in hinglishMarkers}>0
     fun translateWithDictionary(source:String,targetLanguage:String,dictionary:Map<String,String>):IntelligentTranslation { val n=normalize(source); val direct=dictionary[n.lowercase(Locale.ROOT)]; val out=direct?:n.split(' ').joinToString(" "){dictionary[it.lowercase(Locale.ROOT)]?:it}; return IntelligentTranslation(n,out,targetLanguage,if(containsHinglish(n))"Hinglish detected: mixed Hindi vocabulary and English-style sentence structure." else null)}
-    fun groupDialogue(blocks:List<OcrTextBlock>):List<List<OcrTextBlock>> { val s=blocks.sortedWith(compareBy<OcrTextBlock>{it.bounds.top}.thenBy{it.bounds.left}); val g=mutableListOf<MutableList<OcrTextBlock>>(); for(b in s){val c=g.lastOrNull();if(c==null||b.bounds.top-c.last().bounds.bottom>maxOf(b.bounds.height(),c.last().bounds.height())*.8f)g+=mutableListOf(b)else c+=b};return g}
+    fun groupDialogue(blocks: List<OcrTextBlock>): List<List<OcrTextBlock>> {
+        val sorted = blocks.sortedWith(compareBy<OcrTextBlock> { it.bounds.top }.thenBy { it.bounds.left })
+        val groups = mutableListOf<MutableList<OcrTextBlock>>()
+        for (block in sorted) {
+            val best = groups.lastOrNull()?.takeIf { group ->
+                val union = RectF().also { rect -> group.forEach { rect.union(it.bounds) } }
+                val height = group.map { it.bounds.height() }.average().toFloat().coerceAtLeast(1f)
+                val verticalGap = block.bounds.top - union.bottom
+                val horizontalOverlap =
+                    (minOf(union.right, block.bounds.right) - maxOf(union.left, block.bounds.left))
+                        .coerceAtLeast(0f) / minOf(union.width(), block.bounds.width()).coerceAtLeast(1f)
+                val centreDistance = kotlin.math.abs(block.bounds.centerX() - union.centerX())
+                verticalGap <= maxOf(height, block.bounds.height()) * 1.05f &&
+                    verticalGap >= -height * .35f &&
+                    (horizontalOverlap >= .2f || centreDistance <= maxOf(union.width(), block.bounds.width()) * .38f)
+            }
+            if (best == null) groups += mutableListOf(block) else best += block
+        }
+        return groups
+    }
     fun wrapForBubble(text:String,widthPx:Float):List<String>{
         val words=normalize(text).split(" ").filter{it.isNotBlank()}
         val maxChars=(widthPx/18f).toInt().coerceIn(8,42)
@@ -34,15 +53,33 @@ class AdvancedOcrTranslationEngine {
         val density=(area/((characterCount.coerceAtLeast(1))*900f)).coerceIn(.55f,1.35f)
         return density
     }
-    fun mergeAdjacentLines(blocks:List<OcrTextBlock>):List<OcrTextBlock>{
-        val ordered=blocks.sortedWith(compareBy<OcrTextBlock>{it.bounds.top}.thenBy{it.bounds.left})
-        val out=mutableListOf<OcrTextBlock>()
-        for(block in ordered){
-            val previous=out.lastOrNull()
-            if(previous!=null&&kotlin.math.abs(block.bounds.top-previous.bounds.top)<previous.bounds.height()*.65f&&block.bounds.left-previous.bounds.right<previous.bounds.height()*2.5f){
-                previous.bounds.right=block.bounds.right
-                previous.bounds.bottom=maxOf(previous.bounds.bottom,block.bounds.bottom)
-            }else out+=OcrTextBlock(block.text,RectF(block.bounds),block.confidence,block.index)
+    fun mergeAdjacentLines(blocks: List<OcrTextBlock>): List<OcrTextBlock> {
+        val ordered = blocks.sortedWith(compareBy<OcrTextBlock> { it.bounds.top }.thenBy { it.bounds.left })
+        val out = mutableListOf<OcrTextBlock>()
+        for (block in ordered) {
+            val previous = out.lastOrNull()
+            if (previous != null) {
+                val yOverlap = (minOf(previous.bounds.bottom, block.bounds.bottom) -
+                    maxOf(previous.bounds.top, block.bounds.top)).coerceAtLeast(0f)
+                val overlapRatio = yOverlap / minOf(previous.bounds.height(), block.bounds.height()).coerceAtLeast(1f)
+                val gap = block.bounds.left - previous.bounds.right
+                val maxGap = maxOf(previous.bounds.height(), block.bounds.height()) * 2.2f
+                if (overlapRatio >= .48f && gap in (-maxGap * .25f)..maxGap) {
+                    val mergedBounds = RectF(
+                        minOf(previous.bounds.left, block.bounds.left),
+                        minOf(previous.bounds.top, block.bounds.top),
+                        maxOf(previous.bounds.right, block.bounds.right),
+                        maxOf(previous.bounds.bottom, block.bounds.bottom)
+                    )
+                    out[out.lastIndex] = previous.copy(
+                        text = (previous.text.trim() + " " + block.text.trim()).trim(),
+                        bounds = mergedBounds,
+                        confidence = (previous.confidence + block.confidence) / 2f
+                    )
+                    continue
+                }
+            }
+            out += OcrTextBlock(block.text, RectF(block.bounds), block.confidence, block.index)
         }
         return out
     }
