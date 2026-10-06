@@ -11,11 +11,11 @@ internal object SpeechWindowPolicy {
             val end = minOf(offset + 320, samples.size)
             var energy = 0.0
             for (i in offset until end) energy += samples[i] * samples[i]
-            if (energy / (end - offset) > 0.00003) active++
+            if (energy / (end - offset) > 0.00001) active++
             frames++
             offset = end
         }
-        return active >= 3 && active.toFloat() / frames >= .08f
+        return active >= 3 && active.toFloat() / frames >= .05f
     }
 
     fun normalized(text: String): String =
