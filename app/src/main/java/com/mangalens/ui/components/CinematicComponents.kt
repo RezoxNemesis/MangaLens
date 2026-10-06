@@ -30,7 +30,7 @@ import com.mangalens.core.reader.SavedChapter
                 .border(1.dp, Color(0xAAFF2D64), RoundedCornerShape(15.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Image(painterResource(R.drawable.mangalens_icon_foreground), "MangaLens 2.0 logo", Modifier.size(46.dp))
+            Image(painterResource(R.drawable.mangalens_icon_foreground), "MangaLens logo", Modifier.size(46.dp))
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
