@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mangalens.BuildConfig
 import com.mangalens.core.model.ContentType
 import com.mangalens.ui.MangaLensUiState
 
@@ -39,7 +40,7 @@ fun HomeScreen(state:MangaLensUiState,onUrlChanged:(String)->Unit,onPaste:()->Un
     }
     Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
-            Column{Text("MANGALENS",color=MaterialTheme.colorScheme.primary,fontWeight=FontWeight.Black,style=MaterialTheme.typography.headlineSmall);Text("Universal media translation hub",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
+            Column{Text("MANGALENS",color=MaterialTheme.colorScheme.primary,fontWeight=FontWeight.Black,style=MaterialTheme.typography.headlineSmall);Text("Universal media translation hub",color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall);Text("v"+BuildConfig.VERSION_NAME+" • "+BuildConfig.GIT_SHA.take(8),color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.labelSmall)}
             AssistChip(onClick={},label={Text("AD-BLOCK ON")})
         }
         OutlinedTextField(value=state.url,onValueChange=onUrlChanged,modifier=Modifier.fillMaxWidth(),singleLine=true,placeholder={Text("Paste a chapter, video or web URL")},trailingIcon={Button(onClick={safePaste();onPaste()}){Text("PASTE")}})
