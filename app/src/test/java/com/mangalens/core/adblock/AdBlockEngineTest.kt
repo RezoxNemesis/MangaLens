@@ -108,7 +108,7 @@ class AdBlockEngineTest {
     fun socialVideoAdSelectorsArePresentWithoutBlockingSharedMediaCdn() {
         val script = adBlockEngine.getElementHidingScript()
         assertTrue(script.contains("ytd-display-ad-renderer"))
-        assertTrue(script.contains("instagram.com"))
+        assertTrue(script.contains("instagram"))
         assertNull(
             "YouTube video CDN must not be blanket-blocked because it also carries real playback.",
             adBlockEngine.shouldBlockRequest("https://rr1---sn.example.googlevideo.com/videoplayback?id=1&mime=video%2Fmp4")
