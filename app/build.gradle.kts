@@ -58,6 +58,8 @@ dependencies {
     implementation("com.google.mlkit:language-id:17.0.6")
     implementation("com.google.mlkit:translate:17.0.3")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("io.github.farimarwat:youtubedl-boom:1.0.23")
+    implementation("io.github.farimarwat:youtubedl-boom-commons:1.2")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
