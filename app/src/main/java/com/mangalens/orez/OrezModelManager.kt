@@ -12,8 +12,10 @@ data class OrezModelState(
     val installed: Boolean = false,
     val downloading: Boolean = false,
     val bytes: Long = 0L,
-    val total: Long = 650379104L,
-    val error: String? = null
+    val total: Long = 491400032L,
+    val error: String? = null,
+    val optimized: Boolean = false,
+    val legacyInstalled: Boolean = false
 ) {
     val progress: Float get() = if (total <= 0L) 0f else (bytes.toFloat() / total).coerceIn(0f, 1f)
 }
@@ -23,12 +25,35 @@ class OrezModelManager(val context: Context) {
     private val _state = MutableStateFlow(readState())
     val state: StateFlow<OrezModelState> = _state
 
-    val modelFile: File get() = File(context.filesDir, "orez_models/qwen2.5-0.5b-q6_k.gguf")
+    val optimizedModelFile: File get() = File(context.filesDir, "orez_models/qwen2.5-0.5b-q4_k_m.gguf")
+    val legacyModelFile: File get() = File(context.filesDir, "orez_models/qwen2.5-0.5b-q6_k.gguf")
+    val modelFile: File
+        get() = when {
+            optimizedModelFile.exists() && optimizedModelFile.length() == MODEL_BYTES -> optimizedModelFile
+            legacyModelFile.exists() && legacyModelFile.length() == LEGACY_MODEL_BYTES -> legacyModelFile
+            else -> optimizedModelFile
+        }
 
     fun refresh() {
-        val installed = modelFile.exists() && modelFile.length() >= MODEL_BYTES
-        _state.value = if (installed) OrezModelState(installed = true, bytes = modelFile.length(), total = MODEL_BYTES)
-        else readState().copy(installed = false)
+        val optimized = optimizedModelFile.exists() && optimizedModelFile.length() == MODEL_BYTES
+        val legacy = legacyModelFile.exists() && legacyModelFile.length() == LEGACY_MODEL_BYTES
+        _state.value = when {
+            optimized -> OrezModelState(
+                installed = true,
+                bytes = optimizedModelFile.length(),
+                total = MODEL_BYTES,
+                optimized = true,
+                legacyInstalled = legacy
+            )
+            legacy -> OrezModelState(
+                installed = true,
+                bytes = legacyModelFile.length(),
+                total = LEGACY_MODEL_BYTES,
+                optimized = false,
+                legacyInstalled = true
+            )
+            else -> readState().copy(installed = false, optimized = false, legacyInstalled = false)
+        }
     }
 
     fun enqueue() {
@@ -41,22 +66,34 @@ class OrezModelManager(val context: Context) {
             .build()
         prefs.edit().putBoolean("downloading", true).apply()
         _state.value = readState().copy(downloading = true, error = null)
-        WorkManager.getInstance(context).enqueueUniqueWork("orez-model", ExistingWorkPolicy.KEEP, request)
+        val policy = if (_state.value.downloading) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE
+        WorkManager.getInstance(context).enqueueUniqueWork("orez-model", policy, request)
     }
 
-    fun isReady(): Boolean = modelFile.exists() && modelFile.length() >= MODEL_BYTES
+    fun isReady(): Boolean {
+        val file = modelFile
+        return (file == optimizedModelFile && file.length() == MODEL_BYTES) ||
+            (file == legacyModelFile && file.length() == LEGACY_MODEL_BYTES)
+    }
 
-    private fun readState(): OrezModelState = OrezModelState(
-        installed = modelFile.exists() && modelFile.length() >= MODEL_BYTES,
-        downloading = prefs.getBoolean("downloading", false),
-        bytes = prefs.getLong("bytes", modelFile.length()),
-        total = prefs.getLong("total", MODEL_BYTES),
-        error = prefs.getString("error", null)
-    )
+    private fun readState(): OrezModelState {
+        val optimized = optimizedModelFile.exists() && optimizedModelFile.length() == MODEL_BYTES
+        val legacy = legacyModelFile.exists() && legacyModelFile.length() == LEGACY_MODEL_BYTES
+        return OrezModelState(
+            installed = optimized || legacy,
+            downloading = prefs.getBoolean("downloading", false),
+            bytes = prefs.getLong("bytes", if (optimized) optimizedModelFile.length() else if (legacy) legacyModelFile.length() else 0L),
+            total = prefs.getLong("total", if (optimized) MODEL_BYTES else if (legacy) LEGACY_MODEL_BYTES else MODEL_BYTES),
+            error = prefs.getString("error", null),
+            optimized = optimized,
+            legacyInstalled = legacy
+        )
+    }
 
     companion object {
-        const val MODEL_BYTES = 650379104L
-        const val MODEL_SHA256 = "2f82233630c349ccf6b8daccf48f9a7865713d9f08a2eadfa456cebe9b97c7f5"
-        const val MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q6_k.gguf?download=true"
+        const val MODEL_BYTES = 491400032L
+        const val MODEL_SHA256 = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+        const val MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/872f8a96064a1242ac3a3359cad77c3042548405/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true"
+        const val LEGACY_MODEL_BYTES = 650379104L
     }
 }
