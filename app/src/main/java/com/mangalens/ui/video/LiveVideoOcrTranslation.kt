@@ -77,8 +77,7 @@ fun LiveVideoOcrTranslationOverlay(
                         .mapNotNull { cue -> cue.text?.toString()?.trim() }
                         .filter { it.isNotBlank() }
                         .distinct()
-                        .joinToString("
-")
+                        .joinToString("\n")
                         .take(1200)
                 }
             }
