@@ -323,10 +323,31 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     fun render(bitmap: Bitmap, regions: List<TranslationRegion>): Bitmap {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
+        val prepared = mutableListOf<Pair<TranslationRegion, com.mangalens.core.translation.MangaLettering.Patch>>()
+
+        // Phase 1: erase/reconstruct every source region on the evolving output. Preparing
+        // every patch from the immutable original page allowed overlapping OCR fragments
+        // to paint already-erased source glyphs back into the balloon.
         regions.forEach { region ->
-            val patch = com.mangalens.core.translation.MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source)
-            try { com.mangalens.core.translation.MangaLettering.draw(canvas, patch, region.translated) }
-            finally { patch.background.recycle() }
+            currentCoroutineContextOrNull()?.ensureActive()
+            val patch = com.mangalens.core.translation.MangaLettering.prepare(
+                output,
+                region.bounds,
+                region.lineBounds,
+                region.source
+            )
+            com.mangalens.core.translation.MangaLettering.drawBackground(canvas, patch)
+            prepared += region to patch
+        }
+
+        // Phase 2: typeset only after the page is clean so translated lettering cannot be
+        // sampled as "background" by a neighbouring OCR fragment.
+        try {
+            prepared.forEach { (region, patch) ->
+                com.mangalens.core.translation.MangaLettering.drawText(canvas, patch, region.translated)
+            }
+        } finally {
+            prepared.forEach { (_, patch) -> patch.background.recycle() }
         }
         return output
     }
