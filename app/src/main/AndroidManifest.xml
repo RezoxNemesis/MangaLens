@@ -11,6 +11,7 @@
     <application
         android:name=".MangaLensApplication"
         android:allowBackup="true"
+        android:extractNativeLibs="true"
         android:label="MangaLens"
         android:supportsRtl="true"
         android:theme="@style/Theme.MangaLens">
