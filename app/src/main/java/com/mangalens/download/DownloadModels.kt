@@ -17,6 +17,7 @@ data class DownloadEntity(
     val bytesDownloaded: Long = 0L,
     val totalBytes: Long = -1L,
     val progressPercent: Float = -1f,
+    val requestedQualityHeight: Int = 2160,
     val state: DownloadState = DownloadState.QUEUED,
     val error: String? = null,
     val createdAt: Long = System.currentTimeMillis()
@@ -42,7 +43,7 @@ interface DownloadDao {
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 
-@Database(entities = [DownloadEntity::class], version = 2, exportSchema = false)
+@Database(entities = [DownloadEntity::class], version = 3, exportSchema = false)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloads(): DownloadDao
 
@@ -57,6 +58,14 @@ abstract class DownloadDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE media_downloads ADD COLUMN requestedQualityHeight INTEGER NOT NULL DEFAULT 2160"
+                )
+            }
+        }
+
         fun get(context: android.content.Context): DownloadDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -64,7 +73,7 @@ abstract class DownloadDatabase : RoomDatabase() {
                     DownloadDatabase::class.java,
                     "mangalens_downloads.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }
