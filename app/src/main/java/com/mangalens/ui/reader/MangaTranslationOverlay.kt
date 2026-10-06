@@ -44,22 +44,34 @@ fun MangaTranslationOverlay(
     BoxWithConstraints(modifier) {
         val sourceWidth = overlays.firstOrNull()?.imageWidthPx?.takeIf { it > 0 }?.toFloat() ?: 1080f
         val sourceHeight = overlays.firstOrNull()?.imageHeightPx?.takeIf { it > 0 }?.toFloat()
-        val scaleX = (maxWidth.value / sourceWidth).coerceIn(0.0001f, 8f)
-        val scaleY = if (sourceHeight != null && maxHeight.value.isFinite() && maxHeight.value > 0f) {
-            (maxHeight.value / sourceHeight).coerceIn(0.0001f, 8f)
+        val widthScale = (maxWidth.value / sourceWidth).coerceIn(0.0001f, 8f)
+        val uniformScale = if (
+            sourceHeight != null &&
+            maxHeight.value.isFinite() &&
+            maxHeight.value > 0f
+        ) {
+            min(widthScale, (maxHeight.value / sourceHeight).coerceIn(0.0001f, 8f))
         } else {
-            scaleX
+            widthScale
+        }
+        val renderedWidth = sourceWidth * uniformScale
+        val renderedHeight = sourceHeight?.times(uniformScale) ?: maxHeight.value
+        val baseX = ((maxWidth.value - renderedWidth) / 2f).coerceAtLeast(0f)
+        val baseY = if (maxHeight.value.isFinite()) {
+            ((maxHeight.value - renderedHeight) / 2f).coerceAtLeast(0f)
+        } else {
+            0f
         }
 
         overlays.forEach { overlay ->
-            val left = overlay.region.left.coerceAtLeast(0) * scaleX
-            val top = overlay.region.top.coerceAtLeast(0) * scaleY
-            val regionWidth = ((overlay.region.right - overlay.region.left).coerceAtLeast(1) * scaleX)
+            val left = baseX + overlay.region.left.coerceAtLeast(0) * uniformScale
+            val top = baseY + overlay.region.top.coerceAtLeast(0) * uniformScale
+            val regionWidth = ((overlay.region.right - overlay.region.left).coerceAtLeast(1) * uniformScale)
                 .coerceIn(24f, maxWidth.value.coerceAtLeast(24f))
-            val regionHeight = ((overlay.region.bottom - overlay.region.top).coerceAtLeast(1) * scaleY)
+            val regionHeight = ((overlay.region.bottom - overlay.region.top).coerceAtLeast(1) * uniformScale)
                 .coerceAtLeast(18f)
 
-            val scaledFontPx = overlay.fontSizePx * min(scaleX, scaleY)
+            val scaledFontPx = overlay.fontSizePx * uniformScale
             val fontSp = (scaledFontPx / density.density).coerceIn(8f, 30f)
             val radius = (regionHeight * .12f).coerceIn(3f, 14f)
             val backgroundColor = Color(overlay.backgroundColorArgb).copy(alpha = 0.96f)
