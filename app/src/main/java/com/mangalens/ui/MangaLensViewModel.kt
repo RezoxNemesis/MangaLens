@@ -13,7 +13,6 @@ import com.mangalens.core.model.ContentType
 import com.mangalens.core.reader.ChapterPage
 import com.mangalens.core.reader.ProgressiveChapterRepository
 import com.mangalens.core.router.UrlEngineRouter
-import com.mangalens.core.translation.OcrInpaintingEngine
 import com.mangalens.engine.AdvancedTranslationEngine
 import com.mangalens.engine.MangaChapterScraper
 import com.mangalens.engine.MangaChapterCatalogScraper
@@ -58,7 +57,6 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val router = UrlEngineRouter()
     private val repository = ProgressiveChapterRepository(application)
     private val acquirer = RenderedBrowserAcquirer(application, AdBlockEngine(statsStore))
-    private val ocr = OcrInpaintingEngine()
     private val advancedOcr = AdvancedTranslationEngine(application)
     private val orezRefiner = com.mangalens.core.translation.TranslationOrezRefiner(application)
     private var translationJob: kotlinx.coroutines.Job? = null
@@ -402,7 +400,6 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         translationJob?.cancel()
         ingestionJob?.cancel()
-        ocr.close()
         advancedOcr.close()
         orezRefiner.close()
         translator.close()
