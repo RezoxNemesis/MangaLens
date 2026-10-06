@@ -50,7 +50,7 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
             TextButton(onClick = onBack) { Text("Back") }
         }
         Text(
-            "Paste an accessible video, image or page URL. MangaLens selects the highest source-supported quality up to your selected ceiling.",
+            "Paste a YouTube, Instagram, direct video, image or media-page URL. MangaLens selects the best source-supported quality up to your selected ceiling.",
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(12.dp))
@@ -78,7 +78,7 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
             }
         }
         Text(
-            "480p → 4K • source-limited automatically • no DRM/private/paywall bypass",
+            "480p → 4K • YouTube/Instagram extraction runs locally • source-limited automatically • no DRM/private/paywall bypass",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -111,7 +111,16 @@ fun DownloadsScreen(onBack: () -> Unit, vm: DownloadsViewModel = viewModel()) {
                         Text(item.mimeType, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(item.state.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                        if (item.totalBytes > 0L) {
+                        if (item.progressPercent >= 0f && item.state != DownloadState.COMPLETED) {
+                            LinearProgressIndicator(
+                                progress = { item.progress },
+                                Modifier.fillMaxWidth().padding(top = 8.dp)
+                            )
+                            Text(
+                                "%.0f%% • extracting/downloading best available media".format(item.progressPercent.coerceIn(0f, 100f)),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else if (item.totalBytes > 0L) {
                             LinearProgressIndicator(
                                 progress = { item.progress },
                                 Modifier.fillMaxWidth().padding(top = 8.dp)
