@@ -356,4 +356,20 @@ jobs:
         with:
           gradle-version: "8.9"
           cache-disabled: true
-      - run: gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Validate and build debug APK
+        run: gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Verify pull-request APK
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          test "$(wc -c < "$APK")" -gt 1000000
+          sha256sum "$APK" | tee "$APK.sha256"
+      - name: Upload pull-request APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangalens-pr-${{ github.event.pull_request.number }}-arm64-debug
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+          retention-days: 7
