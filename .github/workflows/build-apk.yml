@@ -352,6 +352,10 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: mangalens-debug-keystore-v1
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
@@ -364,6 +368,14 @@ jobs:
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
           test "$(wc -c < "$APK")" -gt 1000000
+          unzip -l "$APK" > apk-contents.txt
+          grep -q 'lib/arm64-v8a/libffmpeg.so' apk-contents.txt
+          grep -q 'lib/arm64-v8a/libpython.so' apk-contents.txt
+          grep -q 'lib/arm64-v8a/libmangalens_orez_native.so' apk-contents.txt
+          if grep -q 'lib/x86_64/' apk-contents.txt; then
+            echo "Unexpected x86_64 payload in arm64 test APK"
+            exit 1
+          fi
           sha256sum "$APK" | tee "$APK.sha256"
       - name: Upload pull-request APK artifact
         uses: actions/upload-artifact@v4
