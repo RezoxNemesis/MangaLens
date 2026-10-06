@@ -1,19 +1,27 @@
 package com.mangalens.ui.reader
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mangalens.core.translation.OcrRegion
+import kotlin.math.min
 
 data class TranslationOverlay(
     val region: OcrRegion,
@@ -31,28 +39,55 @@ fun MangaTranslationOverlay(
     overlays: List<TranslationOverlay>,
     modifier: Modifier = Modifier
 ) {
+    val density = LocalDensity.current
+
     BoxWithConstraints(modifier) {
+        val sourceWidth = overlays.firstOrNull()?.imageWidthPx?.takeIf { it > 0 }?.toFloat() ?: 1080f
+        val sourceHeight = overlays.firstOrNull()?.imageHeightPx?.takeIf { it > 0 }?.toFloat()
+        val scaleX = (maxWidth.value / sourceWidth).coerceIn(0.0001f, 8f)
+        val scaleY = if (sourceHeight != null && maxHeight.value.isFinite() && maxHeight.value > 0f) {
+            (maxHeight.value / sourceHeight).coerceIn(0.0001f, 8f)
+        } else {
+            scaleX
+        }
+
         overlays.forEach { overlay ->
-            val sourceWidth = overlay.imageWidthPx.takeIf { it > 0 }?.toFloat() ?: 1080f
-            val scale = (maxWidth.value / sourceWidth).coerceIn(0.0001f, 4f)
-            val left = overlay.region.left.coerceAtLeast(0).toFloat() * scale
-            val top = overlay.region.top.coerceAtLeast(0).toFloat() * scale
-            val regionWidth = (overlay.region.right - overlay.region.left).coerceAtLeast(1) * scale
+            val left = overlay.region.left.coerceAtLeast(0) * scaleX
+            val top = overlay.region.top.coerceAtLeast(0) * scaleY
+            val regionWidth = ((overlay.region.right - overlay.region.left).coerceAtLeast(1) * scaleX)
+                .coerceIn(24f, maxWidth.value.coerceAtLeast(24f))
+            val regionHeight = ((overlay.region.bottom - overlay.region.top).coerceAtLeast(1) * scaleY)
+                .coerceAtLeast(18f)
+
+            val scaledFontPx = overlay.fontSizePx * min(scaleX, scaleY)
+            val fontSp = (scaledFontPx / density.density).coerceIn(8f, 30f)
+            val radius = (regionHeight * .12f).coerceIn(3f, 14f)
+            val backgroundColor = Color(overlay.backgroundColorArgb).copy(alpha = 0.96f)
             val textColor = Color(overlay.textColorArgb)
-            val backgroundColor = Color(overlay.backgroundColorArgb).copy(alpha = 0.90f)
-            Text(
-                text = overlay.translatedText,
-                color = textColor,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = (overlay.fontSizePx * scale).coerceIn(8f, 28f).sp
-                ),
+
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .offset(x = left.dp, y = top.dp)
-                    .widthIn(max = regionWidth.coerceIn(28f, maxWidth.value).dp)
+                    .size(width = regionWidth.dp, height = regionHeight.dp)
+                    .clip(RoundedCornerShape(radius.dp))
                     .background(backgroundColor)
                     .padding(horizontal = 3.dp, vertical = 1.dp)
-            )
+            ) {
+                Text(
+                    text = overlay.translatedText,
+                    modifier = Modifier.fillMaxSize(),
+                    color = textColor,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = fontSp.sp,
+                        lineHeight = (fontSp * 1.08f).sp
+                    ),
+                    softWrap = true,
+                    overflow = TextOverflow.Clip,
+                    maxLines = 10
+                )
+            }
         }
     }
 }
