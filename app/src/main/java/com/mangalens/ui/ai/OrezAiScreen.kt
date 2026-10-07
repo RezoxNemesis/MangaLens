@@ -557,7 +557,7 @@ fun OrezAiScreen(
                         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(
-                                    if (message.role == "YOU") "YOU" else "OREZ AI 2.2",
+                                    if (message.role == "YOU") "YOU" else "OREZ AI",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.Bold

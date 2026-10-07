@@ -48,7 +48,9 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             APP STATE: activeChapter=${appState.hasActiveChapter}; activeURL=${appState.activeUrl.orEmpty().take(8192)}
             USER REQUEST: ${input.take(4000)}
         """.trimIndent()
-        val response = localAnswer(prompt, emptyList(), 8_000L) ?: return null
+        val response = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+            localModel.answer(prompt, emptyList(), structured = true)
+        } ?: return null
         return com.mangalens.orez.agent.OrezModelPlanDecoder().decode(response, input, appState)
     }
     suspend fun answer(input:String,context:OrezContext)=withContext(Dispatchers.Default){

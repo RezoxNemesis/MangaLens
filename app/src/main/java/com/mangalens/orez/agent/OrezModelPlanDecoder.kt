@@ -16,6 +16,11 @@ class OrezModelPlanDecoder {
             args.getString(key)
         }
         val call = OrezToolRegistry().call(root.getString("tool"), arguments)
+        call.arguments["value"]?.takeIf { it.isNotBlank() }?.let { proposed ->
+            val approved = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
+                .findAll(objective).map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }.toSet() + listOfNotNull(context.activeUrl)
+            require(proposed in approved) { "Model invented a URL outside the user/app context" }
+        }
         val action = ACTION.find(objective.trim())?.groupValues?.get(1)?.lowercase() ?: error("No direct action request")
         val allowed = when(action) {
             "download", "save" -> call.name == "enqueue_download"

@@ -40,7 +40,7 @@ object MangaLensDesignTokens {
 
 private val LightColors = lightColorScheme(
     primary = MangaLensDesignTokens.Primary,
-    secondary = MangaLensDesignTokens.Secondary,
+    secondary = Color(0xFF38516A),
     primaryContainer = Color(0xFFD6E5FC),
     onPrimaryContainer = Color(0xFF20344E),
     secondaryContainer = Color(0xFFE5EBF3),

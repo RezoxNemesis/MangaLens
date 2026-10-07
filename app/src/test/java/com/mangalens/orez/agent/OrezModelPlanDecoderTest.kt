@@ -28,4 +28,9 @@ class OrezModelPlanDecoderTest {
         assertNull(decoder.decode("""{"tool":"enqueue_download","arguments":{"value":"https://example.com/v.mp4"}}""",
             "Open this video", OrezAgentContext()))
     }
+    @Test fun modelMustRetainTheApprovedSourceUrl() {
+        val context = OrezAgentContext(activeUrl = "https://example.com/v.mp4?sig=abc")
+        assertNotNull(decoder.decode("""{"tool":"open_video_url","arguments":{"value":"https://example.com/v.mp4?sig=abc"}}""", "Play this video", context))
+        assertNull(decoder.decode("""{"tool":"open_video_url","arguments":{"value":"https://other.example.com/v.mp4"}}""", "Play this video", context))
+    }
 }
