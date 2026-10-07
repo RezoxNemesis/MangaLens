@@ -34,6 +34,23 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
 
     private suspend fun localAnswer(prompt: String, recent: List<OrezMessageEntity>, budgetMs: Long = 9_000L): String? =
         kotlinx.coroutines.withTimeoutOrNull(budgetMs) { localModel.answer(prompt, recent) }
+
+    suspend fun planAction(input: String, appState: com.mangalens.orez.agent.OrezAgentContext): com.mangalens.orez.agent.OrezTaskPlan? {
+        if (!com.mangalens.orez.agent.OrezModelPlanDecoder.isActionRequest(input) || !modelManager.isReady()) return null
+        val prompt = """
+            Select exactly one MangaLens tool matching the user's requested action.
+            Return only JSON: {"tool":"name","arguments":{}}. If unsupported, return {}.
+            Never invent tools, URLs, unavailable chapters or permissions.
+            Do not turn an open/show request into a download or translation.
+            A URL tool requires value. Translation optionally accepts targetLanguage: hi/en/ja/ko/zh/fr/es/de.
+            AVAILABLE TOOLS:
+            ${com.mangalens.orez.agent.OrezToolRegistry().catalog()}
+            APP STATE: activeChapter=${appState.hasActiveChapter}; activeURL=${appState.activeUrl.orEmpty().take(8192)}
+            USER REQUEST: ${input.take(4000)}
+        """.trimIndent()
+        val response = localAnswer(prompt, emptyList(), 8_000L) ?: return null
+        return com.mangalens.orez.agent.OrezModelPlanDecoder().decode(response, input, appState)
+    }
     suspend fun answer(input:String,context:OrezContext)=withContext(Dispatchers.Default){
         val clean=input.trim()
         if(clean.isBlank()) return@withContext OrezBrainResponse("Please tell me what you want to do.",OrezIntent.GENERAL)

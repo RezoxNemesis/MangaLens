@@ -58,6 +58,20 @@ class OrezModelManager(val context: Context) {
         _state.value = readState()
     }
 
+    fun synchronizeWorkState(work: List<androidx.work.WorkInfo>) {
+        val active = work.any { !it.state.isFinished }
+        if (prefs.getBoolean(KEY_DOWNLOADING, false) != active) {
+            prefs.edit().putBoolean(KEY_DOWNLOADING, active).apply()
+        }
+        refresh()
+    }
+
+    fun pause() {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        prefs.edit().putBoolean(KEY_DOWNLOADING, false).putString(KEY_ERROR, "Paused. Download again to resume the saved partial.").apply()
+        refresh()
+    }
+
     fun selectTier(tier: OrezModelTier) {
         require(OrezModelCatalog.descriptor(tier) != null) {
             "OREZ model tier is not production-ready yet: " + tier.name

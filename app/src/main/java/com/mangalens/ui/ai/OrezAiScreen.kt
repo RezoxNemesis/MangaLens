@@ -82,7 +82,7 @@ class OrezAiViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow("orez-model").collect {
                 val before = modelManager.state.value.installed
-                modelManager.refresh()
+                modelManager.synchronizeWorkState(it)
                 if (!before && modelManager.state.value.installed) {
                     thinkingStage = if (modelManager.state.value.optimized)
                         "Optimized local model installed • warm on demand"
@@ -125,14 +125,15 @@ class OrezAiViewModel @JvmOverloads constructor(
             var activePlan: OrezTaskPlan? = null
             try {
                 dao.insert(OrezMessageEntity(role = "YOU", text = input))
-                val agentDecision = agentRuntime.decide(
-                    input,
-                    OrezAgentContext(
+                val appContext = OrezAgentContext(
                         hasActiveChapter = hasActiveChapter,
                         hasLibrary = libraryContext.isNotBlank(),
                         activeUrl = activeUrl
                     )
-                )
+                var agentDecision = agentRuntime.decide(input, appContext)
+                if (agentDecision.continueToBrain && answerRequest == null) {
+                    brain.planAction(input, appContext)?.let { agentDecision = agentRuntime.decidePlan(it, appContext) }
+                }
                 activePlan = agentDecision.plan
                 agentDecision.plan?.let { taskStore.checkpoint(it, it.status) }
                 if (!agentDecision.continueToBrain) {
@@ -174,17 +175,8 @@ class OrezAiViewModel @JvmOverloads constructor(
                     return@launch
                 }
 
-                // Compatibility path for legacy direct URL commands not yet represented by the
-                // structured Orez tool planner. This keeps existing 2.2 behavior while the agent
-                // runtime grows capability-by-capability.
-                val command = OrezCommandRouter().route(input)
-                if (command.route != OrezRoute.CHAT) {
-                    thinkingStage = "Opening the right MangaLens tool…"
-                    dao.insert(OrezMessageEntity(role = "OREZ", text = "Opening " + command.route.name.lowercase().replace('_', ' ') + " flow."))
-                    onRoute(command.originalInput, command.route)
-                    return@launch
-                }
-
+                // Questions mentioning URLs remain questions. All executable URL actions
+                // pass the same structured registry and policy as other app tools.
                 val recent = messages.value.takeLast(10)
                 val targetLanguage = getApplication<android.app.Application>()
                     .getSharedPreferences("mangalens_preferences", android.content.Context.MODE_PRIVATE)
@@ -261,6 +253,7 @@ class OrezAiViewModel @JvmOverloads constructor(
     }
 
     fun downloadLocalModel() = modelManager.enqueue(modelManager.state.value.selectedTier)
+    fun pauseLocalModel() = modelManager.pause()
     fun refreshLocalModel() = modelManager.refresh()
 
     fun deleteMessage(id: Long) = viewModelScope.launch {
@@ -469,6 +462,10 @@ fun OrezAiScreen(
 
                         if (modelState.downloading) {
                             LinearProgressIndicator(progress = { modelState.progress }, modifier = Modifier.fillMaxWidth())
+                            TextButton(vm::pauseLocalModel) { Text("Pause model download") }
+                        }
+                        modelState.error?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         }
 
                         Text("Local intelligence", style = MaterialTheme.typography.labelLarge)
@@ -479,6 +476,7 @@ fun OrezAiScreen(
                             OrezModelCatalog.availableDescriptors.forEach { descriptor ->
                                 FilterChip(
                                     selected = modelState.selectedTier == descriptor.tier,
+                                    enabled = !modelState.downloading,
                                     onClick = { vm.selectModelTier(descriptor.tier) },
                                     label = { Text(descriptor.label, maxLines = 1) },
                                     modifier = Modifier.weight(1f)

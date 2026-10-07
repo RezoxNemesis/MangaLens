@@ -71,6 +71,14 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
             store.checkpoint(running.copy(status = status,
                 steps = running.steps.map { it.copy(status = if (status == OrezTaskStatus.COMPLETED) OrezStepStatus.COMPLETED else OrezStepStatus.FAILED) }),
                 error = terminal.error)
+            if (store.load(id)?.status == status) {
+                OrezRoomDatabase.get(applicationContext).messages().insert(com.mangalens.orez.OrezMessageEntity(
+                    role = "OREZ", text = when(status) {
+                        OrezTaskStatus.COMPLETED -> "Download complete: ${terminal.title.take(160)}. Open Downloads to play the saved media."
+                        OrezTaskStatus.CANCELLED -> "The download was cancelled."
+                        else -> "The download failed. Open Downloads to inspect the source and retry."
+                    }))
+            }
             Result.success()
         } catch (cancelled: CancellationException) {
             // WorkManager may stop for network/process constraints. Retain the checkpoint.

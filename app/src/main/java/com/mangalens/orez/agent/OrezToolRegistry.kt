@@ -36,4 +36,14 @@ class OrezToolRegistry {
             }
         }
     }
+
+    fun call(name: String, arguments: Map<String, String>): OrezToolCall {
+        val descriptor = requireNotNull(tools[name]) { "Unknown Orez tool" }
+        return OrezToolCall(name, descriptor.capability, descriptor.risk,
+            name.replace('_', ' '), arguments, descriptor.route).also(::validate)
+    }
+
+    fun catalog(): String = tools.entries.joinToString("\n") { (name, descriptor) ->
+        "$name: ${descriptor.capability.name}; " + if (descriptor.requiresUrl) "value=HTTP(S) URL" else "no URL required"
+    }
 }

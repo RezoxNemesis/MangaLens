@@ -7,6 +7,12 @@ class OrezAgentRuntime(
     fun decide(input: String, context: OrezAgentContext): OrezAgentDecision {
         val plan = planner.plan(input, context)
             ?: return OrezAgentDecision(continueToBrain = true)
+        return decidePlan(plan, context)
+    }
+
+    fun decidePlan(plan: OrezTaskPlan, context: OrezAgentContext): OrezAgentDecision {
+        if (plan.steps.size != 1) return OrezAgentDecision(plan = plan.copy(status = OrezTaskStatus.FAILED),
+            message = "This tool runtime needs one verified action per dispatch.")
 
         val invalid = runCatching { plan.steps.forEach { OrezToolRegistry().validate(it.call) } }.exceptionOrNull()
         if (invalid != null) return OrezAgentDecision(

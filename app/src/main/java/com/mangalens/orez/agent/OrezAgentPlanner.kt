@@ -17,7 +17,8 @@ class OrezAgentPlanner(
             isAny(lower, "download this", "download the current", "save this video", "save media")
         }
 
-        val direct = when {
+        val actionable = OrezModelPlanDecoder.isActionRequest(clean) || lower in setOf("download manager", "downloads screen")
+        val direct = if (actionable) when {
             isAny(lower, "open downloads", "show downloads", "download manager", "downloads screen") ->
                 tool(
                     name = "open_downloads",
@@ -58,10 +59,11 @@ class OrezAgentPlanner(
                 )
 
             else -> null
-        }
+        } else null
         if (direct != null) return task(clean, listOf(withTarget(direct, lower)))
 
         if (url == null) return null
+        if (!actionable && clean != explicitUrl) return null
 
         val contentType = urlRouter.classifyUrl(url)
         val download = isAny(lower, "download", "save video", "save media", "download this", "offline copy")

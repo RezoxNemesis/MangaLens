@@ -19,6 +19,11 @@ class OrezAgentRuntimeTest {
     @Test fun libraryQuestionRemainsGroundedConversation() {
         assertTrue(runtime.decide("Summarize my library", OrezAgentContext(hasLibrary = true)).continueToBrain)
     }
+    @Test fun instructionsQuestionIsNotACommand() {
+        assertTrue(runtime.decide("How do I open settings?", OrezAgentContext()).continueToBrain)
+        assertTrue(runtime.decide("How do I translate this chapter?", OrezAgentContext(hasActiveChapter = true)).continueToBrain)
+        assertTrue(runtime.decide("Why did downloading https://example.com/v.mp4 fail?", OrezAgentContext()).continueToBrain)
+    }
 
     @Test fun explicitPlayOverridesMangaUrlHeuristic() {
         assertEquals(OrezRoute.VIDEO_PLAYER,
