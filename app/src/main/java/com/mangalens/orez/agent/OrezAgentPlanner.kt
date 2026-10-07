@@ -11,7 +11,7 @@ class OrezAgentPlanner(
     fun plan(input: String, context: OrezAgentContext): OrezTaskPlan? {
         val clean = input.trim()
         if (clean.isBlank()) return null
-        val lower = clean.lowercase(Locale.ROOT)
+        val lower = URL_REGEX.replace(clean.lowercase(Locale.ROOT), " ").trim()
         val explicitUrl = URL_REGEX.find(clean)?.value?.trimEnd('.', ',', ')', ']', '!', '?')
         val url = explicitUrl ?: context.activeUrl?.takeIf {
             isAny(lower, "download this", "download the current", "save this video", "save media")
@@ -68,11 +68,11 @@ class OrezAgentPlanner(
         val contentType = urlRouter.classifyUrl(url)
         // URL hosts, paths and query parameters describe content, not user intent.
         // A manga hostname must not override "Play"; ?download=1 is not a command.
-        val intentText = URL_REGEX.replace(lower, " ")
+        val intentText = lower
         val download = isAny(intentText, "download", "save video", "save media", "download this", "offline copy")
         val translate = wantsTranslation(intentText)
         val play = isAny(intentText, "play", "watch", "stream", "open video")
-        val read = isAny(intentText, "read", "open chapter", "reader", "manga")
+        val read = isAny(intentText, "read", "chapter", "reader", "manga", "comic")
 
         val call = when {
             download -> tool(

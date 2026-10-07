@@ -36,6 +36,10 @@ class OrezAgentRuntimeTest {
         assertEquals(OrezRoute.VIDEO_PLAYER, decision.immediateRoute)
         assertEquals("open_video_url", decision.plan!!.steps.single().call.name)
     }
+    @Test fun urlWordsCannotInitiateChapterTranslation() {
+        val decision = runtime.decide("Open this chapter https://example.com/translation", OrezAgentContext(hasActiveChapter = true))
+        assertEquals(OrezRoute.MANGA_READER, decision.immediateRoute)
+    }
 
     @Test fun requestedLanguageSurvivesPlanning() {
         val decision = runtime.decide("Translate this whole chapter into English", OrezAgentContext(hasActiveChapter = true))
