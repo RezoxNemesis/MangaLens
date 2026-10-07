@@ -25,7 +25,7 @@ class OrezAgentPlanner(
                     value = context.activeUrl.orEmpty()
                 )
 
-            isAny(lower, "open library", "show library", "my library", "saved library") ->
+            isAny(lower, "open library", "show library", "open my library", "show my library") ->
                 tool(
                     name = "open_library",
                     capability = OrezCapability.LIBRARY,
@@ -56,7 +56,7 @@ class OrezAgentPlanner(
 
             else -> null
         }
-        if (direct != null) return task(clean, listOf(direct))
+        if (direct != null) return task(clean, listOf(withTarget(direct, lower)))
 
         if (url == null) return null
 
@@ -103,7 +103,7 @@ class OrezAgentPlanner(
                 value = url
             )
 
-            contentType == ContentType.IMAGE_CHAPTER || read -> tool(
+            read || (!play && contentType == ContentType.IMAGE_CHAPTER) -> tool(
                 name = "open_reader_url",
                 capability = OrezCapability.READER,
                 risk = OrezToolRisk.NETWORK_READ,
@@ -131,7 +131,19 @@ class OrezAgentPlanner(
             )
         }
 
-        return task(clean, listOf(call))
+        return task(clean, listOf(withTarget(call, lower)))
+    }
+
+    private fun withTarget(call: OrezToolCall, input: String): OrezToolCall {
+        if (call.capability != OrezCapability.TRANSLATION) return call
+        val languages = listOf("hi" to listOf("hindi", "हिंदी", "हिन्दी"),
+            "en" to listOf("english"), "ja" to listOf("japanese"), "ko" to listOf("korean"),
+            "zh" to listOf("chinese"), "fr" to listOf("french"), "es" to listOf("spanish"), "de" to listOf("german"))
+        val target = languages.firstOrNull { (_, names) -> names.any { name ->
+            Regex("(?:to|into|in|में)\\s+" + Regex.escape(name) + "(?:\\b|$)").containsMatchIn(input) ||
+                input.contains(name + " mein")
+        } }?.first ?: return call
+        return call.copy(arguments = call.arguments + ("targetLanguage" to target))
     }
 
     private fun task(objective: String, calls: List<OrezToolCall>): OrezTaskPlan =

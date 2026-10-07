@@ -43,6 +43,18 @@ class OrezTaskStoreTest {
         assertEquals(1, json.getInt("schema"))
         assertEquals("Open my library", json.getString("objective"))
         assertEquals("open_library", json.getJSONArray("steps").getJSONObject(0).getString("tool"))
+        assertEquals(plan.copy(status = OrezTaskStatus.RUNNING), store.load(plan.id))
+    }
+
+    @Test fun dispatchDoesNotPretendLongRunningWorkCompleted() = runTest {
+        val dao = FakeTaskDao()
+        val store = OrezTaskStore(dao)
+        val plan = OrezAgentPlanner().plan("Translate this whole chapter to Hindi", OrezAgentContext(hasActiveChapter = true))!!
+        val dispatched = plan.copy(status = OrezTaskStatus.DISPATCHED,
+            steps = plan.steps.map { it.copy(status = OrezStepStatus.DISPATCHED) })
+        store.checkpoint(dispatched)
+        assertEquals(dispatched, store.load(plan.id))
+        assertEquals("hi", store.load(plan.id)!!.steps.first().call.arguments["targetLanguage"])
     }
 
     private class FakeTaskDao : OrezTaskDao {

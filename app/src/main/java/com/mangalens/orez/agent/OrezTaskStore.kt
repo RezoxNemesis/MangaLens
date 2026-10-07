@@ -4,6 +4,7 @@ import com.mangalens.orez.OrezTaskDao
 import com.mangalens.orez.OrezTaskEntity
 import org.json.JSONArray
 import org.json.JSONObject
+import com.mangalens.orez.OrezRoute
 
 /**
  * Durable journal for autonomous Orez work.
@@ -16,6 +17,38 @@ import org.json.JSONObject
 class OrezTaskStore(
     private val dao: OrezTaskDao
 ) {
+    suspend fun load(id: String): OrezTaskPlan? = dao.get(id)?.let { entity ->
+        runCatching { decode(entity.planJson) }.getOrNull()
+    }
+
+    internal fun decode(encoded: String): OrezTaskPlan {
+        val root = JSONObject(encoded)
+        require(root.getInt("schema") == 1) { "Unsupported Orez task schema" }
+        val steps = root.getJSONArray("steps")
+        require(steps.length() in 1..32) { "Invalid task step count" }
+        return OrezTaskPlan(
+            id = root.getString("id"),
+            objective = root.getString("objective"),
+            status = OrezTaskStatus.valueOf(root.getString("status")),
+            createdAt = root.getLong("createdAt"),
+            steps = (0 until steps.length()).map { i ->
+                val step = steps.getJSONObject(i)
+                val args = step.getJSONObject("arguments")
+                OrezPlanStep(
+                    index = step.getInt("index"),
+                    status = OrezStepStatus.valueOf(step.getString("status")),
+                    call = OrezToolCall(
+                        name = step.getString("tool"),
+                        capability = OrezCapability.valueOf(step.getString("capability")),
+                        risk = OrezToolRisk.valueOf(step.getString("risk")),
+                        summary = step.getString("summary"),
+                        route = if (step.isNull("route")) null else OrezRoute.valueOf(step.getString("route")),
+                        arguments = args.keys().asSequence().associateWith { args.getString(it) }
+                    )
+                )
+            }
+        )
+    }
     suspend fun checkpoint(
         plan: OrezTaskPlan,
         status: OrezTaskStatus = plan.status,

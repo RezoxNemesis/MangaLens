@@ -26,7 +26,8 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
     onModeSelected: (ContentType) -> Unit, onIngest: () -> Unit, onOpenReader: () -> Unit,
     onOpenVideo: () -> Unit, onOpenDownloads: () -> Unit, onOpenChapter: (String) -> Unit,
     onImportImages: (List<Uri>) -> Unit, onOpenSavedChapter: (String) -> Unit,
-    onOpenOrez: () -> Unit, onOpenLibrary: () -> Unit) {
+    onOpenOrez: () -> Unit, onOpenLibrary: () -> Unit,
+    onOpenSettings: () -> Unit = {}, onOpenWeb: () -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
     var tab by rememberSaveable { mutableStateOf("For you") }
     var showLink by rememberSaveable { mutableStateOf(false) }
@@ -53,22 +54,24 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
             )
             .statusBarsPadding(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(com.mangalens.ui.theme.LocalAppearance.current.density.gap)
     ) {
-        item { BrandHeader("MangaLens 2.2", "RECOVERY BUILD • READ BEYOND LANGUAGE", action = {
+        item { BrandHeader("MangaLens", "READ · WATCH · BROWSE", action = {
             IconButton({ showLink = true }) { Icon(Icons.Outlined.Link, "Open link") }
-            IconButton(onOpenOrez) { Icon(Icons.Outlined.SmartToy, "Ask Orez") }
+            IconButton(onOpenSettings) { Icon(Icons.Outlined.Settings, "Settings and protection") }
         }) }
         item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
             leadingIcon = { Icon(Icons.Outlined.Search, null) }, placeholder = { Text("Search your manga & chapters") }, shape = RoundedCornerShape(18.dp)) }
         item { LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(listOf("For you", "Recent", "Bookmarks")) { label -> FilterChip(tab == label, { tab = label }, label = { Text(label) }) }
         } }
-        if (query.isBlank() && tab == "For you") item { ArtworkHero("Your next chapter awaits", "Import your stories. Read and translate on your device.", R.drawable.home_artwork, "Import & read") { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) } }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                NeonActionTile("Open link", "Paste URL to read or play", Icons.Outlined.Link, Modifier.weight(1f)) { showLink = true }
-                NeonActionTile("Downloads", "Saved files & media", Icons.Outlined.FileDownload, Modifier.weight(1f), onClick = onOpenDownloads)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { NeonActionTile("Open link", null, Icons.Outlined.Link, Modifier.width(150.dp)) { showLink = true } }
+                item { NeonActionTile("Import", null, Icons.Outlined.AddPhotoAlternate, Modifier.width(140.dp)) { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) } }
+                item { NeonActionTile("Watch", null, Icons.Outlined.PlayCircle, Modifier.width(140.dp), onClick = onOpenVideo) }
+                item { NeonActionTile("Web", null, Icons.Outlined.Language, Modifier.width(140.dp), onClick = onOpenWeb) }
+                item { NeonActionTile("Downloads", null, Icons.Outlined.FileDownload, Modifier.width(170.dp), onClick = onOpenDownloads) }
             }
         }
         state.library.firstOrNull()?.takeIf { query.isBlank() && tab == "For you" }?.let { chapter ->
@@ -102,16 +105,8 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
             state.chapters.take(20).forEach { chapter -> TextButton({ onOpenChapter(chapter.url) }) { Text(chapter.title.ifBlank { "Chapter" }) } }
         } }
         item {
-            Panel {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
-                    Column {
-                        Text("Meet Orez 2.2", style = MaterialTheme.typography.titleMedium)
-                        Text("Hybrid story assistant, OCR helper and web-backed companion.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Button(onOpenOrez, shape = RoundedCornerShape(14.dp)) { Text("Talk to Orez →") }
-            }
+            NeonActionTile("Orez AI", "Translate, understand and organise your stories", Icons.Outlined.AutoAwesome,
+                Modifier.fillMaxWidth(), onClick = onOpenOrez)
         }
         state.videoUrl?.let {
             item {

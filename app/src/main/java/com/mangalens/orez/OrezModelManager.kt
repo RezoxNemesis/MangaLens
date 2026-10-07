@@ -69,7 +69,8 @@ class OrezModelManager(val context: Context) {
     fun enqueue(tier: OrezModelTier = _state.value.selectedTier) {
         val descriptor = OrezModelCatalog.descriptor(tier)
             ?: throw IllegalArgumentException("OREZ model tier is not available yet: " + tier.name)
-        val alreadyDownloading = _state.value.downloading
+        // KEEP must not overwrite progress/tier metadata for the existing worker.
+        if (_state.value.downloading) return
 
         selectTier(tier)
 
@@ -102,7 +103,7 @@ class OrezModelManager(val context: Context) {
             .apply()
 
         _state.value = readState().copy(downloading = true, error = null)
-        val policy = if (alreadyDownloading) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE
+        val policy = ExistingWorkPolicy.KEEP
         WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, policy, request)
     }
 

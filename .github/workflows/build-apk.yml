@@ -4,7 +4,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "engineering/mangalens-production", "engineering/mangalens-2.2-runtime-recovery"]
   workflow_dispatch:
 
 concurrency:
@@ -15,6 +15,7 @@ permissions:
   contents: write
 
 env:
+  MANGALENS_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RELEASE_TAG: orez-corpus-${{ github.run_id }}
 
 jobs:
@@ -500,7 +501,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Upload pull-request debug APK
-        if: always()
+        if: success()
         id: upload_pr_apk
         continue-on-error: true
         uses: actions/upload-artifact@v4

@@ -22,7 +22,7 @@ class OrezModelDownloadWorker(
 ) : CoroutineWorker(appContext, params) {
     private val prefs = appContext.getSharedPreferences("orez_model", Context.MODE_PRIVATE)
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val tier = runCatching {
             OrezModelTier.valueOf(
                 inputData.getString(KEY_TIER) ?: OrezModelTier.LITE.name
@@ -30,7 +30,7 @@ class OrezModelDownloadWorker(
         }.getOrDefault(OrezModelTier.LITE)
 
         val descriptor = OrezModelCatalog.descriptor(tier)
-            ?: return Result.failure(
+            ?: return@withContext Result.failure(
                 workDataOf(KEY_ERROR to "Requested OREZ model tier is not available.")
             )
 
@@ -40,7 +40,7 @@ class OrezModelDownloadWorker(
         }
         val part = File(finalFile.parentFile, finalFile.name + ".part")
 
-        return try {
+        try {
             prefs.edit()
                 .putBoolean("downloading", true)
                 .putString("downloading_tier", tier.name)
@@ -56,6 +56,10 @@ class OrezModelDownloadWorker(
                 )
             )
 
+            val remaining = (descriptor.bytes - part.length()).coerceAtLeast(0L)
+            check(android.os.StatFs(finalFile.parentFile!!.absolutePath).availableBytes >= remaining + 64L * 1024L * 1024L) {
+                "Not enough storage for this Orez model. Free space and resume the download."
+            }
             download(part, descriptor)
 
             check(part.length() == descriptor.bytes) {
@@ -66,12 +70,10 @@ class OrezModelDownloadWorker(
                 "OREZ model integrity check failed"
             }
 
-            if (finalFile.exists()) check(finalFile.delete()) {
-                "Unable to replace the previous OREZ model"
-            }
-            check(part.renameTo(finalFile)) {
-                "Unable to finalize OREZ model"
-            }
+            currentCoroutineContext().ensureActive()
+            java.nio.file.Files.move(part.toPath(), finalFile.toPath(),
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
 
             if (tier == OrezModelTier.LITE) {
                 // The verified Q4 Lite pack supersedes the old Q6 legacy file.
@@ -120,6 +122,8 @@ class OrezModelDownloadWorker(
         descriptor: OrezModelDescriptor
     ) {
         var offset = part.takeIf { it.exists() }?.length() ?: 0L
+        // A stopped transfer may already contain every byte; verify it locally.
+        if (offset == descriptor.bytes) return
 
         if (offset > descriptor.bytes) {
             part.delete()
@@ -271,11 +275,12 @@ class OrezModelDownloadWorker(
     private fun format(bytes: Long): String =
         "%.0f MB".format(bytes / 1_000_000.0)
 
-    private fun sha256(file: File): String {
+    private suspend fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(BUFFER_BYTES)
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val count = input.read(buffer)
                 if (count < 0) break
                 digest.update(buffer, 0, count)

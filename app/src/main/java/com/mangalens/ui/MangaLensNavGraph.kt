@@ -53,6 +53,7 @@ fun MangaLensNavGraph(
     onImportImages: (List<android.net.Uri>) -> Unit,
     onResolvedVideo: (String, Map<String, String>, String, String?, Map<String, String>) -> Unit
 ) {
+    val motionDuration = if (com.mangalens.ui.theme.LocalAppearance.current.reducedMotion) 0 else 220
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route?.substringBefore('?')
     Scaffold(
@@ -71,24 +72,24 @@ fun MangaLensNavGraph(
             startDestination = "home",
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             enterTransition = {
-                fadeIn(tween(360, easing = FastOutSlowInEasing)) +
-                    slideInHorizontally(tween(380, easing = FastOutSlowInEasing)) { it / 10 } +
-                    scaleIn(tween(360, easing = FastOutSlowInEasing), initialScale = .985f)
+                fadeIn(tween(motionDuration, easing = FastOutSlowInEasing)) +
+                    slideInHorizontally(tween(motionDuration, easing = FastOutSlowInEasing)) { it / 10 } +
+                    scaleIn(tween(motionDuration, easing = FastOutSlowInEasing), initialScale = .985f)
             },
             exitTransition = {
-                fadeOut(tween(240)) +
-                    slideOutHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 14 } +
-                    scaleOut(tween(260), targetScale = .992f)
+                fadeOut(tween(motionDuration)) +
+                    slideOutHorizontally(tween(motionDuration, easing = FastOutSlowInEasing)) { -it / 14 } +
+                    scaleOut(tween(motionDuration), targetScale = .992f)
             },
             popEnterTransition = {
-                fadeIn(tween(340, easing = FastOutSlowInEasing)) +
-                    slideInHorizontally(tween(360, easing = FastOutSlowInEasing)) { -it / 10 } +
-                    scaleIn(tween(340, easing = FastOutSlowInEasing), initialScale = .985f)
+                fadeIn(tween(motionDuration, easing = FastOutSlowInEasing)) +
+                    slideInHorizontally(tween(motionDuration, easing = FastOutSlowInEasing)) { -it / 10 } +
+                    scaleIn(tween(motionDuration, easing = FastOutSlowInEasing), initialScale = .985f)
             },
             popExitTransition = {
-                fadeOut(tween(230)) +
-                    slideOutHorizontally(tween(290, easing = FastOutSlowInEasing)) { it / 14 } +
-                    scaleOut(tween(250), targetScale = .992f)
+                fadeOut(tween(motionDuration)) +
+                    slideOutHorizontally(tween(motionDuration, easing = FastOutSlowInEasing)) { it / 14 } +
+                    scaleOut(tween(motionDuration), targetScale = .992f)
             }
         ) {
             composable("home") {
@@ -112,15 +113,17 @@ fun MangaLensNavGraph(
                     onImportImages = { uris -> onImportImages(uris); navController.navigate("reader") },
                     onOpenSavedChapter = { id -> onOpenSavedChapter(id); navController.navigate("reader") },
                     onOpenOrez = { navController.navigate("orez") },
-                    onOpenLibrary = { navController.navigate("library") }
+                    onOpenLibrary = { navController.navigate("library") },
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenWeb = { navController.navigate("web") }
                 )
             }
             composable("library") {
                 LibraryScreen(state = state, onChapterDetails = onChapterDetails, onDeleteChapter = onDeleteSavedChapter, onOpenSavedChapter = { id -> onOpenSavedChapter(id); navController.navigate("reader") }, onOpenReader = { navController.navigate("reader") }, onOpenLocalVideo = { navController.navigate("local_video") })
             }
             composable("orez") {
-                OrezAiScreen(library = state.library, chapterText = state.overlays.values.flatten().joinToString("\n") { it.translatedText }, onImport = { onImportImages(it); navController.navigate("reader") }) { value, route ->
-                    onUrlChanged(value)
+                OrezAiScreen(hasActiveChapter = state.pages.isNotEmpty(), activeUrl = state.url.takeIf { it.isNotBlank() }, onTargetLanguage = onTargetLanguageChanged, library = state.library, chapterText = state.overlays.values.flatten().joinToString("\n") { it.translatedText }, onImport = { onImportImages(it); navController.navigate("reader") }) { value, route ->
+                    if (value.isNotBlank()) onUrlChanged(value)
                     when (route) {
                         OrezRoute.MANGA_READER -> { onModeSelected(ContentType.IMAGE_CHAPTER); onIngest(); navController.navigate("reader") }
                         OrezRoute.VIDEO_PLAYER -> { onModeSelected(ContentType.VIDEO_STREAM); onIngest(); navController.navigate("video") }
@@ -184,6 +187,14 @@ fun MangaLensNavGraph(
                     }
                 }
             }
+            composable("watch") {
+                LocalVideoGalleryScreen(
+                    onOpenPlayer = { uri -> navController.navigate("local_player?uri=" + android.net.Uri.encode(uri.toString())) },
+                    onOpenSystem = { navController.navigate("local_player") },
+                    onOpenExternal = { uri -> navController.navigate("local_player?uri=" + android.net.Uri.encode(uri.toString())) },
+                    modifier = Modifier.fillMaxSize().statusBarsPadding()
+                )
+            }
             composable("local_video") {
                 LocalVideoGalleryScreen(
                     onOpenPlayer = { uri -> navController.navigate("local_player?uri=" + android.net.Uri.encode(uri.toString())) },
@@ -213,7 +224,7 @@ fun MangaLensNavGraph(
                     modifier = Modifier.fillMaxSize(),
                     targetLanguage = state.targetLanguage,
                     onOpenManga = { value ->
-                        onUrlChanged(value)
+                        if (value.isNotBlank()) onUrlChanged(value)
                         onModeSelected(ContentType.IMAGE_CHAPTER)
                         onIngest()
                         navController.navigate("reader")

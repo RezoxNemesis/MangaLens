@@ -12,8 +12,13 @@ android {
         applicationId = "com.mangalens"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.2.0"
+        versionCode = 9
+        versionName = "2.3.0-preview"
+        val sourceSha = (System.getenv("MANGALENS_GIT_SHA") ?: System.getenv("GITHUB_SHA")
+            ?: runCatching { ProcessBuilder("git", "rev-parse", "HEAD").directory(rootDir).start().inputStream.bufferedReader().readText().trim() }.getOrDefault("local"))
+            .takeIf { it.matches(Regex("[a-fA-F0-9]{7,40}")) } ?: "local"
+        buildConfigField("String", "SOURCE_SHA", "\"$sourceSha\"")
+        buildConfigField("String", "BUILD_CHANNEL", "\"preview\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Ship ABI-specific APKs so phone users don't download the emulator's native libraries.
@@ -36,7 +41,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     lint { disable += "UnsafeOptInUsageError" }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"

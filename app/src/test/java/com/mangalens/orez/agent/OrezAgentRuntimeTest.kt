@@ -10,6 +10,32 @@ import org.junit.Test
 class OrezAgentRuntimeTest {
     private val runtime = OrezAgentRuntime()
 
+    @Test fun libraryQuestionRemainsGroundedConversation() {
+        assertTrue(runtime.decide("Summarize my library", OrezAgentContext(hasLibrary = true)).continueToBrain)
+    }
+
+    @Test fun explicitPlayOverridesMangaUrlHeuristic() {
+        assertEquals(OrezRoute.VIDEO_PLAYER,
+            runtime.decide("Play https://manga.example.com/trailer", OrezAgentContext()).immediateRoute)
+    }
+
+    @Test fun requestedLanguageSurvivesPlanning() {
+        val decision = runtime.decide("Translate this whole chapter into English", OrezAgentContext(hasActiveChapter = true))
+        assertEquals("en", decision.plan!!.steps.first().call.arguments["targetLanguage"])
+    }
+
+    @Test fun credentialBearingUrlsCannotReachTools() {
+        val decision = runtime.decide("Open https://user:password@example.com", OrezAgentContext())
+        assertEquals(OrezTaskStatus.FAILED, decision.plan!!.status)
+        assertEquals(null, decision.immediateRoute)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelCannotSpoofTrustedToolRiskOrRoute() {
+        OrezToolRegistry().validate(OrezToolCall("open_library", OrezCapability.LIBRARY,
+            OrezToolRisk.READ_ONLY, "Delete files", route = OrezRoute.SETTINGS))
+    }
+
     @Test
     fun routesActiveChapterTranslationWithoutUrl() {
         val decision = runtime.decide(

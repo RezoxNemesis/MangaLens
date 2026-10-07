@@ -19,25 +19,26 @@ import androidx.compose.ui.unit.sp
 private data class NavItem(val route: String, val label: String, val accessibilityLabel: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 private val navItems = listOf(
     NavItem("home", "Home", "Home", Icons.Outlined.Home),
-    NavItem("orez", "Orez", "Orez AI", Icons.Outlined.SmartToy),
     NavItem("library", "Library", "Library", Icons.Outlined.MenuBook),
-    NavItem("downloads", "Downloads", "Downloads", Icons.Outlined.FileDownload),
-    NavItem("settings", "More", "Settings", Icons.Outlined.GridView)
+    NavItem("watch", "Watch", "Watch videos", Icons.Outlined.PlayCircle),
+    NavItem("web", "Web", "Web browser", Icons.Outlined.Language),
+    NavItem("orez", "Orez", "Orez AI", Icons.Outlined.SmartToy)
 )
 @Composable fun MangaLensBottomNav(currentRoute: String?, onNavigate: (String) -> Unit) {
+    val duration = if (com.mangalens.ui.theme.LocalAppearance.current.reducedMotion) 0 else 220
     Column(Modifier.background(MaterialTheme.colorScheme.background).navigationBarsPadding()) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         Row(Modifier.fillMaxWidth().height(66.dp)) {
             navItems.forEach { item -> val selected = currentRoute == item.route
                 val tint = animateColorAsState(
                     if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    tween(220),
+                    tween(duration),
                     label = "navTint"
                 ).value
                 val tile = animateColorAsState(
                     if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .12f)
                     else androidx.compose.ui.graphics.Color.Transparent,
-                    tween(220),
+                    tween(duration),
                     label = "navTile"
                 ).value
                 Column(

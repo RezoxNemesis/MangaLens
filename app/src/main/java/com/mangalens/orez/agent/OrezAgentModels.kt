@@ -35,6 +35,7 @@ enum class OrezTaskStatus {
     PLANNED,
     WAITING_APPROVAL,
     RUNNING,
+    DISPATCHED,
     COMPLETED,
     FAILED,
     CANCELLED
@@ -43,6 +44,7 @@ enum class OrezTaskStatus {
 enum class OrezStepStatus {
     PENDING,
     RUNNING,
+    DISPATCHED,
     COMPLETED,
     FAILED,
     BLOCKED

@@ -8,6 +8,12 @@ class OrezAgentRuntime(
         val plan = planner.plan(input, context)
             ?: return OrezAgentDecision(continueToBrain = true)
 
+        val invalid = runCatching { plan.steps.forEach { OrezToolRegistry().validate(it.call) } }.exceptionOrNull()
+        if (invalid != null) return OrezAgentDecision(
+            plan = plan.copy(status = OrezTaskStatus.FAILED),
+            message = invalid.message ?: "Invalid tool request"
+        )
+
         val verdicts = plan.steps.map { step -> step to policy.evaluate(step.call, context) }
         val denied = verdicts.firstOrNull { !it.second.allowed }
         if (denied != null) {

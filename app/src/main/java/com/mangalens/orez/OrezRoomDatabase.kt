@@ -104,7 +104,7 @@ interface OrezTaskDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(task: OrezTaskEntity)
 
-    @Query("DELETE FROM orez_tasks WHERE status IN ('COMPLETED','FAILED','CANCELLED') AND updatedAt < :before")
+    @Query("DELETE FROM orez_tasks WHERE status IN ('COMPLETED','DISPATCHED','FAILED','CANCELLED') AND updatedAt < :before")
     suspend fun pruneFinished(before: Long)
 }
 

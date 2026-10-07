@@ -27,6 +27,11 @@ import com.mangalens.engine.OrezLiveSearchConnector
 import com.mangalens.orez.*
 import com.mangalens.orez.agent.OrezAgentContext
 import com.mangalens.orez.agent.OrezAgentRuntime
+import com.mangalens.orez.agent.OrezTaskStore
+import com.mangalens.orez.agent.OrezTaskStatus
+import com.mangalens.orez.agent.OrezStepStatus
+import com.mangalens.orez.agent.OrezTaskPlan
+import com.mangalens.orez.agent.OrezToolRegistry
 import com.mangalens.ui.components.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -48,6 +53,7 @@ class OrezAiViewModel @JvmOverloads constructor(
     private val modelManager = OrezModelManager(app)
     private val agentRuntime = OrezAgentRuntime()
     private val taskStore = OrezTaskStore(db.tasks())
+    private val toolRegistry = OrezToolRegistry()
     private val enginePrefs = app.getSharedPreferences("orez_engine", android.content.Context.MODE_PRIVATE)
 
     val modelState get() = modelManager.state
@@ -85,6 +91,7 @@ class OrezAiViewModel @JvmOverloads constructor(
             }
         }
         viewModelScope.launch {
+            taskStore.pruneFinished()
             if (dao.count() == 0) {
                 dao.insert(OrezMessageEntity(role = "OREZ", text = "Namaste! Main OREZ hoon. Main local knowledge, reasoning, OCR/translation workflows aur current web information ko coordinate kar sakta hoon."))
             }
@@ -105,6 +112,9 @@ class OrezAiViewModel @JvmOverloads constructor(
         query: String,
         libraryContext: String = "",
         chapterText: String = "",
+        hasActiveChapter: Boolean = chapterText.isNotBlank(),
+        activeUrl: String? = null,
+        onTargetLanguage: (String) -> Unit = {},
         onRoute: (String, OrezRoute) -> Unit = { _, _ -> }
     ) {
         val input = query.trim()
@@ -112,15 +122,18 @@ class OrezAiViewModel @JvmOverloads constructor(
         typing = true
         thinkingStage = "Understanding your request…"
         replyJob = viewModelScope.launch {
+            var activePlan: OrezTaskPlan? = null
             try {
                 dao.insert(OrezMessageEntity(role = "YOU", text = input))
                 val agentDecision = agentRuntime.decide(
                     input,
                     OrezAgentContext(
-                        hasActiveChapter = chapterText.isNotBlank(),
-                        hasLibrary = libraryContext.isNotBlank()
+                        hasActiveChapter = hasActiveChapter,
+                        hasLibrary = libraryContext.isNotBlank(),
+                        activeUrl = activeUrl
                     )
                 )
+                activePlan = agentDecision.plan
                 agentDecision.plan?.let { taskStore.checkpoint(it, it.status) }
                 if (!agentDecision.continueToBrain) {
                     thinkingStage = if (agentDecision.requiresApproval) "Waiting for approval…" else "Executing MangaLens action…"
@@ -131,7 +144,25 @@ class OrezAiViewModel @JvmOverloads constructor(
                         )
                     )
                     val route = agentDecision.immediateRoute
-                    if (route != null) onRoute(agentDecision.routeValue, route)
+                    if (route != null) {
+                        val plan = requireNotNull(agentDecision.plan)
+                        val step = plan.steps.first()
+                        toolRegistry.validate(step.call)
+                        activePlan = plan.copy(steps = listOf(step.copy(status = OrezStepStatus.RUNNING)))
+                        taskStore.checkpoint(requireNotNull(activePlan))
+                        step.call.arguments["targetLanguage"]?.let(onTargetLanguage)
+                        onRoute(agentDecision.routeValue, route)
+                        // Navigation completes here; long-running work belongs to its subsystem.
+                        // Never claim a chapter translation/download finished merely on dispatch.
+                        val handedOff = route !in setOf(OrezRoute.LIBRARY, OrezRoute.SETTINGS) &&
+                            !(route == OrezRoute.DOWNLOADS && agentDecision.routeValue.isBlank())
+                        taskStore.checkpoint(plan.copy(
+                            status = if (handedOff) OrezTaskStatus.DISPATCHED else OrezTaskStatus.COMPLETED,
+                            steps = listOf(step.copy(status = if (handedOff) OrezStepStatus.DISPATCHED else OrezStepStatus.COMPLETED))
+                        ))
+                        activePlan = null
+                        thinkingStage = if (handedOff) "Handed to MangaLens • ready" else "Ready"
+                    }
                     return@launch
                 }
 
@@ -183,6 +214,13 @@ class OrezAiViewModel @JvmOverloads constructor(
                 dao.insert(OrezMessageEntity(role = "OREZ", text = resultText))
                 thinkingStage = "Ready"
             } catch (t: Throwable) {
+                activePlan?.let { plan ->
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        taskStore.checkpoint(plan,
+                            if (t is kotlinx.coroutines.CancellationException) OrezTaskStatus.CANCELLED else OrezTaskStatus.FAILED,
+                            "Action interrupted. Check the destination before retrying.")
+                    }
+                }
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 dao.insert(OrezMessageEntity(role = "OREZ", text = "I hit a recoverable error: " + (t.message ?: "unknown error") + ". The chat stayed alive, so you can retry immediately."))
                 thinkingStage = "Recovered • ready"
@@ -192,6 +230,10 @@ class OrezAiViewModel @JvmOverloads constructor(
                 runCatching { dao.trimHistory() }
             }
         }
+    }
+
+    fun dismissTask(id: String) = viewModelScope.launch {
+        taskStore.load(id)?.let { taskStore.checkpoint(it, OrezTaskStatus.CANCELLED) }
     }
 
     fun stopReply() {
@@ -247,6 +289,9 @@ fun OrezAiScreen(
     vm: OrezAiViewModel = viewModel(),
     library: List<com.mangalens.core.reader.SavedChapter> = emptyList(),
     chapterText: String = "",
+    hasActiveChapter: Boolean = chapterText.isNotBlank(),
+    activeUrl: String? = null,
+    onTargetLanguage: (String) -> Unit = {},
     onImport: (List<android.net.Uri>) -> Unit = {},
     onRoute: (String, OrezRoute) -> Unit
 ) {
@@ -256,7 +301,7 @@ fun OrezAiScreen(
     val engineMode by vm.engineMode.collectAsState()
     val activeTasks by vm.activeTasks.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
-    var showEngine by rememberSaveable { mutableStateOf(true) }
+    var showEngine by rememberSaveable { mutableStateOf(false) }
     var selectedMessage by remember { mutableStateOf<OrezMessageEntity?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     val expandedMessages = remember { mutableStateMapOf<Long, Boolean>() }
@@ -318,7 +363,7 @@ fun OrezAiScreen(
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 16.dp)) {
-        BrandHeader("OREZ AI 2.2", "YOUR READING COMPANION") {
+        BrandHeader("Orez AI", "YOUR STORIES · YOUR INTELLIGENCE") {
             IconButton({ showEngine = !showEngine }) { Icon(Icons.Outlined.Tune, "OREZ engine") }
         }
 
@@ -329,12 +374,8 @@ fun OrezAiScreen(
             contentPadding = PaddingValues(bottom = 14.dp)
         ) {
             item {
-                ArtworkHero(
-                    "Orez 2.2 recovery",
-                    "Hybrid reasoning, OCR repair, chapter help and subtitle assistance in one place.",
-                    com.mangalens.R.drawable.orez_portrait,
-                    "Translate a chapter"
-                ) { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }
+                NeonActionTile("Translate a chapter", "Import images, PDF or CBZ", Icons.Outlined.Translate,
+                    Modifier.fillMaxWidth()) { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }
             }
 
             if (activeTasks.isNotEmpty()) {
@@ -356,31 +397,25 @@ fun OrezAiScreen(
                             }
                             NeonStatusPill(activeTasks.size.toString() + " active", positive = true)
                         }
+                        activeTasks.take(5).forEach { task ->
+                            Text(task.objective, maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                            Text("${task.status.lowercase().replace('_', ' ')} • check the destination before retrying",
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row {
+                                TextButton(onClick = { input = task.objective }) { Text("Review request") }
+                                TextButton(onClick = { vm.dismissTask(task.id) }) { Text("Dismiss task") }
+                            }
+                        }
                     }
                 }
             }
 
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Quick actions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                    Text("SMART WORKSPACE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NeonActionTile("Find manga", "Titles, genres, recommendations", Icons.Outlined.Search, Modifier.weight(1f)) { input = "Find manga: " }
-                    NeonActionTile("Summarize", "Chapter or story context", Icons.Outlined.Summarize, Modifier.weight(1f)) {
-                        input = if (chapterText.isBlank()) "How do I import and summarize a chapter?"
-                        else "Summarize this chapter faithfully. Keep character relationships and emotional tone. Do not infer missing pages.\n" + chapterText.take(6000)
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NeonActionTile("Fix OCR", "Repair awkward text", Icons.Outlined.CenterFocusStrong, Modifier.weight(1f)) {
-                        input = "Help me improve the OCR and translation of this chapter while preserving the original tone."
-                    }
-                    NeonActionTile("Reading list", "Library & progress", Icons.Outlined.MenuBook, Modifier.weight(1f)) {
-                        input = "Help me plan my reading list from these saved chapters only: " + library.joinToString { it.title }.take(5000)
-                    }
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { AssistChip(onClick = { input = "Find manga: " }, label = { Text("Find") }) }
+                    item { AssistChip(onClick = { input = "Summarize this chapter faithfully without spoilers." }, label = { Text("Summarize") }) }
+                    item { AssistChip(onClick = { input = "Help me improve OCR for this chapter." }, label = { Text("Fix OCR") }) }
+                    item { AssistChip(onClick = { input = "Help me plan my reading list from my saved chapters." }, label = { Text("Reading list") }) }
                 }
             }
 
@@ -618,7 +653,7 @@ fun OrezAiScreen(
                     onClick = {
                         val query = input
                         input = ""
-                        vm.sendMessage(query, libraryContext, chapterText, onRoute)
+                        vm.sendMessage(query, libraryContext, chapterText, hasActiveChapter, activeUrl, onTargetLanguage, onRoute)
                     },
                     enabled = input.isNotBlank(),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
