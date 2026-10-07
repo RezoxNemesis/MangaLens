@@ -52,7 +52,7 @@ class OrezTaskMigrationTest {
             db.execSQL(
                 "INSERT INTO orez_tasks (id, objective, status, planJson, createdAt, updatedAt, lastError) " +
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                arrayOf<Any>("task-1", "Translate chapter", "RUNNING", "{}", 1L, 2L, null)
+                arrayOf<Any?>("task-1", "Translate chapter", "RUNNING", "{}", 1L, 2L, null)
             )
 
             db.query("SELECT status, objective FROM orez_tasks WHERE id = 'task-1'").use { cursor ->
