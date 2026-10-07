@@ -32,6 +32,7 @@ Product review is PR #12. PR #13 was originally a main-targeted validation copy.
   partials locally, and atomically promote verified files. Pause preserves partials.
 - Model worker state is reconciled from WorkManager; failures are visible in Orez.
 - Chat role delimiters in source material are escaped before local inference.
+- Web has a validated address/search dialog, active-page context sync and an app back action.
 - Android share targets handle links, images, PDF/ZIP/CBZ and video content URIs.
 - Device-video scans run off the UI thread and handle permission denial.
 - Preview version 2.3 includes exact source SHA/channel in Settings; PR builds

@@ -9,6 +9,7 @@ import android.webkit.WebResourceError
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -61,9 +62,13 @@ fun AdBlockedWebScreen(
     targetLanguage: String = "hi",
     onOpenManga: (String) -> Unit = {},
     onOpenVideo: (SniffedMedia, String) -> Unit = { _, _ -> },
-    onClose: (() -> Unit)? = null
+    onClose: (() -> Unit)? = null,
+    onPageChanged: (String) -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showAddress by remember { mutableStateOf(url.isBlank()) }
+    var address by remember { mutableStateOf(url) }
+    var addressError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val speech = remember { com.mangalens.ui.video.VideoSpeechEngine(context.applicationContext, scope) }
     val speechState by speech.state.collectAsState()
@@ -261,10 +266,28 @@ fun AdBlockedWebScreen(
     LaunchedEffect(url, webView) {
         val view = webView ?: return@LaunchedEffect
         if (url.isBlank()) return@LaunchedEffect
+        if (view.url == url) return@LaunchedEffect
         pageReady = false
         if (com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) view.loadUrl(url)
         else translationStatus = "Enter a complete HTTP or HTTPS URL."
     }
+
+    if (showAddress) AlertDialog(
+        onDismissRequest = { showAddress = false },
+        title = { Text("Search or open a website") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(address, { address = it; addressError = null }, singleLine = true,
+                label = { Text("URL or search") }, modifier = Modifier.fillMaxWidth())
+            addressError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        } },
+        confirmButton = { TextButton(onClick = {
+            val value = address.trim()
+            val target = BrowserAddress.resolve(value)
+            if (target == null) addressError = "Use an HTTP(S) URL or a search phrase."
+            else { webView?.loadUrl(target); showAddress = false; hudVisible = true }
+        }, enabled = address.isNotBlank()) { Text("Open") } },
+        dismissButton = { TextButton(onClick = { showAddress = false }) { Text("Cancel") } }
+    )
 
     LaunchedEffect(pageReady, translated, webView, targetLanguage, navigationEpoch) {
         val view = webView ?: return@LaunchedEffect
@@ -437,6 +460,7 @@ fun AdBlockedWebScreen(
                         override fun onPageFinished(view: WebView?, pageUrl: String?) {
                             super.onPageFinished(view, pageUrl)
                             currentUrl = pageUrl ?: currentUrl
+                            pageUrl?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)?.let(onPageChanged)
                             canGoBack = view?.canGoBack() == true
                             canGoForward = view?.canGoForward() == true
                             pageReady = true
@@ -466,7 +490,7 @@ fun AdBlockedWebScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f).clickable { address = currentUrl; showAddress = true }) {
                     Text(pageTitle.ifBlank { "Web" }, maxLines = 1, style = MaterialTheme.typography.titleSmall)
                     Text(
                         runCatching { java.net.URI(currentUrl).host?.removePrefix("www.") }.getOrNull().orEmpty(),
@@ -475,7 +499,7 @@ fun AdBlockedWebScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TextButton(onClick = { webView?.goBack() }, enabled = canGoBack, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("‹") }
+                TextButton(onClick = { if (canGoBack) webView?.goBack() else onClose?.invoke() }, enabled = canGoBack || onClose != null, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("‹") }
                 TextButton(onClick = { webView?.goForward() }, enabled = canGoForward, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("›") }
                 TextButton(
                     onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() },
@@ -495,7 +519,7 @@ fun AdBlockedWebScreen(
                     enabled = adBlockEnabled,
                     contentPadding = PaddingValues(horizontal = 7.dp)
                 ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ads ✓" else "Ads") }
-                TextButton(onClick = { hudVisible = true }, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("•••") }
+                TextButton(onClick = { address = currentUrl; showAddress = true }, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("URL") }
             }
             if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
         }

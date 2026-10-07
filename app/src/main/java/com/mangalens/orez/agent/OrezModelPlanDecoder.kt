@@ -18,7 +18,7 @@ class OrezModelPlanDecoder {
         val call = OrezToolRegistry().call(root.getString("tool"), arguments)
         val action = ACTION.find(objective.trim())?.groupValues?.get(1)?.lowercase() ?: error("No direct action request")
         val allowed = when(action) {
-            "download" -> call.name == "enqueue_download"
+            "download", "save" -> call.name == "enqueue_download"
             "translate", "अनुवाद" -> call.capability == OrezCapability.TRANSLATION
             "play", "watch", "chalao", "चलाओ" -> call.name == "open_video_url"
             "read" -> call.name == "open_reader_url"
@@ -33,7 +33,7 @@ class OrezModelPlanDecoder {
     companion object {
         // Questions/instructions quoted inside source content are not action requests.
         private val ACTION = Regex(
-            "^(?:(?:please|can you|could you)\\s+)?(open|show|play|watch|read|download|translate|khol|dikhao|chalao|अनुवाद|खोलो|दिखाओ|चलाओ)\\b",
+            "^(?:(?:please|can you|could you)\\s+)?(open|show|play|watch|read|download|save|translate|khol|dikhao|chalao|अनुवाद|खोलो|दिखाओ|चलाओ)\\b",
             RegexOption.IGNORE_CASE)
         fun isActionRequest(input: String): Boolean = ACTION.containsMatchIn(input.trim())
     }

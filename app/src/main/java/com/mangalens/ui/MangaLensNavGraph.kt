@@ -226,6 +226,8 @@ fun MangaLensNavGraph(
             composable("web") {
                 AdBlockedWebScreen(
                     state.url,
+                    onPageChanged = onUrlChanged,
+                    onClose = { navController.popBackStack() },
                     translationEnabled = state.webTranslationEnabled,
                     adBlockEnabled = state.adBlockEnabled,
                     modifier = Modifier.fillMaxSize(),
