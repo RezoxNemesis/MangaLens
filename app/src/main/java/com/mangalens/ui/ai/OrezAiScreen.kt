@@ -148,6 +148,14 @@ class OrezAiViewModel @JvmOverloads constructor(
                         val plan = requireNotNull(agentDecision.plan)
                         val step = plan.steps.first()
                         toolRegistry.validate(step.call)
+                        if (step.call.name == "enqueue_download") {
+                            taskStore.checkpoint(plan, OrezTaskStatus.PLANNED)
+                            com.mangalens.orez.agent.OrezDownloadTaskWorker.enqueue(getApplication<android.app.Application>(), plan.id)
+                            activePlan = null
+                            onRoute(agentDecision.routeValue, route)
+                            thinkingStage = "Download queued • runs in background"
+                            return@launch
+                        }
                         activePlan = plan.copy(steps = listOf(step.copy(status = OrezStepStatus.RUNNING)))
                         taskStore.checkpoint(requireNotNull(activePlan))
                         step.call.arguments["targetLanguage"]?.let(onTargetLanguage)
@@ -234,6 +242,7 @@ class OrezAiViewModel @JvmOverloads constructor(
 
     fun dismissTask(id: String) = viewModelScope.launch {
         taskStore.load(id)?.let { taskStore.checkpoint(it, OrezTaskStatus.CANCELLED) }
+        androidx.work.WorkManager.getInstance(getApplication<android.app.Application>()).cancelUniqueWork("orez-task-$id")
     }
 
     fun stopReply() {

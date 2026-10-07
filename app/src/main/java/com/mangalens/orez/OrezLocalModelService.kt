@@ -73,7 +73,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
             val role = if (message.role.equals("assistant", true) || message.role.equals("OREZ", true)) "assistant" else "user"
-            "<|im_start|>$role\n${message.text}\n<|im_end|>"
+            "<|im_start|>$role\n${OrezPromptBoundary.data(message.text)}\n<|im_end|>"
         }.takeLast(4200)
 
         val examples = try { packStore.search(prompt, 2) }
@@ -102,7 +102,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             append("\n<|im_end|>\n")
             if (retrieval.isNotBlank()) {
                 append("LOCAL REFERENCE EXAMPLES:\n")
-                append(retrieval)
+                append(OrezPromptBoundary.data(retrieval))
                 append("\nEND LOCAL REFERENCES\n")
             }
             if (history.isNotBlank()) {
@@ -110,7 +110,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
                 append("\n")
             }
             append("<|im_start|>user\n")
-            append(prompt)
+            append(OrezPromptBoundary.data(prompt))
             append("\n<|im_end|>\n")
             append("<|im_start|>assistant\n")
         }

@@ -57,6 +57,14 @@ class OrezTaskStoreTest {
         assertEquals("hi", store.load(plan.id)!!.steps.first().call.arguments["targetLanguage"])
     }
 
+    @Test fun lateWorkerCannotResurrectDismissedTask() = runTest {
+        val store = OrezTaskStore(FakeTaskDao())
+        val plan = OrezAgentPlanner().plan("Open library", OrezAgentContext())!!
+        store.checkpoint(plan, OrezTaskStatus.CANCELLED)
+        store.checkpoint(plan, OrezTaskStatus.COMPLETED)
+        assertEquals(OrezTaskStatus.CANCELLED, store.load(plan.id)!!.status)
+    }
+
     private class FakeTaskDao : OrezTaskDao {
         var saved: OrezTaskEntity? = null
 

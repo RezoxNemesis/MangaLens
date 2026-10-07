@@ -24,7 +24,19 @@ import kotlin.math.roundToInt
 fun LocalVideoGalleryScreen(onOpenPlayer:(Uri)->Unit,onOpenSystem:()->Unit,onOpenExternal:(Uri)->Unit,modifier:Modifier=Modifier){
  val context=LocalContext.current
  var videos by remember{mutableStateOf(emptyList<LocalVideoItem>())}
- LaunchedEffect(Unit){videos=LocalVideoCatalog(context).scan()}
+ val permission = if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_VIDEO else android.Manifest.permission.READ_EXTERNAL_STORAGE
+ var allowed by remember { mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) }
+ var scanError by remember { mutableStateOf<String?>(null) }
+ val permissionRequest = androidx.activity.compose.rememberLauncherForActivityResult(
+  androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { allowed = it }
+ LaunchedEffect(allowed){
+  if (allowed) {
+   try { videos = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { LocalVideoCatalog(context).scan() }; scanError = null }
+   catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+   catch (_: SecurityException) { allowed = false; scanError = "Choose a video with Picker, or allow video access." }
+   catch (_: Exception) { scanError = "Could not scan device videos. You can still use Picker." }
+  }
+ }
  Box(
   modifier.fillMaxSize().background(
    Brush.verticalGradient(
@@ -39,9 +51,14 @@ fun LocalVideoGalleryScreen(onOpenPlayer:(Uri)->Unit,onOpenSystem:()->Unit,onOpe
   LazyVerticalGrid(columns=GridCells.Adaptive(170.dp),modifier=Modifier.fillMaxSize().padding(14.dp),contentPadding=PaddingValues(bottom=96.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
    item(span={GridItemSpan(maxLineSpan)}){
     Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
-     com.mangalens.ui.components.BrandHeader("Video Vault","LOCAL MEDIA • MANGALENS 2.0"){
+     com.mangalens.ui.components.BrandHeader("Watch","DEVICE VIDEOS • YOUR COLLECTION"){
       FilledTonalButton(onClick=onOpenSystem,shape=RoundedCornerShape(14.dp)){Text("Picker")}
      }
+     if (!allowed) {
+      Text("Choose a file with Picker, or allow access to browse your video collection.", style = MaterialTheme.typography.bodySmall)
+      TextButton(onClick = { permissionRequest.launch(permission) }) { Text("Browse device videos") }
+     }
+     scanError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
      Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
       com.mangalens.ui.components.NeonStatusPill("${videos.size} videos",positive=videos.isNotEmpty())
       com.mangalens.ui.components.NeonStatusPill("Device + SD")

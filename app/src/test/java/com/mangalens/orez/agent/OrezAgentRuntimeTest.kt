@@ -10,6 +10,12 @@ import org.junit.Test
 class OrezAgentRuntimeTest {
     private val runtime = OrezAgentRuntime()
 
+    @Test fun currentUrlDownloadBecomesBackgroundTool() {
+        val decision = runtime.decide("Download this at best quality", OrezAgentContext(activeUrl = "https://example.com/watch/1"))
+        assertEquals("enqueue_download", decision.plan!!.steps.single().call.name)
+        assertEquals("https://example.com/watch/1", decision.routeValue)
+    }
+
     @Test fun libraryQuestionRemainsGroundedConversation() {
         assertTrue(runtime.decide("Summarize my library", OrezAgentContext(hasLibrary = true)).continueToBrain)
     }

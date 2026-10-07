@@ -104,6 +104,12 @@ interface OrezTaskDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(task: OrezTaskEntity)
 
+    @Transaction
+    suspend fun checkpointIfNotCancelled(task: OrezTaskEntity) {
+        if (get(task.id)?.status == "CANCELLED" && task.status != "CANCELLED") return
+        upsert(task)
+    }
+
     @Query("DELETE FROM orez_tasks WHERE status IN ('COMPLETED','DISPATCHED','FAILED','CANCELLED') AND updatedAt < :before")
     suspend fun pruneFinished(before: Long)
 }

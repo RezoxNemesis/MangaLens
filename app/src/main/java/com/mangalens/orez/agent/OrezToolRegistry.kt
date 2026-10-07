@@ -12,6 +12,7 @@ class OrezToolRegistry {
         "open_downloads" to Descriptor(OrezRoute.DOWNLOADS, OrezCapability.DOWNLOADS, OrezToolRisk.READ_ONLY),
         "translate_active_chapter" to Descriptor(OrezRoute.TRANSLATE_ACTIVE_CHAPTER, OrezCapability.TRANSLATION, OrezToolRisk.LOCAL_MUTATION),
         "open_download_flow" to Descriptor(OrezRoute.DOWNLOADS, OrezCapability.DOWNLOADS, OrezToolRisk.NETWORK_READ, true),
+        "enqueue_download" to Descriptor(OrezRoute.DOWNLOADS, OrezCapability.DOWNLOADS, OrezToolRisk.NETWORK_READ, true),
         "translate_manga_url" to Descriptor(OrezRoute.TRANSLATE_MANGA, OrezCapability.TRANSLATION, OrezToolRisk.NETWORK_READ, true),
         "translate_video_url" to Descriptor(OrezRoute.TRANSLATE_VIDEO, OrezCapability.TRANSLATION, OrezToolRisk.NETWORK_READ, true),
         "translate_web_url" to Descriptor(OrezRoute.TRANSLATE_WEB, OrezCapability.TRANSLATION, OrezToolRisk.NETWORK_READ, true),

@@ -54,7 +54,7 @@ class OrezTaskStore(
         status: OrezTaskStatus = plan.status,
         error: String? = null
     ) {
-        dao.upsert(
+        dao.checkpointIfNotCancelled(
             OrezTaskEntity(
                 id = plan.id,
                 objective = plan.objective,

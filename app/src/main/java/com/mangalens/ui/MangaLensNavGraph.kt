@@ -115,7 +115,8 @@ fun MangaLensNavGraph(
                     onOpenOrez = { navController.navigate("orez") },
                     onOpenLibrary = { navController.navigate("library") },
                     onOpenSettings = { navController.navigate("settings") },
-                    onOpenWeb = { navController.navigate("web") }
+                    onOpenWeb = { navController.navigate("web") },
+                    onOpenWatch = { navController.navigate("watch") }
                 )
             }
             composable("library") {
@@ -191,7 +192,13 @@ fun MangaLensNavGraph(
                 LocalVideoGalleryScreen(
                     onOpenPlayer = { uri -> navController.navigate("local_player?uri=" + android.net.Uri.encode(uri.toString())) },
                     onOpenSystem = { navController.navigate("local_player") },
-                    onOpenExternal = { uri -> navController.navigate("local_player?uri=" + android.net.Uri.encode(uri.toString())) },
+                    onOpenExternal = { uri ->
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "video/*")
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        runCatching { navController.context.startActivity(android.content.Intent.createChooser(intent, "Open video with…")) }
+                    },
                     modifier = Modifier.fillMaxSize().statusBarsPadding()
                 )
             }

@@ -26,6 +26,20 @@ import com.mangalens.ui.MangaLensViewModel
 import com.mangalens.ui.theme.MangaLensTheme
 
 class MainActivity : ComponentActivity() {
+    private data class SharedContent(val url: String?, val files: List<android.net.Uri>, val video: Boolean)
+    private var sharedContent by mutableStateOf<SharedContent?>(null)
+    @Suppress("DEPRECATION")
+    private fun readShareIntent(value: android.content.Intent?) {
+        if (value?.action !in setOf(android.content.Intent.ACTION_SEND, android.content.Intent.ACTION_SEND_MULTIPLE)) return
+        value ?: return
+        val text = value.getStringExtra(android.content.Intent.EXTRA_TEXT).orEmpty().take(16384)
+        val url = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE).find(text)?.value
+            ?.trimEnd('.', ',', ')', ']')?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)
+        val files = if (value.action == android.content.Intent.ACTION_SEND_MULTIPLE)
+            value.getParcelableArrayListExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM).orEmpty()
+        else listOfNotNull(value.getParcelableExtra<android.net.Uri>(android.content.Intent.EXTRA_STREAM))
+        sharedContent = SharedContent(url, files.filter { it.scheme == "content" }.distinct().take(100), value.type?.startsWith("video/") == true)
+    }
     private var widgetRequest by mutableStateOf<Pair<String, Long>?>(null)
     private fun readWidgetIntent(value: android.content.Intent?) {
         if (value?.action != "com.mangalens.WIDGET" || value.data?.host != "widget") return
@@ -33,12 +47,12 @@ class MainActivity : ComponentActivity() {
         if (route in setOf("translate", "orez", "library", "downloads")) widgetRequest = route to android.os.SystemClock.elapsedRealtimeNanos()
     }
     override fun onNewIntent(intent: android.content.Intent) {
-        super.onNewIntent(intent); setIntent(intent); readWidgetIntent(intent)
+        super.onNewIntent(intent); setIntent(intent); readWidgetIntent(intent); readShareIntent(intent)
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null) readWidgetIntent(intent)
+        if (savedInstanceState == null) { readWidgetIntent(intent); readShareIntent(intent) }
 
         if (
             Build.VERSION.SDK_INT >= 33 &&
@@ -57,6 +71,25 @@ class MainActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
             MangaLensTheme(themeMode = state.themeMode) {
                 val navController = rememberNavController()
+                LaunchedEffect(sharedContent) {
+                    val content = sharedContent ?: return@LaunchedEffect
+                    sharedContent = null
+                    when {
+                        content.files.isNotEmpty() && content.video -> navController.navigate("local_player?uri=" + android.net.Uri.encode(content.files.first().toString()))
+                        content.files.isNotEmpty() -> { viewModel.importLocalImages(content.files); navController.navigate("reader") }
+                        content.url != null -> {
+                            val mode = com.mangalens.core.router.UrlEngineRouter().classifyUrl(content.url)
+                            viewModel.setUrl(content.url)
+                            viewModel.setMode(mode)
+                            if (mode != com.mangalens.core.model.ContentType.GENERIC_WEB) viewModel.ingest()
+                            navController.navigate(when(mode) {
+                                com.mangalens.core.model.ContentType.IMAGE_CHAPTER -> "reader"
+                                com.mangalens.core.model.ContentType.VIDEO_STREAM -> "video"
+                                com.mangalens.core.model.ContentType.GENERIC_WEB -> "web"
+                            })
+                        }
+                    }
+                }
                 val widgetImporter = androidx.activity.compose.rememberLauncherForActivityResult(
                     androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
                     if (uris.isNotEmpty()) { viewModel.importLocalImages(uris); navController.navigate("reader") }

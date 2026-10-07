@@ -12,7 +12,10 @@ class OrezAgentPlanner(
         val clean = input.trim()
         if (clean.isBlank()) return null
         val lower = clean.lowercase(Locale.ROOT)
-        val url = URL_REGEX.find(clean)?.value?.trimEnd('.', ',', ')', ']', '!', '?')
+        val explicitUrl = URL_REGEX.find(clean)?.value?.trimEnd('.', ',', ')', ']', '!', '?')
+        val url = explicitUrl ?: context.activeUrl?.takeIf {
+            isAny(lower, "download this", "download the current", "save this video", "save media")
+        }
 
         val direct = when {
             isAny(lower, "open downloads", "show downloads", "download manager", "downloads screen") ->
@@ -68,10 +71,10 @@ class OrezAgentPlanner(
 
         val call = when {
             download -> tool(
-                name = "open_download_flow",
+                name = "enqueue_download",
                 capability = OrezCapability.DOWNLOADS,
                 risk = OrezToolRisk.NETWORK_READ,
-                summary = "Prepare the URL in Download Room",
+                summary = "Queue the download at best available quality",
                 route = OrezRoute.DOWNLOADS,
                 value = url
             )

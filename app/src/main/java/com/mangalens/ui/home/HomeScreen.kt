@@ -27,7 +27,7 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
     onOpenVideo: () -> Unit, onOpenDownloads: () -> Unit, onOpenChapter: (String) -> Unit,
     onImportImages: (List<Uri>) -> Unit, onOpenSavedChapter: (String) -> Unit,
     onOpenOrez: () -> Unit, onOpenLibrary: () -> Unit,
-    onOpenSettings: () -> Unit = {}, onOpenWeb: () -> Unit = {}) {
+    onOpenSettings: () -> Unit = {}, onOpenWeb: () -> Unit = {}, onOpenWatch: () -> Unit = onOpenVideo) {
     var query by rememberSaveable { mutableStateOf("") }
     var tab by rememberSaveable { mutableStateOf("For you") }
     var showLink by rememberSaveable { mutableStateOf(false) }
@@ -69,7 +69,7 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { NeonActionTile("Open link", null, Icons.Outlined.Link, Modifier.width(150.dp)) { showLink = true } }
                 item { NeonActionTile("Import", null, Icons.Outlined.AddPhotoAlternate, Modifier.width(140.dp)) { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) } }
-                item { NeonActionTile("Watch", null, Icons.Outlined.PlayCircle, Modifier.width(140.dp), onClick = onOpenVideo) }
+                item { NeonActionTile("Watch", null, Icons.Outlined.PlayCircle, Modifier.width(140.dp), onClick = onOpenWatch) }
                 item { NeonActionTile("Web", null, Icons.Outlined.Language, Modifier.width(140.dp), onClick = onOpenWeb) }
                 item { NeonActionTile("Downloads", null, Icons.Outlined.FileDownload, Modifier.width(170.dp), onClick = onOpenDownloads) }
             }
