@@ -66,10 +66,13 @@ class OrezAgentPlanner(
         if (!actionable && clean != explicitUrl) return null
 
         val contentType = urlRouter.classifyUrl(url)
-        val download = isAny(lower, "download", "save video", "save media", "download this", "offline copy")
-        val translate = wantsTranslation(lower)
-        val play = isAny(lower, "play", "watch", "stream", "open video")
-        val read = isAny(lower, "read", "open chapter", "reader", "manga")
+        // URL hosts, paths and query parameters describe content, not user intent.
+        // A manga hostname must not override "Play"; ?download=1 is not a command.
+        val intentText = URL_REGEX.replace(lower, " ")
+        val download = isAny(intentText, "download", "save video", "save media", "download this", "offline copy")
+        val translate = wantsTranslation(intentText)
+        val play = isAny(intentText, "play", "watch", "stream", "open video")
+        val read = isAny(intentText, "read", "open chapter", "reader", "manga")
 
         val call = when {
             download -> tool(
@@ -108,7 +111,7 @@ class OrezAgentPlanner(
                 value = url
             )
 
-            read || (!play && contentType == ContentType.IMAGE_CHAPTER) -> tool(
+            !play && (read || contentType == ContentType.IMAGE_CHAPTER) -> tool(
                 name = "open_reader_url",
                 capability = OrezCapability.READER,
                 risk = OrezToolRisk.NETWORK_READ,

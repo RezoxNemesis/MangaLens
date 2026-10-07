@@ -28,6 +28,13 @@ class OrezAgentRuntimeTest {
     @Test fun explicitPlayOverridesMangaUrlHeuristic() {
         assertEquals(OrezRoute.VIDEO_PLAYER,
             runtime.decide("Play https://manga.example.com/trailer", OrezAgentContext()).immediateRoute)
+        assertEquals(OrezRoute.VIDEO_PLAYER,
+            runtime.decide("Play this manga trailer https://manga.example.com/trailer", OrezAgentContext()).immediateRoute)
+    }
+    @Test fun queryParametersAreNotDownloadCommands() {
+        val decision = runtime.decide("https://example.com/movie.mp4?download=1", OrezAgentContext())
+        assertEquals(OrezRoute.VIDEO_PLAYER, decision.immediateRoute)
+        assertEquals("open_video_url", decision.plan!!.steps.single().call.name)
     }
 
     @Test fun requestedLanguageSurvivesPlanning() {
