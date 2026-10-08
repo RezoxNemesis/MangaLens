@@ -357,7 +357,7 @@ object MangaLettering {
                     // Preserve clean paper, including faint texture. Reconstruction samples
                     // on uniform surfaces are filtered above so glyphs and balloon outlines
                     // cannot turn the erased zone into a grey rectangle.
-                    uniformSurface && distance(original[index], surfaceColor) <= 12 -> original[index]
+                    uniformSurface && original[index] == surfaceColor -> original[index]
                     horizontal != null && vertical != null && diagonal != null ->
                         mix(mix(horizontal, vertical, .5f), diagonal, .34f)
                     horizontal != null && vertical != null ->
