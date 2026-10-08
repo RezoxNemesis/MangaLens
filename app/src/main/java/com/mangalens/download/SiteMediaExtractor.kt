@@ -61,7 +61,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             addOption("--ignore-config")
             addOption("--no-playlist")
             addOption("--skip-download")
-            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,title,extractor_key,http_headers,has_drm,_type,requested_formats})j")
+            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats})j")
             addOption("--no-warnings")
             addOption("--socket-timeout", "30")
             addOption("--retries", "3")
@@ -174,7 +174,8 @@ internal object SiteMediaInfoParser {
             return ResolvedMediaLink(videoUrl, "video/mp4", info.optString("extractor_key", "yt-dlp"),
                 detectedHeight = heightHint(video), title = info.optString("title"),
                 sourcePageUrl = sourcePage, headers = safeHeaders(info) + safeHeaders(video),
-                audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio))
+                audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio),
+                expectedDurationUs = durationUs(info))
         }
         if (info.optString("vcodec") == "none" || info.optString("acodec") == "none") return null
         // Never substitute one of requested_formats: those commonly contain separate tracks.
@@ -194,9 +195,13 @@ internal object SiteMediaInfoParser {
             url = url, mimeType = mime, provider = info.optString("extractor_key", "yt-dlp"),
             detectedHeight = heightHint(info),
             title = info.optString("title").takeIf { it.isNotBlank() },
-            sourcePageUrl = sourcePage, headers = headers
+            sourcePageUrl = sourcePage, headers = headers, expectedDurationUs = durationUs(info)
         )
     }
+
+    private fun durationUs(info: JSONObject): Long? = info.optDouble("duration", Double.NaN)
+        .takeIf { it.isFinite() && it > 0.0 && it < Long.MAX_VALUE / 1_000_000.0 }
+        ?.let { (it * 1_000_000.0).toLong() }
 
     private fun heightHint(info: JSONObject): Int? {
         info.optInt("height", 0).takeIf { it > 0 }?.let { return it }
@@ -225,3 +230,4 @@ internal object SiteMediaInfoParser {
         uri.scheme in setOf("https", "http") && !uri.host.isNullOrBlank() && uri.userInfo == null
     }.getOrDefault(false)
 }
+

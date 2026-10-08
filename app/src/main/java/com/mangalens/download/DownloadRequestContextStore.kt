@@ -1,6 +1,7 @@
 package com.mangalens.download
 
 import android.content.Context
+import android.util.AtomicFile
 import com.mangalens.ui.video.MediaRequestContext
 import okhttp3.Interceptor
 import org.json.JSONObject
@@ -23,12 +24,16 @@ internal class DownloadRequestContextStore(context: Context) {
             .put("audioUrl", media.audioUrl ?: JSONObject.NULL)
             .put("audioHeaders", JSONObject(media.audioHeaders))
             .put("requestedHeight", media.requestedHeight ?: JSONObject.NULL)
-        val temp = File(directory, "$id.tmp")
-        val target = File(directory, "$id.json")
-        temp.delete()
-        temp.writeText(json.toString())
-        if (target.exists()) target.delete()
-        check(temp.renameTo(target)) { "Unable to persist download request context" }
+            .put("expectedDurationUs", media.expectedDurationUs ?: JSONObject.NULL)
+        val target = AtomicFile(File(directory, "$id.json"))
+        val output = target.startWrite()
+        try {
+            output.write(json.toString().toByteArray(Charsets.UTF_8))
+            target.finishWrite(output)
+        } catch (failure: Throwable) {
+            target.failWrite(output)
+            throw failure
+        }
     }
 
     fun read(id: String): MediaRequestContext? = readMedia(id)?.let {
@@ -38,9 +43,21 @@ internal class DownloadRequestContextStore(context: Context) {
     fun readMedia(id: String): ResolvedMediaLink? {
         if (!id.matches(Regex("[a-zA-Z0-9-]+"))) return null
         val file = File(directory, "$id.json")
-        if (!file.isFile || file.length() > 128 * 1024) return null
+        val target = AtomicFile(file)
+        if (!target.exists()) return null
         return runCatching {
-            val json = JSONObject(file.readText())
+            val bytes = target.openRead().use { input ->
+                val buffer = ByteArray(128 * 1024 + 1)
+                var size = 0
+                while (size < buffer.size) {
+                    val count = input.read(buffer, size, buffer.size - size)
+                    if (count < 0) break
+                    size += count
+                }
+                buffer.copyOf(size)
+            }
+            check(bytes.size <= 128 * 1024) { "Download request context exceeds the safe limit" }
+            val json = JSONObject(bytes.toString(Charsets.UTF_8))
             val values = json.optJSONObject("headers") ?: JSONObject()
             val headers = values.keys().asSequence().associateWith { values.optString(it) }
             ResolvedMediaLink(
@@ -52,12 +69,13 @@ internal class DownloadRequestContextStore(context: Context) {
                 sourcePageUrl = json.optString("page").takeIf { it != "null" }, headers = headers,
                 audioUrl = json.optString("audioUrl").takeIf { it.isNotBlank() && it != "null" },
                 audioHeaders = json.optJSONObject("audioHeaders")?.let { h -> h.keys().asSequence().associateWith { h.optString(it) } }.orEmpty(),
-                requestedHeight = json.optInt("requestedHeight").takeIf { it > 0 })
+                requestedHeight = json.optInt("requestedHeight").takeIf { it > 0 },
+                expectedDurationUs = json.optLong("expectedDurationUs").takeIf { it > 0L })
         }.getOrNull()
     }
 
     fun remove(id: String) {
-        if (id.matches(Regex("[a-zA-Z0-9-]+"))) File(directory, "$id.json").delete()
+        if (id.matches(Regex("[a-zA-Z0-9-]+"))) AtomicFile(File(directory, "$id.json")).delete()
     }
 }
 
@@ -75,3 +93,4 @@ internal fun scopedDownloadHeaders(
     safe.forEach { (key, value) -> rebuilt.header(key, value) }
     chain.proceed(rebuilt.build())
 }
+

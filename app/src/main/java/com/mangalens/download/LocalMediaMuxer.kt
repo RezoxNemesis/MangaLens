@@ -52,7 +52,7 @@ internal object LocalMediaMuxer {
             runCatching { muxer?.release() }; videoInput.release(); audioInput.release()
         }
     }
-    fun videoHeight(file: File, requireAudio: Boolean = false, checkActive: () -> Unit = {}): Int {
+    fun videoHeight(file: File, requireAudio: Boolean = false, expectedDurationUs: Long? = null, checkActive: () -> Unit = {}): Int {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(file.absolutePath)
@@ -67,7 +67,8 @@ internal object LocalMediaMuxer {
             for (track in listOfNotNull(videoIndex, audioIndex.takeIf { it >= 0 })) {
                 checkActive()
                 val format = formats[track]
-                val duration = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
+                val declaredDuration = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
+                val duration = maxOf(declaredDuration, expectedDurationUs ?: 0L)
                 val maxSample = maxOf(2 * 1024 * 1024, if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) else 0)
                 check(maxSample <= 16 * 1024 * 1024) { "Media sample exceeds the safe verification buffer." }
                 val buffer = ByteBuffer.allocateDirect(maxSample)

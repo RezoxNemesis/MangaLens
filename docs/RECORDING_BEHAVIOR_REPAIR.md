@@ -23,7 +23,11 @@ head fedf253de950afa2350d643d08fa4710667e20f2.
 - 1000067068: a Best available download completes at approximately 949 KB.
   The recording alone cannot establish truncation. Download verification now
   reads actual video/audio samples and checks the declared duration's tail,
-  instead of trusting track headers and resolution alone. Verification remains
+  including the original source duration when supplied by the extractor,
+  instead of trusting track headers and resolution alone.
+  This metadata survives restarts; atomic writes preserve the previous context
+  if an update is interrupted.
+  Verification remains
   bounded in memory and observes cancellation. Valid short videos remain allowed.
 
 ## Verification and remaining acceptance

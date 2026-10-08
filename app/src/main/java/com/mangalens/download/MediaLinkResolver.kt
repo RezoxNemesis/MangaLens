@@ -29,7 +29,8 @@ data class ResolvedMediaLink(
     val headers: Map<String, String> = emptyMap(),
     val audioUrl: String? = null,
     val audioHeaders: Map<String, String> = emptyMap(),
-    val requestedHeight: Int? = null
+    val requestedHeight: Int? = null,
+    val expectedDurationUs: Long? = null
 )
 
 class MediaLinkResolver(
@@ -252,3 +253,4 @@ class MediaLinkResolver(
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36 MangaLens/13"
     }
 }
+

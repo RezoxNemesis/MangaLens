@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SiteMediaInfoParserTest {
+    @Test fun sourceDurationSurvivesBothCombinedAndSeparateTrackSelection() {
+        val combined = SiteMediaInfoParser.parse(
+            """{"url":"https://cdn.example/video.mp4","duration":600.25}""", "https://example.com/watch/1")!!
+        assertEquals(600_250_000L, combined.expectedDurationUs)
+        val separate = SiteMediaInfoParser.parse("""{"duration":3600,"requested_formats":[
+          {"url":"https://cdn.example/video.mp4","ext":"mp4","vcodec":"avc1","acodec":"none"},
+          {"url":"https://cdn.example/audio.m4a","ext":"m4a","vcodec":"none","acodec":"aac"}
+        ]}""", "https://example.com/watch/1", true)!!
+        assertEquals(3_600_000_000L, separate.expectedDurationUs)
+        val absent = SiteMediaInfoParser.parse("""{"url":"https://cdn.example/video.mp4"}""", "https://example.com")!!
+        assertNull(absent.expectedDurationUs)
+    }
+
     @Test fun combinesNativeSiteMetadataWithScopedContext() {
         val result = SiteMediaInfoParser.parse("""{
           "url":"https://cdn.example/stream?signature=secret", "ext":"mp4", "height":1080,
@@ -68,3 +81,4 @@ class SiteMediaInfoParserTest {
 
 
 }
+
