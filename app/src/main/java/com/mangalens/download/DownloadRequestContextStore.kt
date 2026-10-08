@@ -44,7 +44,9 @@ internal class DownloadRequestContextStore(context: Context) {
         if (!id.matches(Regex("[a-zA-Z0-9-]+"))) return null
         val file = File(directory, "$id.json")
         val target = AtomicFile(file)
-        if (!target.exists()) return null
+        // AtomicFile.exists() is a hidden platform API; openRead restores a legacy
+        // backup, so check both public file paths before reading.
+        if (!file.isFile && !File(directory, "$id.json.bak").isFile) return null
         return runCatching {
             val bytes = target.openRead().use { input ->
                 val buffer = ByteArray(128 * 1024 + 1)
