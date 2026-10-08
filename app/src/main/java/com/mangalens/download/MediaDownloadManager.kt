@@ -207,6 +207,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
     }
 
     suspend fun cancel(id: String) = withContext(Dispatchers.IO) {
+        com.mangalens.orez.agent.OrezDownloadTaskLink.cancelOwningTask(context, id)
         dao.stopIfActive(id, DownloadState.CANCELLED, "Cancelled by user")
         WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         adaptive.remove(id)
@@ -252,3 +253,4 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
     private fun workName(id: String) = "mangalens-download-$id"
 
 }
+

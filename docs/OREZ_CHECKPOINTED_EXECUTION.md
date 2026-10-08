@@ -24,6 +24,8 @@ their existing SDK-backed cache representation.
 Paused tasks become WAITING. Failed tasks retain completed steps and errors.
 Resume task restarts only unfinished work using the same IDs. Dismiss task stops
 Orez's remaining steps/monitoring; its current transfer stays in Downloads.
+Cancelling/removing a native transfer also cancels its owning Orez plan, before
+the transfer row is removed, so a later recovery cannot recreate that download.
 Android stopping WorkManager preserves the checkpoint rather than recording
 user cancellation. Conditional journal writes reject late writes after dismissal.
 
