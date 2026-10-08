@@ -23,7 +23,7 @@ import com.mangalens.ui.components.*
 
 @Composable
 fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste: () -> Unit,
-    onModeSelected: (ContentType) -> Unit, onIngest: () -> Unit, onOpenReader: () -> Unit,
+    onModeSelected: (ContentType) -> Unit, onIngest: (ContentType) -> Unit, onOpenReader: () -> Unit,
     onOpenVideo: () -> Unit, onOpenDownloads: () -> Unit, onOpenChapter: (String) -> Unit,
     onImportImages: (List<Uri>) -> Unit, onOpenSavedChapter: (String) -> Unit,
     onOpenOrez: () -> Unit, onOpenLibrary: () -> Unit,
@@ -31,16 +31,18 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
     var query by rememberSaveable { mutableStateOf("") }
     var tab by rememberSaveable { mutableStateOf("For you") }
     var showLink by rememberSaveable { mutableStateOf(false) }
+    var requestedMode by rememberSaveable(showLink) { mutableStateOf<ContentType?>(null) }
+    val linkMode = requestedMode ?: state.mode
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImportImages(it) }
     val chapters = state.library.filter { it.title.contains(query, true) && (tab != "Bookmarks" || it.bookmarked) }
     if (showLink) AlertDialog(onDismissRequest = { showLink = false }, title = { Text("Open a link") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(state.url, onUrlChanged, singleLine = true, placeholder = { Text("Chapter, video or web URL") }, trailingIcon = { TextButton(onPaste) { Text("Paste") } })
             listOf(ContentType.IMAGE_CHAPTER to "Manga / Manhwa", ContentType.VIDEO_STREAM to "Video", ContentType.GENERIC_WEB to "Web page").forEach { (mode, label) ->
-                Row { RadioButton(state.mode == mode, { onModeSelected(mode) }); Text(label, Modifier.padding(top = 13.dp)) }
+                Row { RadioButton(linkMode == mode, { requestedMode = mode; onModeSelected(mode) }); Text(label, Modifier.padding(top = 13.dp)) }
             }
         }
-    }, confirmButton = { Button({ showLink = false; onIngest() }, enabled = state.url.isNotBlank() && !state.loading) { Text("Open content") } }, dismissButton = { TextButton({ showLink = false }) { Text("Cancel") } })
+    }, confirmButton = { Button({ onIngest(linkMode); showLink = false }, enabled = state.url.isNotBlank() && !state.loading) { Text("Open content") } }, dismissButton = { TextButton({ showLink = false }) { Text("Cancel") } })
     LazyColumn(
         Modifier.fillMaxSize()
             .background(
@@ -117,3 +119,4 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
         if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Preparing chapter…") }
     }
 }
+

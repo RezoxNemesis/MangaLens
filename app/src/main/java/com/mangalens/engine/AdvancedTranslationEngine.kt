@@ -204,7 +204,9 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             if (y + height >= bitmap.height) break
             y += 1792
         }
-        return output.sortedBy { it.bounds.top }
+        // Tile-local merging cannot join an OCR block split across the tile boundary.
+        // Dedupe first, then apply the same conservative balloon grouping in page space.
+        return mergeLikelySameBalloon(output.sortedBy { it.bounds.top })
     }
 
     private suspend fun recognizeTile(bitmap: Bitmap): List<TranslationRegion> {

@@ -52,15 +52,45 @@ internal object LocalMediaMuxer {
             runCatching { muxer?.release() }; videoInput.release(); audioInput.release()
         }
     }
-    fun videoHeight(file: File, requireAudio: Boolean = false): Int {
+    fun videoHeight(file: File, requireAudio: Boolean = false, checkActive: () -> Unit = {}): Int {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(file.absolutePath)
             val formats = (0 until extractor.trackCount).map(extractor::getTrackFormat)
-            val video = formats.firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true }
-                ?: error("Downloaded file contains no video track.")
-            if (requireAudio) check(formats.any { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }) { "Muxed output has no audio track." }
+            val videoIndex = formats.indexOfFirst { it.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true }
+            check(videoIndex >= 0) { "Downloaded file contains no video track." }
+            val video = formats[videoIndex]
+            val audioIndex = formats.indexOfFirst { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+            if (requireAudio) check(audioIndex >= 0) { "Muxed output has no audio track." }
+            // Track metadata alone also exists in an MP4 initialization segment. Verify
+            // actual samples and the declared tail before publishing a completed download.
+            for (track in listOfNotNull(videoIndex, audioIndex.takeIf { it >= 0 })) {
+                checkActive()
+                val format = formats[track]
+                val duration = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
+                val maxSample = maxOf(2 * 1024 * 1024, if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) else 0)
+                check(maxSample <= 16 * 1024 * 1024) { "Media sample exceeds the safe verification buffer." }
+                val buffer = ByteBuffer.allocateDirect(maxSample)
+                extractor.selectTrack(track)
+                extractor.seekTo(0, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                check(extractor.readSampleData(buffer, 0) > 0) { "Downloaded media contains an empty track." }
+                if (duration > 0L) {
+                    val tolerance = MediaCompletenessPolicy.tailToleranceUs(duration)
+                    extractor.seekTo((duration - tolerance).coerceAtLeast(0L), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                    var lastSampleUs = -1L
+                    do {
+                        checkActive(); buffer.clear()
+                        if (extractor.readSampleData(buffer, 0) <= 0) break
+                        lastSampleUs = maxOf(lastSampleUs, extractor.sampleTime)
+                    } while (extractor.advance())
+                    check(MediaCompletenessPolicy.hasCompleteTail(duration, lastSampleUs)) {
+                        "Downloaded media ends before its declared duration. Retry the source instead of publishing a partial file."
+                    }
+                }
+                extractor.unselectTrack(track)
+            }
             return video.getInteger(MediaFormat.KEY_HEIGHT).also { check(it > 0) }
         } finally { extractor.release() }
     }
 }
+

@@ -110,7 +110,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             )
         }
         if (OrezVideoSearch.isDiscovery(clean)) {
-            val explicitlyYoutube = Regex("(?i)youtube|youtu\\.be").containsMatchIn(clean)
+            val explicitlyYoutube = OrezDiscoveryPolicy.prefersYoutube(clean)
             if (explicitlyYoutube) {
                 val videos = try { OrezVideoSearch(this@OrezBrain.context).search(clean) }
                     catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -129,7 +129,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
                     catch (_: Throwable) { null }
                 if (live != null && live.provider != "wikipedia") {
                     val videos = live.results
-                        .filter { com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(it.url) }
+                        .filter { com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(it.url) && OrezDiscoveryPolicy.isVideoResult(it.url) }
                         .take(5)
                         .map { result ->
                             val creator = runCatching { java.net.URI(result.url).host?.removePrefix("www.") }.getOrNull().orEmpty()
@@ -143,15 +143,16 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
                                 description = result.snippet.take(300)
                             )
                         }
-                    if (videos.isNotEmpty()) {
+                    if (live.results.isNotEmpty()) {
                         return@withContext OrezBrainResponse(
-                            "I found web video results for your request. Open them in MangaLens Web; compatible media can be played or downloaded from there.",
+                            "I found public sources for your video search. Only individual video links have a Play action; site and channel pages open in Web. Compatible media can be played or downloaded after resolution.",
                             OrezIntent.VIDEO,
                             live.results.take(5).map { it.url },
                             usedLiveSearch = true,
                             videos = videos
                         )
                     }
+
                 }
             }
             return@withContext OrezBrainResponse("Video search is unavailable or returned no usable public results. Check your connection and retry.", OrezIntent.VIDEO)
@@ -472,3 +473,4 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         else->"OREZ searches local knowledge first and uses live information when the request requires current data."
     }
 }
+

@@ -103,7 +103,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             publication = muxed
         }
         dao.stageIfActive(id, "Checking media quality")
-        val actualHeight = if (mime.startsWith("video/")) LocalMediaMuxer.videoHeight(publication, metadata?.audioUrl != null) else null
+        val verificationContext = currentCoroutineContext()
+        val actualHeight = if (mime.startsWith("video/")) LocalMediaMuxer.videoHeight(publication, metadata?.audioUrl != null) {
+            verificationContext.ensureActive()
+        } else null
         metadata?.requestedHeight?.takeIf { it < 9_000 }?.let { ceiling ->
             check(actualHeight == null || actualHeight <= ceiling) { "Source output is ${actualHeight}p, above the selected ${ceiling}p ceiling." }
         }
@@ -279,3 +282,4 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             .build()
     }
 }
+

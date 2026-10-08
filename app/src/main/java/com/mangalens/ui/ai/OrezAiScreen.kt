@@ -564,10 +564,11 @@ fun OrezAiScreen(
                                 )
                                 if (message.role != "YOU") {
                                     Text(
-                                        when (engineMode) {
-                                            OrezEngineMode.LOCAL_LITE -> "LOCAL"
-                                            OrezEngineMode.HYBRID_AUTO -> "HYBRID"
-                                            OrezEngineMode.WEB_ASSIST -> "WEB"
+                                        if (message.text.contains("\n\nSources:") || message.text.contains(OrezVideoResultCodec.MARKER)) "WEB SOURCES"
+                                        else when (engineMode) {
+                                            OrezEngineMode.LOCAL_LITE -> "MODE: LOCAL LITE"
+                                            OrezEngineMode.HYBRID_AUTO -> "MODE: HYBRID"
+                                            OrezEngineMode.WEB_ASSIST -> "MODE: WEB ASSIST"
                                         },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -613,11 +614,9 @@ fun OrezAiScreen(
                                     .lineSequence().map { it.trim() }
                                     .filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)
                                     .take(6).forEach { url ->
-                                        TextButton({
-                                            runCatching {
-                                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
-                                            }
-                                        }) { Text(java.net.URI(url).host ?: "Source", maxLines = 1) }
+                                        TextButton({ onRoute(url, OrezRoute.WEB_VIEW) }) {
+                                            Text(java.net.URI(url).host ?: "Source", maxLines = 1)
+                                        }
                                     }
                             }
                         }
@@ -670,3 +669,4 @@ fun OrezAiScreen(
         }
     }
 }
+

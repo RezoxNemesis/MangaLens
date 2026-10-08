@@ -28,7 +28,7 @@ class OrezVideoSearch(private val context: Context) {
     }
     companion object {
         private val timer = Executors.newSingleThreadScheduledExecutor { Thread(it, "orez-video-timeout").apply { isDaemon = true } }
-        fun isDiscovery(query: String) = Regex("(?i)youtube|recap\\s+videos?|find.*videos?|search.*videos?|watch.*videos?|video\\s+results?|adult\\s+videos?").containsMatchIn(query)
+        fun isDiscovery(query: String) = OrezDiscoveryPolicy.isVideoQuery(query)
     }
 }
 
@@ -60,3 +60,4 @@ object OrezVideoResultCodec {
             row.optString("upload_date").takeIf { it.matches(Regex("[0-9]{8}")) }, row.optString("description").take(300))
     }
 }
+

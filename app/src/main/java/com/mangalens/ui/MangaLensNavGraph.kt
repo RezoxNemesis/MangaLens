@@ -98,9 +98,10 @@ fun MangaLensNavGraph(
                     onUrlChanged = onUrlChanged,
                     onPaste = onPaste,
                     onModeSelected = onModeSelected,
-                    onIngest = {
+                    onIngest = { selectedMode ->
+                        onModeSelected(selectedMode)
                         onIngest()
-                        when (state.mode) {
+                        when (selectedMode) {
                             ContentType.VIDEO_STREAM -> navController.navigate("video")
                             ContentType.IMAGE_CHAPTER -> navController.navigate("reader")
                             ContentType.GENERIC_WEB -> navController.navigate("web")
@@ -253,3 +254,4 @@ fun MangaLensNavGraph(
         }
     }
 }
+

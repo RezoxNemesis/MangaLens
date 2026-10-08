@@ -80,7 +80,8 @@ object MangaLettering {
             sourceBounds = bounds,
             lines = sourceLines,
             padding = padding,
-            uniformSurface = uniformSurface
+            uniformSurface = uniformSurface,
+            surfaceColor = reference
         )
         return Patch(rect, patch, style)
     }
@@ -220,7 +221,8 @@ object MangaLettering {
         sourceBounds: RectF,
         lines: List<RectF>,
         padding: Int,
-        uniformSurface: Boolean
+        uniformSurface: Boolean,
+        surfaceColor: Int
     ) {
         val width = destination.width
         val height = destination.height
@@ -289,7 +291,9 @@ object MangaLettering {
         }
 
         val result = original.clone()
-        val fallback = borderColor(
+        // Expansion can reach a dark balloon outline. Its perimeter is not the
+        // paper colour established around the original OCR zone.
+        val fallback = if (uniformSurface) surfaceColor else borderColor(
             source,
             RectF(
                 destinationBounds.left.toFloat(),
@@ -304,7 +308,9 @@ object MangaLettering {
         fun cleanIndex(x: Int, y: Int): Int? {
             if (x !in 0 until width || y !in 0 until height) return null
             val index = y * width + x
-            return index.takeUnless { masked[it] }
+            return index.takeUnless {
+                masked[it] || (uniformSurface && distance(original[it], surfaceColor) > 52)
+            }
         }
 
         for (y in 0 until height) {
@@ -348,11 +354,10 @@ object MangaLettering {
                     )
                 }
                 result[index] = when {
-                    // On a clean balloon/document surface, nearest-neighbour reconstruction
-                    // can sample another antialiased source glyph and leave the grey "ghost"
-                    // fragments seen in real translated pages. A robust border median is the
-                    // safer source of truth for this deliberately uniform surface.
-                    uniformSurface -> fallback
+                    // Preserve clean paper, including faint texture. Reconstruction samples
+                    // on uniform surfaces are filtered above so glyphs and balloon outlines
+                    // cannot turn the erased zone into a grey rectangle.
+                    uniformSurface && distance(original[index], surfaceColor) <= 12 -> original[index]
                     horizontal != null && vertical != null && diagonal != null ->
                         mix(mix(horizontal, vertical, .5f), diagonal, .34f)
                     horizontal != null && vertical != null ->

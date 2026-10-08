@@ -12,6 +12,36 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class LocalMediaMuxerTest {
+    @Test fun headerOnlyMp4CannotBePublishedAsCompletedVideo() {
+        val test = InstrumentationRegistry.getInstrumentation().context
+        val app = InstrumentationRegistry.getInstrumentation().targetContext
+        val bytes = runCatching {
+            test.assets.open("video/ocr-frame.mp4.base64").use { Base64.decode(it.readBytes(), Base64.DEFAULT) }
+        }.getOrNull()
+        assumeTrue("Generate video fixtures with create-video-ocr-fixture.sh", bytes != null)
+        val source = requireNotNull(bytes)
+        val output = File(app.cacheDir, "header-only.mp4")
+        try {
+            output.outputStream().use { destination ->
+                var offset = 0
+                while (offset < source.size) {
+                    val box = java.nio.ByteBuffer.wrap(source, offset, source.size - offset)
+                    val shortSize = box.int.toLong() and 0xffffffffL
+                    val type = ByteArray(4).also { box.get(it) }.toString(Charsets.US_ASCII)
+                    val size = when (shortSize) {
+                        0L -> (source.size - offset).toLong()
+                        1L -> box.long
+                        else -> shortSize
+                    }
+                    require(size >= 8L && size <= source.size - offset)
+                    if (type != "mdat") destination.write(source, offset, size.toInt())
+                    offset += size.toInt()
+                }
+            }
+            assertTrue("Metadata-only MP4 was accepted", runCatching { LocalMediaMuxer.videoHeight(output) }.isFailure)
+        } finally { output.delete() }
+    }
+
     @Test fun separateTracksProduceVerifiedVideoWithAudio() {
         val test = InstrumentationRegistry.getInstrumentation().context
         val app = InstrumentationRegistry.getInstrumentation().targetContext
@@ -28,3 +58,4 @@ class LocalMediaMuxerTest {
         } finally { video.delete(); audio.delete(); output.delete() }
     }
 }
+
