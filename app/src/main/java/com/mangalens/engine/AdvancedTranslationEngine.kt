@@ -323,32 +323,30 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     fun render(bitmap: Bitmap, regions: List<TranslationRegion>): Bitmap {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
-        val prepared = mutableListOf<Pair<TranslationRegion, com.mangalens.core.translation.MangaLettering.Patch>>()
-
-        // Phase 1: erase/reconstruct every source region on the evolving output. Preparing
-        // every patch from the immutable original page allowed overlapping OCR fragments
-        // to paint already-erased source glyphs back into the balloon.
-        regions.forEach { region ->
-            val patch = com.mangalens.core.translation.MangaLettering.prepare(
-                output,
-                region.bounds,
-                region.lineBounds,
-                region.source
-            )
-            com.mangalens.core.translation.MangaLettering.drawBackground(canvas, patch)
-            prepared += region to patch
-        }
-
-        // Phase 2: typeset only after the page is clean so translated lettering cannot be
-        // sampled as "background" by a neighbouring OCR fragment.
+        val prepared = mutableListOf<Triple<TranslationRegion, android.graphics.Rect,
+            com.mangalens.core.translation.MangaLettering.Style>>()
         try {
-            prepared.forEach { (region, patch) ->
-                com.mangalens.core.translation.MangaLettering.drawText(canvas, patch, region.translated)
+            // Erase all source lettering before adding translations. Retain only metadata,
+            // not every reconstructed bitmap on a potentially very long webtoon page.
+            regions.forEach { region ->
+                val patch = com.mangalens.core.translation.MangaLettering.prepare(
+                    output, region.bounds, region.lineBounds, region.source
+                )
+                try {
+                    com.mangalens.core.translation.MangaLettering.drawBackground(canvas, patch)
+                    prepared += Triple(region, android.graphics.Rect(patch.bounds), patch.style)
+                } finally {
+                    patch.background.recycle()
+                }
             }
-        } finally {
-            prepared.forEach { (_, patch) -> patch.background.recycle() }
+            prepared.forEach { (region, bounds, style) ->
+                com.mangalens.core.translation.MangaLettering.drawText(canvas, bounds, style, region.translated)
+            }
+            return output
+        } catch (failure: Throwable) {
+            output.recycle()
+            throw failure
         }
-        return output
     }
 
     fun detect(source: String): LocalSourceLanguage {
@@ -367,3 +365,4 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
 
     fun close() = Unit
 }
+

@@ -21,4 +21,12 @@ class TranslationDialogueNormalizationTest {
         val source = "I think it was my first time experiencing pain like that."
         assertEquals(source, normalizeEnglishDialogueForHindi(source))
     }
+    @Test
+    fun normalizesOcrLineBreaksBeforeIdioms() {
+        assertEquals("IT made me even angrier.",
+            normalizeEnglishDialogueForHindi("IT PISSED\nME OFF EVEN\nMORE."))
+        assertEquals("IT JUST REMINDED OF THE DAYS I used to be beaten badly.",
+            normalizeEnglishDialogueForHindi("IT JUST REMINDED OF THE DAYS I USED TO GET\nBEATEN UP."))
+    }
 }
+

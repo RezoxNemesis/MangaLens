@@ -589,21 +589,28 @@ object MangaLettering {
         text: String,
         textScale: Float = 1f,
         cachedLayout: StaticLayout? = null
+    ) = drawText(canvas, patch.bounds, patch.style, text, textScale, cachedLayout)
+
+    /** Typesetting needs only geometry/style; background bitmaps may already be released. */
+    fun drawText(
+        canvas: Canvas,
+        bounds: Rect,
+        style: Style,
+        text: String,
+        textScale: Float = 1f,
+        cachedLayout: StaticLayout? = null
     ) {
-        val layout = cachedLayout ?: layout(
-            text,
-            patch.style,
-            patch.bounds.width(),
-            patch.bounds.height(),
-            textScale
-        )
-        val x = patch.bounds.left + (patch.bounds.width() - layout.width) / 2f
-        val y = patch.bounds.top + (patch.bounds.height() - layout.height) / 2f
-        canvas.save()
-        canvas.clipRect(patch.bounds)
-        canvas.translate(x, y)
-        layout.draw(canvas)
-        canvas.restore()
+        val layout = cachedLayout ?: layout(text, style, bounds.width(), bounds.height(), textScale)
+        val x = bounds.left + (bounds.width() - layout.width) / 2f
+        val y = bounds.top + (bounds.height() - layout.height) / 2f
+        val saveCount = canvas.save()
+        try {
+            canvas.clipRect(bounds)
+            canvas.translate(x, y)
+            layout.draw(canvas)
+        } finally {
+            canvas.restoreToCount(saveCount)
+        }
     }
 
     fun draw(
@@ -617,3 +624,4 @@ object MangaLettering {
         drawText(canvas, patch, text, textScale, cachedLayout)
     }
 }
+

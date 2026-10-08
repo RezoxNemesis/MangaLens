@@ -10,7 +10,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 internal fun normalizeEnglishDialogueForHindi(value: String): String {
-    var text = value
+    var text = value.replace(Regex("\\s+"), " ").trim()
     val replacements = listOf(
         Regex("""(?i)\bpissed me off even more\b""") to "made me even angrier",
         Regex("""(?i)\bpissed me off\b""") to "made me angry",
@@ -29,12 +29,15 @@ class TranslationService {
     private val translatorLock = Any()
     private val translators = LinkedHashMap<String, Translator>()
 
-    suspend fun translate(text: String, targetLanguage: String): String {
+    suspend fun translate(text: String, targetLanguage: String, sourceLanguage: String? = null): String {
         val sourceText = text.trim()
         if (sourceText.isBlank()) return text
         val target = TranslateLanguage.fromLanguageTag(targetLanguage.trim().lowercase())
             ?: throw IllegalArgumentException("Unsupported translation language: $targetLanguage")
-        val detected = detectSource(sourceText)
+        // OCR can identify a chapter script more reliably than language-ID can classify
+        // a two-word fragment. Only a supported explicit hint overrides detection.
+        val detected = sourceLanguage?.let(TranslateLanguage::fromLanguageTag)
+            ?: detectSource(sourceText)
         val source = if (target == TranslateLanguage.HINDI && isRomanizedHindi(sourceText)) {
             TranslateLanguage.ENGLISH
         } else {
@@ -128,3 +131,4 @@ class TranslationService {
         private const val MAX_CACHED_TRANSLATORS = 8
     }
 }
+

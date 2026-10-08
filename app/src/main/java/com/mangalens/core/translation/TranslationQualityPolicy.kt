@@ -1,5 +1,11 @@
 package com.mangalens.core.translation
 
+import java.util.Locale
+
+class TranslationQualityException : IllegalArgumentException(
+    "Translation failed language/quality checks. Original text was preserved; retry this bubble or page."
+)
+
 /**
  * Deterministic guardrails for dialogue translation.
  *
@@ -16,14 +22,22 @@ object TranslationQualityPolicy {
     ): String {
         val cleanDraft = clean(draft)
         val cleanRefined = clean(refined)
-        val selected = if (isAcceptable(source, cleanDraft, cleanRefined, targetLanguage)) {
-            cleanRefined
-        } else {
-            cleanDraft
-        }.ifBlank { clean(source) }
+        val draftUsable = isAcceptable(source, "", cleanDraft, targetLanguage)
+        val selected = when {
+            isAcceptable(source, if (draftUsable) cleanDraft else "", cleanRefined, targetLanguage) -> cleanRefined
+            draftUsable -> cleanDraft
+            else -> throw TranslationQualityException()
+        }
         val registerAware = harmonizeRegister(source, selected, targetLanguage)
         return restoreTerminalPunctuation(source, registerAware)
     }
+
+    /** Also check persisted drafts; an older bad result must not bypass today's gate. */
+    fun isUsable(source: String, candidate: String, targetLanguage: String): Boolean =
+        isAcceptable(source, "", clean(candidate), targetLanguage)
+
+    private fun languageTag(value: String): String =
+        value.trim().lowercase(Locale.ROOT).replace('_', '-').substringBefore('-')
 
     private fun clean(value: String): String =
         value.replace(Regex("[\\t\\r ]+"), " ")
@@ -57,8 +71,15 @@ object TranslationQualityPolicy {
         }
 
         if (!targetScriptLooksPlausible(candidate, targetLanguage)) return false
-        val target = targetLanguage.lowercase().substringBefore('-')
-        if (target == "hi") {
+        val target = languageTag(targetLanguage)
+        if (target in setOf("hi", "mr", "ne")) {
+            // A Hindi paragraph can meet the script ratio yet retain a whole English
+            // clause such as "BEATEN UP". Reject copied multiword spans, while permitting
+            // a single name/honorific. Explicit glossary support belongs in the caller.
+            val sourceWords = latinWords(source)
+            val copiedPhrases = sourceWords.zipWithNext().toSet()
+            val candidateRuns = Regex("[A-Za-z]{2,}(?:[\\s'-]+[A-Za-z]{2,})+").findAll(candidate)
+            if (candidateRuns.any { run -> latinWords(run.value).zipWithNext().any { it in copiedPhrases } }) return false
             val sourceLetters = source.filter(Char::isLetter)
             val sourceLatin = sourceLetters.count { it.code in 0x0041..0x024F }
             if (sourceLetters.isNotEmpty() && sourceLatin.toFloat() / sourceLetters.length >= .65f) {
@@ -75,16 +96,19 @@ object TranslationQualityPolicy {
         return true
     }
 
+    private fun latinWords(value: String): List<String> =
+        Regex("[A-Za-z]{2,}").findAll(value).map { it.value.lowercase(Locale.ROOT) }.toList()
+
     private fun normalize(value: String): String =
-        value.lowercase()
+        value.lowercase(Locale.ROOT)
             .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
 
     private fun targetScriptLooksPlausible(text: String, targetLanguage: String): Boolean {
         val letters = text.filter(Char::isLetter)
-        if (letters.length < 3) return true
-        val language = targetLanguage.lowercase().substringBefore('-')
+        if (letters.isEmpty()) return text.any { !it.isWhitespace() }
+        val language = languageTag(targetLanguage)
         val matching = when (language) {
             "hi", "mr", "ne" -> letters.count { it in '\u0900'..'\u097f' }
             "ja" -> letters.count { it in '\u3040'..'\u30ff' || it in '\u4e00'..'\u9fff' }
@@ -104,8 +128,8 @@ object TranslationQualityPolicy {
      * otherwise normalize only a small, high-confidence set of second-person forms.
      */
     private fun harmonizeRegister(source: String, translation: String, targetLanguage: String): String {
-        if (targetLanguage.lowercase().substringBefore('-') != "hi") return translation
-        val sourceLower = source.lowercase()
+        if (languageTag(targetLanguage) != "hi") return translation
+        val sourceLower = source.lowercase(Locale.ROOT)
         val addressesSomeone = Regex("""\b(you|your|you're|you've|you'll|don't|do not|can you|will you)\b""").containsMatchIn(sourceLower)
         if (!addressesSomeone) return translation
 
@@ -154,7 +178,9 @@ object TranslationQualityPolicy {
     }
 
     private fun restoreTerminalPunctuation(source: String, translation: String): String {
-        val sourceMark = source.trim().lastOrNull { it in "?!…！？。" } ?: return translation
+        // Only the terminal mark is evidence. A question inside a sentence must not
+        // turn the final translated statement into a question.
+        val sourceMark = source.trim().lastOrNull()?.takeIf { it in "?!…！？。" } ?: return translation
         if (translation.isBlank() || translation.last() in "?!…！？。") return translation
         val mark = when (sourceMark) {
             '？' -> '?'
@@ -162,6 +188,7 @@ object TranslationQualityPolicy {
             '。' -> '.'
             else -> sourceMark
         }
-        return translation + mark
+        return translation.trimEnd('.', '।') + mark
     }
 }
+

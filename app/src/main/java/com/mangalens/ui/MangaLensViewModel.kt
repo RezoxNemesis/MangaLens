@@ -538,10 +538,24 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         val preserveStyle = app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE)
             .getBoolean("preserve_style", true)
         val reconstructedCanvas = if (bitmap.isMutable) android.graphics.Canvas(bitmap) else null
+        var rejectedRegions = 0
         for (region in advancedRegions) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val localized = recallTranslation(region.source, targetLanguage, style) ?: run {
-                val draft = translator.translate(region.source, targetLanguage)
+            val localized = try { recallTranslation(region.source, targetLanguage, style) ?: run {
+                val sourceHint = when (region.sourceLanguage) {
+                    // Latin-script OCR alone is not a language detector. Only these
+                    // distinctive English dialogue tokens justify an English override.
+                    com.mangalens.engine.LocalSourceLanguage.ENGLISH -> "en".takeIf {
+                        Regex("""(?i)\b(beaten|pissed|would|should|you're|I've|I'm)\b""")
+                            .containsMatchIn(region.source)
+                    }
+                    com.mangalens.engine.LocalSourceLanguage.JAPANESE -> "ja"
+                    com.mangalens.engine.LocalSourceLanguage.KOREAN -> "ko"
+                    com.mangalens.engine.LocalSourceLanguage.HINDI -> "hi"
+                    // Han-only OCR cannot reliably distinguish Chinese from Japanese.
+                    else -> null
+                }
+                val draft = translator.translate(region.source, targetLanguage, sourceHint)
                 val refined = orezRefiner.refine(
                     region.source,
                     draft,
@@ -555,6 +569,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     refined = refined,
                     targetLanguage = targetLanguage
                 ).also { rememberTranslation(region.source, it, targetLanguage, style) }
+            } } catch (_: com.mangalens.core.translation.TranslationQualityException) {
+                rejectedRegions++
+                continue // Keep the source visible; publish successful neighbouring bubbles.
             }
             val patch = com.mangalens.core.translation.MangaLettering.prepare(
                 bitmap,
@@ -595,6 +612,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 overlays = _state.value.overlays + (page.index to translated.toList())
             )
         }
+        if (rejectedRegions > 0) throw com.mangalens.core.translation.TranslationQualityException()
         } finally {
             bitmap.recycle()
         }
@@ -731,7 +749,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 language.trim(),
                 style.memoryKey,
                 translationMemoryScope()
-            )?.takeIf { it.isNotBlank() }
+            )?.takeIf {
+                com.mangalens.core.translation.TranslationQualityPolicy.isUsable(source, it, language)
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -779,3 +799,4 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         super.onCleared()
     }
 }
+
