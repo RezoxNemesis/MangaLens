@@ -571,6 +571,17 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 ).also { rememberTranslation(region.source, it, targetLanguage, style) }
             } } catch (_: com.mangalens.core.translation.TranslationQualityException) {
                 rejectedRegions++
+                // A retry may still be displaying an older bad overlay. Revalidate it
+                // too, so an entirely rejected retry cannot leave source leakage visible.
+                val existing = _state.value.overlays[page.index].orEmpty().filter {
+                    com.mangalens.core.translation.TranslationQualityPolicy.isUsable(
+                        it.region.text, it.translatedText, targetLanguage
+                    )
+                }
+                val overlays = if (existing.isEmpty()) _state.value.overlays - page.index
+                    else _state.value.overlays + (page.index to existing)
+                _state.value = _state.value.copy(overlays = overlays,
+                    translationEnabled = overlays.values.any { it.isNotEmpty() })
                 continue // Keep the source visible; publish successful neighbouring bubbles.
             }
             val patch = com.mangalens.core.translation.MangaLettering.prepare(
