@@ -49,7 +49,11 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
             throw cancelled
         } catch (failure: Exception) {
             // Preserve the newest completed-step checkpoints, not the initial plan snapshot.
-            store.load(id)?.let { store.checkpoint(it, OrezTaskStatus.FAILED, failure.message?.take(300)) }
+            val latest = store.load(id)
+            // Chat delivery is secondary to verified task state. A failed message insert
+            // must not downgrade a completed batch or make it eligible for replay.
+            if (latest?.status == OrezTaskStatus.COMPLETED) return@withContext Result.success()
+            latest?.let { store.checkpoint(it, OrezTaskStatus.FAILED, failure.message?.take(300)) }
             Result.failure()
         }
     }
