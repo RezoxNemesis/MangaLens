@@ -27,65 +27,72 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
             return@withContext Result.success()
         }
         try {
-            val call = plan.steps.single().call
-            OrezToolRegistry().validate(call)
-            require(call.name == "enqueue_download") { "This worker accepts only download tools" }
-            require(OrezPolicyEngine().evaluate(call, OrezAgentContext()).allowed)
             setForeground(foreground(id))
-            val running = plan.copy(status = OrezTaskStatus.RUNNING,
-                steps = plan.steps.map { it.copy(status = OrezStepStatus.RUNNING) })
-            store.checkpoint(running)
-            val downloadId = "orez-$id"
-            val downloads = DownloadDatabase.get(applicationContext).downloads()
-            val existing = downloads.get(downloadId)
-            if (existing == null || existing.state == DownloadState.QUEUED) {
-                // Deterministic ID closes the process-death gap between queuing and journaling.
-                val queued = withTimeoutOrNull(120_000L) {
-                    MediaDownloadManager(applicationContext).enqueue(call.arguments.getValue("value"),
-                        quality = DownloadQuality.BEST, requestId = downloadId)
+            val executor = OrezTaskExecutor(store, OrezDurableTools { step, requestId ->
+                executeDownload(step, requestId)
+            })
+            when (val result = executor.run(id)) {
+                is OrezTaskExecutor.Result.Completed -> {
+                    OrezRoomDatabase.get(applicationContext).messages().insert(com.mangalens.orez.OrezMessageEntity(
+                        role = "OREZ", text = "Completed and verified ${result.plan.steps.size} download(s). Open Downloads to play the saved media."))
+                    Result.success()
                 }
-                if (queued == null) {
-                    if (runAttemptCount < 2) return@withContext Result.retry()
-                    error("Media resolution timed out. Retry from the source page.")
+                is OrezTaskExecutor.Result.Pending -> if (result.needsResume) Result.success() else Result.retry()
+                is OrezTaskExecutor.Result.Failed -> {
+                    OrezRoomDatabase.get(applicationContext).messages().insert(com.mangalens.orez.OrezMessageEntity(
+                        role = "OREZ", text = "Orez stopped at an unfinished download: ${result.reason.take(200)}. Retry the task to retain completed steps."))
+                    Result.failure()
                 }
+                OrezTaskExecutor.Result.Cancelled, OrezTaskExecutor.Result.AlreadyFinished -> Result.success()
             }
-            val terminal = withTimeoutOrNull(8L * 60L * 1000L) {
-                downloads.observe().first { rows -> rows.any { row ->
-                    row.id == downloadId && row.state in setOf(DownloadState.COMPLETED, DownloadState.FAILED, DownloadState.CANCELLED, DownloadState.PAUSED)
-                } }.first { it.id == downloadId }
-            }
-            if (terminal == null && runAttemptCount < 12) {
-                // Transfer survives this watchdog. A later run observes the same download ID.
-                return@withContext Result.retry()
-            }
-            if (terminal == null || terminal.state == DownloadState.PAUSED) {
-                store.checkpoint(running, OrezTaskStatus.DISPATCHED,
-                    "Transfer remains in Downloads. Resume or inspect progress there.")
-                return@withContext Result.success()
-            }
-            val status = when (terminal.state) {
-                DownloadState.COMPLETED -> OrezTaskStatus.COMPLETED
-                DownloadState.CANCELLED -> OrezTaskStatus.CANCELLED
-                else -> OrezTaskStatus.FAILED
-            }
-            store.checkpoint(running.copy(status = status,
-                steps = running.steps.map { it.copy(status = if (status == OrezTaskStatus.COMPLETED) OrezStepStatus.COMPLETED else OrezStepStatus.FAILED) }),
-                error = terminal.error)
-            if (store.load(id)?.status == status) {
-                OrezRoomDatabase.get(applicationContext).messages().insert(com.mangalens.orez.OrezMessageEntity(
-                    role = "OREZ", text = when(status) {
-                        OrezTaskStatus.COMPLETED -> "Download complete: ${terminal.title.take(160)}. Open Downloads to play the saved media."
-                        OrezTaskStatus.CANCELLED -> "The download was cancelled."
-                        else -> "The download failed. Open Downloads to inspect the source and retry."
-                    }))
-            }
-            Result.success()
         } catch (cancelled: CancellationException) {
-            // WorkManager may stop for network/process constraints. Retain the checkpoint.
             throw cancelled
         } catch (failure: Exception) {
-            store.checkpoint(plan, OrezTaskStatus.FAILED, failure.message?.take(300))
+            // Preserve the newest completed-step checkpoints, not the initial plan snapshot.
+            store.load(id)?.let { store.checkpoint(it, OrezTaskStatus.FAILED, failure.message?.take(300)) }
             Result.failure()
+        }
+    }
+
+    private suspend fun executeDownload(step: OrezPlanStep, downloadId: String): OrezToolResult {
+        val downloads = DownloadDatabase.get(applicationContext).downloads()
+        val existing = downloads.get(downloadId)
+        if (existing == null || existing.state == DownloadState.QUEUED) {
+            val queued = withTimeoutOrNull(120_000L) {
+                MediaDownloadManager(applicationContext).enqueue(step.call.arguments.getValue("value"),
+                    quality = step.call.arguments["quality"]?.let(DownloadQuality::valueOf) ?: DownloadQuality.BEST,
+                    requestId = downloadId)
+            }
+            if (queued == null) return if (runAttemptCount < 2) OrezToolResult.Pending("Retrying media source resolution.")
+                else OrezToolResult.Failed("Media resolution timed out. Inspect the source in Web.")
+        }
+        val terminal = withTimeoutOrNull(8L * 60L * 1000L) {
+            downloads.observe().first { rows -> rows.any { row ->
+                row.id == downloadId && row.state in setOf(DownloadState.COMPLETED, DownloadState.FAILED, DownloadState.CANCELLED, DownloadState.PAUSED)
+            } }.first { it.id == downloadId }
+        } ?: return OrezToolResult.Pending("Transfer is continuing in Downloads.")
+        return when (terminal.state) {
+            DownloadState.PAUSED -> OrezToolResult.Pending("Download paused. Resume this task to continue its remaining steps.", needsResume = true)
+            DownloadState.CANCELLED -> OrezToolResult.Cancelled("The current transfer was cancelled.")
+            DownloadState.FAILED -> OrezToolResult.Failed(terminal.error ?: "Native download verification failed.")
+            DownloadState.COMPLETED -> {
+                if (terminal.bytesDownloaded <= 0L) return OrezToolResult.Failed("Completed transfer has no downloaded bytes.")
+                val destination = terminal.destination?.takeIf { it.isNotBlank() }
+                    ?: if (terminal.isAdaptive) "adaptive-cache:$downloadId" else null
+                if (destination == null) return OrezToolResult.Failed("Completed transfer has no published destination.")
+                if (!terminal.isAdaptive) {
+                    val available = runCatching {
+                        applicationContext.contentResolver.openAssetFileDescriptor(android.net.Uri.parse(destination), "r")?.use {
+                            it.createInputStream().use { stream -> stream.read() >= 0 }
+                        } == true
+                    }.getOrDefault(false)
+                    if (!available) return OrezToolResult.Failed("The published download is missing or unreadable.")
+                }
+                OrezToolResult.Completed(mapOf("downloadId" to downloadId, "destination" to destination,
+                    "title" to terminal.title.take(250), "bytes" to terminal.bytesDownloaded.toString(),
+                    "storage" to if (terminal.isAdaptive) "adaptive-cache" else "published-file"))
+            }
+            else -> OrezToolResult.Pending("Waiting for native download completion.")
         }
     }
 
@@ -94,7 +101,7 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
         manager.createNotificationChannel(NotificationChannel("orez_tasks", "Orez tasks", NotificationManager.IMPORTANCE_LOW))
         val notification = NotificationCompat.Builder(applicationContext, "orez_tasks")
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Orez is managing your download")
+            .setContentTitle("Orez is executing your download task")
             .setContentText("Progress and recovery are available in Downloads")
             .setOnlyAlertOnce(true).setOngoing(true).build()
         return ForegroundInfo(20000 + (id.hashCode() and 0x7fff), notification,
@@ -102,13 +109,14 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
     }
 
     companion object {
-        fun enqueue(context: Context, taskId: String) {
+        fun enqueue(context: Context, taskId: String, replace: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<OrezDownloadTaskWorker>()
                 .setInputData(workDataOf("task_id" to taskId))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(30))
                 .addTag("orez-task-$taskId").build()
-            WorkManager.getInstance(context).enqueueUniqueWork("orez-task-$taskId", ExistingWorkPolicy.KEEP, request)
+            WorkManager.getInstance(context).enqueueUniqueWork("orez-task-$taskId", if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, request)
         }
     }
 }
+

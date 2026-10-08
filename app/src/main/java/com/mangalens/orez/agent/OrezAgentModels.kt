@@ -35,6 +35,7 @@ enum class OrezTaskStatus {
     PLANNED,
     WAITING_APPROVAL,
     RUNNING,
+    WAITING,
     DISPATCHED,
     COMPLETED,
     FAILED,
@@ -70,7 +71,8 @@ data class OrezToolCall(
 data class OrezPlanStep(
     val index: Int,
     val call: OrezToolCall,
-    val status: OrezStepStatus = OrezStepStatus.PENDING
+    val status: OrezStepStatus = OrezStepStatus.PENDING,
+    val outputs: Map<String, String> = emptyMap()
 )
 
 data class OrezTaskPlan(
@@ -89,3 +91,4 @@ data class OrezAgentDecision(
     val continueToBrain: Boolean = false,
     val requiresApproval: Boolean = false
 )
+

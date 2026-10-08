@@ -22,6 +22,7 @@ class OrezTaskStore(
     }
 
     internal fun decode(encoded: String): OrezTaskPlan {
+        require(encoded.length <= 128 * 1024) { "Orez journal exceeds the safe limit" }
         val root = JSONObject(encoded)
         require(root.getInt("schema") == 1) { "Unsupported Orez task schema" }
         val steps = root.getJSONArray("steps")
@@ -36,6 +37,9 @@ class OrezTaskStore(
                 val args = step.getJSONObject("arguments")
                 OrezPlanStep(
                     index = step.getInt("index"),
+                    outputs = step.optJSONObject("outputs")?.let { values ->
+                        values.keys().asSequence().associateWith { values.getString(it) }
+                    }.orEmpty(),
                     status = OrezStepStatus.valueOf(step.getString("status")),
                     call = OrezToolCall(
                         name = step.getString("tool"),
@@ -53,8 +57,8 @@ class OrezTaskStore(
         plan: OrezTaskPlan,
         status: OrezTaskStatus = plan.status,
         error: String? = null
-    ) {
-        dao.checkpointIfNotCancelled(
+    ): Boolean {
+        return dao.checkpointIfNotCancelled(
             OrezTaskEntity(
                 id = plan.id,
                 objective = plan.objective,
@@ -94,6 +98,7 @@ class OrezTaskStore(
                     .put("summary", step.call.summary)
                     .put("route", step.call.route?.name ?: JSONObject.NULL)
                     .put("arguments", args)
+                    .put("outputs", JSONObject(step.outputs))
             )
         }
         root.put("steps", steps)
@@ -104,3 +109,4 @@ class OrezTaskStore(
         private const val DEFAULT_RETENTION_MS = 7L * 24L * 60L * 60L * 1000L
     }
 }
+

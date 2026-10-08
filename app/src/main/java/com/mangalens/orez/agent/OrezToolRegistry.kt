@@ -26,7 +26,13 @@ class OrezToolRegistry {
         require(call.route == descriptor.route && call.capability == descriptor.capability && call.risk == descriptor.risk) {
             "Tool metadata does not match the trusted registry"
         }
-        require(call.arguments.keys.all { it in setOf("value", "targetLanguage") }) { "Unknown tool argument" }
+        require(call.arguments.keys.all { it in setOf("value", "targetLanguage", "quality") }) { "Unknown tool argument" }
+        call.arguments["quality"]?.let {
+            require(it != "AMBIGUOUS") { "Choose one quality ceiling for the batch, or send separate requests." }
+            require(call.name == "enqueue_download" && it in setOf("BEST", "P480", "P720", "P1080", "P1440", "P2160")) {
+                "Unsupported download quality"
+            }
+        }
         val url = call.arguments["value"].orEmpty()
         require(!descriptor.requiresUrl || url.isNotBlank()) { "This tool requires a URL" }
         require(url.isBlank() || (url.length <= 8192 && UrlEngineRouter.isSafeWebUrl(url))) { "Invalid or unsafe URL" }
@@ -44,6 +50,8 @@ class OrezToolRegistry {
     }
 
     fun catalog(): String = tools.entries.joinToString("\n") { (name, descriptor) ->
-        "$name: ${descriptor.capability.name}; " + if (descriptor.requiresUrl) "value=HTTP(S) URL" else "no URL required"
+        "$name: ${descriptor.capability.name}; " + (if (descriptor.requiresUrl) "value=HTTP(S) URL" else "no URL required") +
+            (if (name == "enqueue_download") "; optional quality=BEST/P480/P720/P1080/P1440/P2160" else "")
     }
 }
+

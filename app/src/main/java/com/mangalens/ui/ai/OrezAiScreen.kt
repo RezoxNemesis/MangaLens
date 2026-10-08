@@ -237,6 +237,37 @@ class OrezAiViewModel @JvmOverloads constructor(
         androidx.work.WorkManager.getInstance(getApplication<android.app.Application>()).cancelUniqueWork("orez-task-$id")
     }
 
+    fun taskProgress(encoded: String): Pair<Int, Int>? = runCatching {
+        val plan = taskStore.decode(encoded)
+        plan.steps.count { it.status == OrezStepStatus.COMPLETED } to plan.steps.size
+    }.getOrNull()
+
+    fun canResumeTask(encoded: String): Boolean = runCatching {
+        com.mangalens.orez.agent.OrezDurablePlanRules.validate(taskStore.decode(encoded))
+        true
+    }.getOrDefault(false)
+
+    fun resumeTask(id: String) = viewModelScope.launch {
+        val plan = taskStore.load(id) ?: return@launch
+        if (plan.status !in setOf(OrezTaskStatus.WAITING, OrezTaskStatus.FAILED)) return@launch
+        try {
+            com.mangalens.orez.agent.OrezDurablePlanRules.validate(plan)
+            val next = plan.steps.firstOrNull { it.status != OrezStepStatus.COMPLETED } ?: return@launch
+            com.mangalens.download.MediaDownloadManager(getApplication<android.app.Application>()).resume(
+                com.mangalens.orez.agent.OrezDurablePlanRules.requestId(id, next.index))
+            val resumable = plan.copy(status = OrezTaskStatus.PLANNED, steps = plan.steps.map {
+                if (it.status == OrezStepStatus.FAILED) it.copy(status = OrezStepStatus.PENDING) else it
+            })
+            if (taskStore.checkpoint(resumable)) {
+                com.mangalens.orez.agent.OrezDownloadTaskWorker.enqueue(getApplication<android.app.Application>(), id, replace = true)
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            dao.insert(OrezMessageEntity(role = "OREZ", text = "Could not resume this task: " + failure.message.orEmpty().take(250)))
+        }
+    }
+
     fun stopReply() {
         replyJob?.cancel()
         thinkingStage = "Stopped • ready"
@@ -397,13 +428,21 @@ fun OrezAiScreen(
                                     maxLines = 2
                                 )
                             }
-                            NeonStatusPill(activeTasks.size.toString() + " active", positive = true)
+                            NeonStatusPill(activeTasks.size.toString() + " tracked", positive = true)
                         }
                         activeTasks.take(5).forEach { task ->
                             Text(task.objective, maxLines = 2, style = MaterialTheme.typography.bodySmall)
-                            Text("${task.status.lowercase().replace('_', ' ')} • check the destination before retrying",
+                            val progress = remember(task.planJson) { vm.taskProgress(task.planJson) }
+                            Text("${task.status.lowercase().replace('_', ' ')}" +
+                                (progress?.let { " • ${it.first}/${it.second} steps verified" } ?: ""),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            task.lastError?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, maxLines = 3, style = MaterialTheme.typography.bodySmall)
+                            }
                             Row {
+                                if (task.status in setOf("WAITING", "FAILED") && vm.canResumeTask(task.planJson)) {
+                                    TextButton(onClick = { vm.resumeTask(task.id) }) { Text("Resume task") }
+                                }
                                 TextButton(onClick = { input = task.objective }) { Text("Review request") }
                                 TextButton(onClick = { vm.dismissTask(task.id) }) { Text("Dismiss task") }
                             }

@@ -10,6 +10,42 @@ import org.junit.Test
 class OrezAgentRuntimeTest {
     private val runtime = OrezAgentRuntime()
 
+    @Test fun batchDownloadRetainsEveryUniqueUrlAndTheRequestedQuality() {
+        val decision = runtime.decide("Download at 720p https://example.com/a.mp4 and https://example.com/b.mp4 and https://example.com/a.mp4", OrezAgentContext())
+        assertFalse(decision.continueToBrain)
+        assertEquals(2, decision.plan!!.steps.size)
+        assertEquals(listOf("https://example.com/a.mp4", "https://example.com/b.mp4"), decision.plan!!.steps.map { it.call.arguments["value"] })
+        assertTrue(decision.plan!!.steps.all { it.call.arguments["quality"] == "P720" })
+        assertEquals(OrezRoute.DOWNLOADS, decision.immediateRoute)
+    }
+
+    @Test fun excessiveOrAmbiguousBatchDoesNotDispatchAPartialRequest() {
+        val oversized = runtime.decide("Download " + (0..8).joinToString(" ") { "https://example.com/$it.mp4" }, OrezAgentContext())
+        assertEquals(OrezTaskStatus.FAILED, oversized.plan!!.status)
+        assertEquals(null, oversized.immediateRoute)
+        val ambiguous = runtime.decide("Download at 720p and 1080p https://example.com/a.mp4", OrezAgentContext())
+        assertEquals(OrezTaskStatus.FAILED, ambiguous.plan!!.status)
+        assertEquals(null, ambiguous.immediateRoute)
+    }
+
+    @Test fun anOpenRequestMentioningDownloadsCannotStartATransfer() {
+        val decision = runtime.decide("Open this download website https://example.com/watch/1", OrezAgentContext())
+        assertEquals("open_video_url", decision.plan!!.steps.single().call.name)
+    }
+
+    @Test fun invalidSecondUrlRejectsWholeBatch() {
+        val decision = runtime.decide("Download https://example.com/a.mp4 and https://user:secret@example.com/b.mp4", OrezAgentContext())
+        assertEquals(OrezTaskStatus.FAILED, decision.plan!!.status)
+        assertEquals(null, decision.immediateRoute)
+    }
+
+    @Test fun untrustedBatchCannotInitiateTransfers() {
+        val decision = runtime.decide("Download https://example.com/a.mp4 and https://example.com/b.mp4",
+            OrezAgentContext(origin = OrezTrustOrigin.WEB_CONTENT, explicitUserRequest = false))
+        assertEquals(OrezTaskStatus.FAILED, decision.plan!!.status)
+        assertEquals(null, decision.immediateRoute)
+    }
+
     @Test fun currentUrlDownloadBecomesBackgroundTool() {
         val decision = runtime.decide("Download this at best quality", OrezAgentContext(activeUrl = "https://example.com/watch/1"))
         assertEquals("enqueue_download", decision.plan!!.steps.single().call.name)
@@ -102,3 +138,4 @@ class OrezAgentRuntimeTest {
         assertEquals(null, decision.immediateRoute)
     }
 }
+

@@ -12,6 +12,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OrezTaskStoreTest {
+    @Test fun completedStepEvidenceSurvivesJournalRoundTrip() = runTest {
+        val store = OrezTaskStore(FakeTaskDao())
+        val plan = OrezAgentPlanner().plan("Download https://example.com/a.mp4 and https://example.com/b.mp4", OrezAgentContext())!!
+        val checkpoint = plan.copy(status = OrezTaskStatus.WAITING, steps = plan.steps.map {
+            if (it.index == 0) it.copy(status = OrezStepStatus.COMPLETED,
+                outputs = mapOf("downloadId" to "orez-${plan.id}", "destination" to "content://media/123")) else it
+        })
+        assertTrue(store.checkpoint(checkpoint))
+        assertEquals(checkpoint, store.load(plan.id))
+        assertTrue(store.checkpoint(checkpoint, OrezTaskStatus.CANCELLED))
+        assertTrue(!store.checkpoint(checkpoint, OrezTaskStatus.RUNNING))
+    }
+
     @Test
     fun checkpointPersistsStructuredPlanInsteadOfFreeFormChat() = runTest {
         val dao = FakeTaskDao()
@@ -83,3 +96,4 @@ class OrezTaskStoreTest {
         }
     }
 }
+

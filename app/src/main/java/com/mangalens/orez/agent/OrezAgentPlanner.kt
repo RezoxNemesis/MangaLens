@@ -12,7 +12,9 @@ class OrezAgentPlanner(
         val clean = input.trim()
         if (clean.isBlank()) return null
         val lower = URL_REGEX.replace(clean.lowercase(Locale.ROOT), " ").trim()
-        val explicitUrl = URL_REGEX.find(clean)?.value?.trimEnd('.', ',', ')', ']', '!', '?')
+        val explicitUrls = URL_REGEX.findAll(clean).map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }
+            .distinct().take(OrezDurablePlanRules.MAX_STEPS + 1).toList()
+        val explicitUrl = explicitUrls.firstOrNull()
         val url = explicitUrl ?: context.activeUrl?.takeIf {
             isAny(lower, "download this", "download the current", "save this video", "save media")
         }
@@ -69,7 +71,7 @@ class OrezAgentPlanner(
         // URL hosts, paths and query parameters describe content, not user intent.
         // A manga hostname must not override "Play"; ?download=1 is not a command.
         val intentText = lower
-        val download = isAny(intentText, "download", "save video", "save media", "download this", "offline copy")
+        val download = Regex("""^(?:(?:please|can you|could you)\s+)?(?:download|save)\b""", RegexOption.IGNORE_CASE).containsMatchIn(intentText)
         val translate = wantsTranslation(intentText)
         val play = isAny(intentText, "play", "watch", "stream", "open video")
         val read = isAny(intentText, "read", "chapter", "reader", "manga", "comic")
@@ -139,6 +141,20 @@ class OrezAgentPlanner(
             )
         }
 
+        if (download) {
+            val qualities = Regex("""\b(480p|720p|1080p|1440p|2160p|4k)\b""").findAll(lower)
+                .map { when (it.value) {
+                    "480p" -> "P480"; "720p" -> "P720"; "1080p" -> "P1080"
+                    "1440p" -> "P1440"; else -> "P2160"
+                } }.distinct().toList()
+            // Conflicting per-item qualities need clarification, never silently choose one.
+            val quality = if (qualities.size > 1) "AMBIGUOUS" else qualities.firstOrNull() ?: "BEST"
+            val urls = explicitUrls.ifEmpty { listOf(url) }
+            return task(clean, urls.map { value -> call.copy(
+                summary = "Download and verify media (${if (quality == "BEST") "best available" else quality.removePrefix("P") + "p"})",
+                arguments = mapOf("value" to value, "quality" to quality)
+            ) })
+        }
         return task(clean, listOf(withTarget(call, lower)))
     }
 
@@ -186,3 +202,4 @@ class OrezAgentPlanner(
         private val URL_REGEX = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
     }
 }
+

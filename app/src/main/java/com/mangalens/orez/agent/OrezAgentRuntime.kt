@@ -11,10 +11,11 @@ class OrezAgentRuntime(
     }
 
     fun decidePlan(plan: OrezTaskPlan, context: OrezAgentContext): OrezAgentDecision {
-        if (plan.steps.size != 1) return OrezAgentDecision(plan = plan.copy(status = OrezTaskStatus.FAILED),
-            message = "This tool runtime needs one verified action per dispatch.")
-
-        val invalid = runCatching { plan.steps.forEach { OrezToolRegistry().validate(it.call) } }.exceptionOrNull()
+        val invalid = runCatching {
+            require(plan.steps.isNotEmpty()) { "The task has no executable steps." }
+            if (plan.steps.size > 1 || plan.steps.first().call.name == "enqueue_download") OrezDurablePlanRules.validate(plan)
+            plan.steps.forEach { OrezToolRegistry().validate(it.call) }
+        }.exceptionOrNull()
         if (invalid != null) return OrezAgentDecision(
             plan = plan.copy(status = OrezTaskStatus.FAILED),
             message = invalid.message ?: "Invalid tool request"
@@ -59,3 +60,4 @@ class OrezAgentRuntime(
         )
     }
 }
+

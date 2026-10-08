@@ -26,6 +26,10 @@ Product review is PR #12. PR #13 was originally a main-targeted validation copy.
 - Download requests queue WorkManager jobs, use a deterministic transfer ID,
   observe real download state, and record completion/failure. Native mature
   workers retain provider extraction, muxing, verification and source recovery.
+- Orez executes up to eight explicitly requested downloads sequentially, with
+  per-step checkpoints and completion evidence. It retains every unique URL and
+  a requested quality ceiling. Paused/failed tasks show verified step counts and
+  can resume without redoing completed steps. Other tools remain single actions.
 - Cancelled task journals reject late worker writes. Dismissing monitoring leaves
   its actual transfer accessible in Downloads.
 - Model transfers check disk headroom, hash on the IO dispatcher, resume complete
@@ -47,7 +51,7 @@ protection engine remain in place. Their presence is not a claim of perfection.
 ## Still outstanding against the full master blueprint
 
 - durable background chapter translation with per-page reconstructed output;
-- a verified multi-step planner/executor across reader, vision, research and media;
+- extend the verified download executor to reader, vision, research and translation;
 - automatic discovery of next chapters and series glossary/RAG management;
 - runtime browser DOM tooling with context-tagged evidence;
 - complete home module hide/reorder controls and remaining appearance options;
@@ -57,8 +61,8 @@ protection engine remain in place. Their presence is not a claim of perfection.
 - visual/device acceptance of every core screen, downloader and real subtitles.
 
 Do not mark the overall blueprint complete from build success. Current Orez
-supports bounded single-tool selection and a durable download workflow; it does
-not yet execute arbitrary multi-step plans. Existing chapter translation is
+supports single-tool app actions and bounded sequential download plans; it does
+not yet execute arbitrary mixed-capability plans. Existing chapter translation is
 owned by the app ViewModel and is not guaranteed to resume after process death.
 
 ## Acceptance
@@ -69,3 +73,4 @@ open every navigation route, deny video permission, import/share content, change
 appearance, translate an untranslated chapter into a requested language, pause
 and resume model downloads, and interrupt/reopen an Orez download. Verify the
 build source identity before comparing against older APKs.
+

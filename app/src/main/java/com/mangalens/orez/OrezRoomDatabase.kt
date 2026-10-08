@@ -95,7 +95,7 @@ interface OrezDatasetDao {
 
 @Dao
 interface OrezTaskDao {
-    @Query("SELECT * FROM orez_tasks WHERE status IN ('PLANNED','WAITING_APPROVAL','RUNNING') ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM orez_tasks WHERE status IN ('PLANNED','WAITING_APPROVAL','RUNNING','WAITING','FAILED') ORDER BY updatedAt DESC")
     fun observeActive(): Flow<List<OrezTaskEntity>>
 
     @Query("SELECT * FROM orez_tasks WHERE id = :id LIMIT 1")
@@ -105,9 +105,10 @@ interface OrezTaskDao {
     suspend fun upsert(task: OrezTaskEntity)
 
     @Transaction
-    suspend fun checkpointIfNotCancelled(task: OrezTaskEntity) {
-        if (get(task.id)?.status == "CANCELLED" && task.status != "CANCELLED") return
+    suspend fun checkpointIfNotCancelled(task: OrezTaskEntity): Boolean {
+        if (get(task.id)?.status == "CANCELLED" && task.status != "CANCELLED") return false
         upsert(task)
+        return true
     }
 
     @Query("DELETE FROM orez_tasks WHERE status IN ('COMPLETED','DISPATCHED','FAILED','CANCELLED') AND updatedAt < :before")
@@ -198,3 +199,4 @@ abstract class OrezRoomDatabase : RoomDatabase() {
         replaceDatasetsStreaming(conversations.asSequence(), translations.asSequence())
     }
 }
+
