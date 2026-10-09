@@ -1,0 +1,5 @@
+# Preserve exact captured evidence and the user's pinned Markdown input.
+docs/evidence/** whitespace=-blank-at-eol,-blank-at-eof
+docs/spec/*.md whitespace=-blank-at-eol
+# A unified patch's otherwise empty context line consists of one literal space.
+whisper-native/src/main/cpp/*.patch whitespace=-blank-at-eol
