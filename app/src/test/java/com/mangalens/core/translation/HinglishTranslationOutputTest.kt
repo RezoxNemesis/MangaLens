@@ -5,7 +5,7 @@ import org.junit.Test
 
 class HinglishTranslationOutputTest {
     @Test fun hindiFirstOutputNormalizesInventedPolitenessBeforeRomanization() {
-        assertEquals("tum chinta mat karo, Jin!", HinglishTranslationOutput.fromHindi("Don't worry, Jin!", "आप चिंता मत कीजिए, Jin!"))
+        assertEquals("tum chinta mat karo, Jin!", HinglishTranslationOutput.fromHindi("Don't worry, Jin!", "आप चिंता मत कीजिए, Jin!", TranslationStyleProfile.NATURAL))
     }
 
     @Test fun hindiFirstOutputKeepsNamesAndGenreTermsWithoutBorrowingWholeEnglishClauses() {

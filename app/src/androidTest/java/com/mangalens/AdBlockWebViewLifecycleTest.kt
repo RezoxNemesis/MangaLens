@@ -97,12 +97,13 @@ class AdBlockWebViewLifecycleTest {
     }
 
     @Test fun disablingBeforeNavigationRemovesTheEarlyLeaseAndDoesNotReinstallTheGuard() = fixture(false) { f ->
+        val disabledUrl = f.server.url("/fixture?disabled=1").toString()
         f.waitSnapshot { it.optBoolean("guard") && it.optString("adDisplay") == "none" }
         f.enabled.set(false)
         f.onMain {
             f.client.prepareForNavigation(f.web)
             assertFalse(f.client.hasDocumentStartScript)
-            f.web.loadUrl(f.server.url("/fixture?disabled=1").toString())
+            f.web.loadUrl(disabledUrl)
         }
         val result = f.waitSnapshot { it.optBoolean("adScriptExecuted") && !it.optBoolean("guard") }
         assertFalse(result.optBoolean("early"))
@@ -124,6 +125,9 @@ class AdBlockWebViewLifecycleTest {
             }
         }
         server.start()
+        // MockWebServer.url may perform a reverse lookup on Android. Resolve it
+        // on the instrumentation thread, before entering ActivityScenario's UI callback.
+        val fixtureUrl = server.url("/fixture").toString()
         val enabled = AtomicBoolean(true)
         val engine = AdBlockEngine()
         val mediaObservations = ConcurrentLinkedQueue<String>()
@@ -146,7 +150,7 @@ class AdBlockWebViewLifecycleTest {
                 activity.addContentView(web, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 client.prepareForNavigation(web)
                 installed = client.hasDocumentStartScript
-                web.loadUrl(server.url("/fixture").toString())
+                web.loadUrl(fixtureUrl)
             }
             try { verify(Fixture(server, web, client, engine, enabled, installed, adRequests, prerollRequests, mediaObservations)) }
             finally {

@@ -142,6 +142,7 @@ class MainActivity : ComponentActivity() {
                     onOpenSavedChapter = viewModel::openSavedChapter,
                     onReadingPositionChanged = viewModel::saveReadingPosition,
                     onChapterDetails = viewModel::setChapterDetails,
+                    onChapterMetadata = viewModel::updateChapterMetadata,
                     onTranslationPaused = viewModel::pauseTranslation,
                     onTranslationCancelled = viewModel::cancelTranslation,
                     onImportImages = viewModel::importLocalImages,

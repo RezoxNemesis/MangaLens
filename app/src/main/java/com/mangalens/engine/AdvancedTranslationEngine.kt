@@ -276,7 +276,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             grouped.isEmpty() -> retryEmptyTile(bitmap, script, session)
             else -> retryWeakRegions(bitmap, grouped, script, session)
         }
-        val accepted = if (script == "AUTO") best.filter(::isPlausibleRegion) else best
+        val accepted = if (script == "AUTO") retainOcrReadingsForReview(best.map(::readingCandidate)).map(best::get) else best
         return orderOcrReadings(accepted.map(::readingCandidate)).map(accepted::get)
     }
 
@@ -561,7 +561,8 @@ internal fun ocrReadingQuality(reading: OcrReading): Double {
 internal fun chooseOcrReadings(readings: List<OcrReading>, allowWeakForRetry: Boolean = false): List<Int> {
     val accepted = mutableListOf<Int>()
     val ranked = readings.indices.filter {
-        readings[it].bounds.valid && (readings[it].plausible || (allowWeakForRetry && readings[it].retryable))
+        readings[it].bounds.valid && (readings[it].plausible ||
+            (readings[it].retryable && (allowWeakForRetry || OcrSourceQuality.needsPixelRetry(readings[it].source))))
     }
         .sortedByDescending { ocrReadingQuality(readings[it]) }
     for (index in ranked) {
@@ -616,6 +617,13 @@ internal fun chooseOcrRetryTargets(readings: List<OcrReading>): List<Int> = read
         OcrSourceQuality.needsPixelRetry(readings[it].source)) }
     .sortedBy { ocrReadingQuality(readings[it]) }
     .take(6)
+
+internal fun retainOcrReadingsForReview(readings: List<OcrReading>): List<Int> = readings.indices
+    .filter { index ->
+        val reading = readings[index]
+        reading.bounds.valid && (reading.plausible ||
+            (reading.retryable && OcrSourceQuality.needsPixelRetry(reading.source)))
+    }
 
 internal fun isVerticalOcr(reading: OcrReading): Boolean {
     if (reading.source.count(::isCjkCharacter) < 2) return false

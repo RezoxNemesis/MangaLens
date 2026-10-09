@@ -44,7 +44,8 @@ class TranslationQualityPolicyTest {
             source = "Don't worry about it.",
             draft = "इसके बारे में चिंता मत कीजिए।",
             refined = "इसके बारे में चिंता मत कीजिए।",
-            targetLanguage = "hi"
+            targetLanguage = "hi",
+            style = TranslationStyleProfile.NATURAL
         )
         assertEquals("इसके बारे में चिंता मत करो।", chosen)
     }
@@ -55,7 +56,8 @@ class TranslationQualityPolicyTest {
             source = "You... son... of a...",
             draft = "आप... एक कमीने के बेटे...",
             refined = "आप... एक कमीने के बेटे...",
-            targetLanguage = "hi"
+            targetLanguage = "hi",
+            style = TranslationStyleProfile.NATURAL
         )
         assertFalse(chosen.contains("आप"))
     }
@@ -128,4 +130,3 @@ class TranslationQualityPolicyTest {
     }
 
 }
-

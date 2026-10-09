@@ -56,7 +56,7 @@ class HinglishQualityPolicyTest {
     }
 
     @Test fun romanRefinementCannotInventPolitenessButExplicitFormalCuesRemain() {
-        assertEquals("tum chinta mat karo.", TranslationQualityPolicy.choose("Don't worry.", "tum chinta mat karo.", "aap chinta mat kijiye.", "hi-latn"))
+        assertEquals("tum chinta mat karo.", TranslationQualityPolicy.choose("Don't worry.", "tum chinta mat karo.", "aap chinta mat kijiye.", "hi-latn", style = TranslationStyleProfile.NATURAL))
         assertEquals("aap yahan rahiye, sir.", TranslationQualityPolicy.choose("Stay here, sir.", "aap yahan rahiye, sir.", "", "hi-latn"))
     }
 

@@ -42,7 +42,24 @@ internal object EnglishHindiTranslationInputs {
         val primary = normalizeEnglishDialogueForHindi(source)
         val alternative = if (Regex("""(?i)\bwith no\s+""").containsMatchIn(source))
             normalizeEnglishDialogueForHindi(source.replace(Regex("""(?i)\bwith no\s+"""), "that does not have any "))
-        else source.replace(Regex("\\s+"), " ").trim()
+        else inabilityAlternative(primary) ?: source.replace(Regex("\\s+"), " ").trim()
         return listOf(primary, alternative).filter(String::isNotBlank).distinct().take(2)
     }
+
+    // A different model input preserves explicit subject/negative past ability and
+    // every following verb/object/name/amount. Never rewrite positive "couldn't
+    // agree more/help/be happier" idioms or the different perfect "couldn't have".
+    private fun inabilityAlternative(source: String): String? {
+        val alternative = explicitInability.replace(source) { match ->
+            val subject = match.groupValues[1]
+            val auxiliary = if (subject.lowercase(java.util.Locale.ROOT) in setOf("you", "we", "they")) "were" else "was"
+            "$subject $auxiliary not able to ${match.groupValues[2]}"
+        }
+        return alternative.takeIf { it != source }
+    }
+
+    private val explicitInability = Regex(
+        "\\b(I|you|he|she|we|they|it)\\s+could(?:n['’]t|\\s+not)\\s+(?!(?:have|be|help|agree)\\b)([A-Za-z]+)",
+        RegexOption.IGNORE_CASE
+    )
 }

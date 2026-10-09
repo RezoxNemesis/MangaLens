@@ -11,10 +11,12 @@ import com.mangalens.core.adblock.AdBlockStats
 import com.mangalens.core.adblock.AdBlockStatsStore
 import com.mangalens.core.model.ContentType
 import com.mangalens.core.reader.ChapterLibrary
+import com.mangalens.core.reader.LibraryChapterMetadata
 import com.mangalens.core.reader.SavedChapter
 import com.mangalens.core.reader.ChapterPage
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.withLock
 import com.mangalens.core.reader.ProgressiveChapterRepository
@@ -27,13 +29,15 @@ import com.mangalens.download.MediaLinkResolver
 import com.mangalens.core.translation.ChapterTranslationConfig
 import com.mangalens.core.translation.ChapterTranslationCommandScope
 import com.mangalens.core.translation.ChapterTranslationRequest
-import com.mangalens.core.translation.ChapterTranslationDisplay
 import com.mangalens.core.translation.ChapterTranslationJobs
 import com.mangalens.core.translation.ChapterTranslationPageStatus
 import com.mangalens.core.translation.ChapterTranslationStatus
 import com.mangalens.core.translation.ChapterTranslationStore
 import com.mangalens.core.translation.ChapterTranslationTask
 import com.mangalens.core.translation.ChapterTranslationSourceIdentity
+import com.mangalens.core.translation.ReaderTranslationChoice
+import com.mangalens.core.translation.ReaderTranslationReceipt
+import com.mangalens.core.translation.ReaderTranslationPresentation
 import com.mangalens.core.verification.CaptchaBridge
 import com.mangalens.ui.reader.TranslationOverlay
 import com.mangalens.ui.theme.ThemeMode
@@ -103,6 +107,12 @@ private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelectio
     videoExpectedDurationUs = selection?.durationUs
 )
 
+internal fun MangaLensUiState.withLibraryChapter(chapter: SavedChapter): MangaLensUiState = withVideoSelection(null).copy(
+    activeChapter = chapter, pages = chapter.pages, url = chapter.sourceUrl,
+    mode = ContentType.IMAGE_CHAPTER, loading = false,
+    library = library.map { if (it.id == chapter.id) it.copy(lastReadAt = chapter.lastReadAt) else it }
+)
+
 class MangaLensViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val prefs = application.getSharedPreferences("mangalens_preferences", Application.MODE_PRIVATE)
@@ -123,6 +133,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val translationCommands = kotlinx.coroutines.sync.Mutex()
     private val translationSelectionEpoch = MutableStateFlow(0L)
     private var displayedTranslation: ChapterTranslationTask? = null
+    private var translationReceipt: ReaderTranslationReceipt? = null
     private class PendingTranslation(val selection: TranslationSelection) {
         val request = ChapterTranslationRequest()
         val ownerRequestId = "reader-" + java.util.UUID.randomUUID()
@@ -192,13 +203,24 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 val selections = combine(_state.map { translationSelection(it) }.distinctUntilChanged(),
                     translationSelectionEpoch) { _, _ -> translationSelection() }.distinctUntilChanged()
                 combine(store.states, selections) { tasks, selected -> tasks to selected }.collect { (tasks, selected) ->
-                    var task = if (selected.enabled) ChapterTranslationDisplay.select(tasks, selected.chapterId,
-                        selected.language, selected.style, selected.custom, selected.configuration) else null
+                    val choice = runCatching { ReaderTranslationChoice.from(selected.configuration) }.getOrNull()
+                    val paths = selected.sources.toMap()
+                    val managed = java.io.File(app.filesDir, "chapters")
+                    val bound = if (!selected.enabled || choice == null) null else {
+                        translationReceipt?.takeIf {
+                            ReaderTranslationPresentation.matchesReader(it, selected.chapterId, choice, paths, managed)
+                        } ?: ReaderTranslationPresentation.restore(tasks, selected.chapterId, choice, paths, managed)
+                    }
+                    translationReceipt = bound
+                    var task = if (bound != null && choice != null) ReaderTranslationPresentation.select(tasks, bound,
+                        selected.chapterId, choice, paths, managed) else null
                     if (task != null && (task.validationPending || validatedSelection != selected)) {
-                        task = store.refresh(task.id)
+                        val refreshed = store.refresh(task.id, task.generation)
+                        task = if (refreshed != null && bound != null && choice != null)
+                            ReaderTranslationPresentation.select(listOf(refreshed), bound, selected.chapterId, choice, paths, managed) else null
                         validatedSelection = selected
                     }
-                    if (translationSelection() == selected && pendingTranslation?.selection != selected) {
+                    if (translationSelection() == selected && pendingTranslation?.selection != selected && translationReceipt == bound) {
                         displayTranslation(task)
                     }
                 }
@@ -639,7 +661,15 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         // Presentation observes the latest selected task; the pending request's
                         // controls above always use only its own generation receipt.
                         val visible = withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app).get(task.id) }
-                        if (translationSelection() == requestedSelection) displayTranslation(visible)
+                        if (translationSelection() == requestedSelection) {
+                            val choice = ReaderTranslationChoice.from(requestedSelection.configuration)
+                            val paths = requestedSelection.sources.toMap()
+                            val managed = java.io.File(app.filesDir, "chapters")
+                            val bound = ReaderTranslationPresentation.capture(task, requestedSelection.chapterId, choice, paths, managed)
+                            translationReceipt = bound
+                            displayTranslation(if (bound != null && visible != null)
+                                ReaderTranslationPresentation.select(listOf(visible), bound, requestedSelection.chapterId, choice, paths, managed) else null)
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -661,14 +691,36 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setChapterDetails(id: String, bookmarked: Boolean, status: com.mangalens.core.reader.ReadingStatus) {
         viewModelScope.launch {
+            try {
+                persistenceMutex.withLock {
+                    val old = _state.value.library.firstOrNull { it.id == id } ?: return@withLock
+                    val changed = (_state.value.activeChapter?.takeIf { it.id == id } ?: old)
+                        .copy(bookmarked = bookmarked, readingStatus = status)
+                    withContext(Dispatchers.IO) { library.save(changed) }
+                    _state.update { current -> current.copy(
+                        library = current.library.map { if (it.id == id) it.copy(bookmarked = bookmarked, readingStatus = status) else it },
+                        activeChapter = current.activeChapter?.let { if (it.id == id) it.copy(bookmarked = bookmarked, readingStatus = status) else it },
+                        error = null
+                    ) }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { _state.update { it.copy(error = failure.message ?: "Chapter status could not be saved. Please retry.") } }
+        }
+    }
+
+    suspend fun updateChapterMetadata(id: String, metadata: LibraryChapterMetadata) {
+        val captured = metadata.normalized()
+        kotlin.coroutines.coroutineContext.ensureActive()
+        // An accepted small journal mutation finishes even if its editor is recreated.
+        withContext(NonCancellable + Dispatchers.Main.immediate) {
             persistenceMutex.withLock {
-                val old = _state.value.library.firstOrNull { it.id == id } ?: return@withLock
-                val changed = old.copy(bookmarked = bookmarked, readingStatus = status)
-                withContext(Dispatchers.IO) { library.save(changed) }
-                _state.value = _state.value.copy(
-                    library = _state.value.library.map { if (it.id == id) changed else it },
-                    activeChapter = _state.value.activeChapter?.let { if (it.id == id) it.copy(bookmarked = bookmarked, readingStatus = status) else it }
-                )
+                check(_state.value.library.any { it.id == id }) { "This chapter is no longer saved. Reopen the Library." }
+                val saved = withContext(Dispatchers.IO) { library.updateMetadata(id, captured) }
+                _state.update { current -> current.copy(
+                    library = current.library.map { if (it.id == id) it.withMetadata(captured).copy(updatedAt = saved.updatedAt) else it },
+                    activeChapter = current.activeChapter?.let { if (it.id == id) it.withMetadata(captured) else it },
+                    error = null
+                ) }
             }
         }
     }
@@ -697,18 +749,27 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun openSavedChapter(id: String) {
-        val chapter = _state.value.library.firstOrNull { it.id == id } ?: return
+        val chapter = _state.value.library.firstOrNull { it.id == id }?.visitedAt(System.currentTimeMillis()) ?: return
         ingestionJob?.cancel()
         clearTranslations()
-        _state.value = _state.value.withVideoSelection(null).copy(activeChapter = chapter, url = chapter.sourceUrl, mode = ContentType.IMAGE_CHAPTER, loading = false)
+        _state.value = _state.value.withLibraryChapter(chapter)
         repository.restorePages(chapter.pages)
+        queueReadingCheckpoint()
     }
 
     fun saveReadingPosition(id: String, position: Int, offset: Int) {
         val chapter = _state.value.activeChapter ?: return
         if (chapter.id != id) return
-        _state.value = _state.value.copy(activeChapter = chapter.copy(position = position.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0)))
-        viewModelScope.launch { persistCurrentChapter() }
+        _state.value = _state.value.copy(activeChapter = chapter.copy(position = position.coerceAtLeast(0), scrollOffset = offset.coerceAtLeast(0)).visitedAt(System.currentTimeMillis()))
+        queueReadingCheckpoint()
+    }
+
+    private fun queueReadingCheckpoint() {
+        viewModelScope.launch {
+            try { persistCurrentChapter() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { _state.update { it.copy(error = failure.message ?: "Reading history could not be saved. Please retry.") } }
+        }
     }
 
     private suspend fun persistCurrentChapter() = persistenceMutex.withLock {
@@ -767,6 +828,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         // Switching reader/configuration detaches its presentation. Durable work remains
         // owned by WorkManager until the user explicitly pauses or cancels that task.
         displayedTranslation = null
+        translationReceipt = null
         translationSelectionEpoch.value += 1
         _state.update { it.copy(translating = false, translationPaused = false, translationDone = 0,
             translationTotal = 0, translationEnabled = false, translationError = false, translationMessage = null,
@@ -784,7 +846,17 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     val current = store.get(target.id)?.takeUnless { it.validationPending } ?: return@withLock
                     if (current.ownerRequestId != target.ownerRequestId ||
                         (target.ownerRequestId == null && current.generation != target.generation)) return@withLock
-                    command(current)
+                    val selected = translationSelection()
+                    val bound = translationReceipt?.takeIf { it.taskId == target.id && it.owner == target.ownerRequestId &&
+                        it.configuration == target.config } ?: ReaderTranslationPresentation.receipt(target)
+                    if (!ReaderTranslationPresentation.matchesTask(bound, current)) return@withLock
+                    val result = command(current)
+                    if (result != null && presentationOpen && translationSelection() == selected && translationReceipt == bound) {
+                        ReaderTranslationPresentation.continueReceipt(bound, result)?.let {
+                            translationReceipt = it
+                            translationSelectionEpoch.value += 1
+                        }
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {

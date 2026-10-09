@@ -1,0 +1,103 @@
+{
+  "repository": "yausername/youtubedl-android",
+  "ref": "d725d5c9a18c3a99a13ee0308bf78275dc310760",
+  "tag": "0.18.1",
+  "comparisons": [
+    {
+      "abi": "arm64-v8a",
+      "file": "libffmpeg.so",
+      "bytes": 317120,
+      "artifact_git_blob": "a66d7759caa510ea1ed4c32a21413498eb52e074",
+      "pinned_repository_blob": "a66d7759caa510ea1ed4c32a21413498eb52e074",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "arm64-v8a",
+      "file": "libffprobe.so",
+      "bytes": 233664,
+      "artifact_git_blob": "1e2d124cd800ddb7aca8c8eefcbca306266c19da",
+      "pinned_repository_blob": "1e2d124cd800ddb7aca8c8eefcbca306266c19da",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "arm64-v8a",
+      "file": "libffmpeg.zip.so",
+      "bytes": 35624931,
+      "artifact_git_blob": "f74f71a413c438c5062d0d134dcee787cea5c6ef",
+      "pinned_repository_blob": "f74f71a413c438c5062d0d134dcee787cea5c6ef",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "x86_64",
+      "file": "libffmpeg.so",
+      "bytes": 334776,
+      "artifact_git_blob": "1b334c30df452e26b4ffaebc7add03a161a5fa64",
+      "pinned_repository_blob": "1b334c30df452e26b4ffaebc7add03a161a5fa64",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "x86_64",
+      "file": "libffprobe.so",
+      "bytes": 231304,
+      "artifact_git_blob": "1944f2fc55923a5d9aa60f1751b68f1af4e8df60",
+      "pinned_repository_blob": "1944f2fc55923a5d9aa60f1751b68f1af4e8df60",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "x86_64",
+      "file": "libffmpeg.zip.so",
+      "bytes": 38595503,
+      "artifact_git_blob": "d0d5b6c94b4bba04fe057575d87e23cb9dd2564a",
+      "pinned_repository_blob": "d0d5b6c94b4bba04fe057575d87e23cb9dd2564a",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "armeabi-v7a",
+      "file": "libffmpeg.so",
+      "bytes": 235228,
+      "artifact_git_blob": "0295e4e84ebf654316aeebf90d2a9c5947552f2f",
+      "pinned_repository_blob": "0295e4e84ebf654316aeebf90d2a9c5947552f2f",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "armeabi-v7a",
+      "file": "libffprobe.so",
+      "bytes": 166580,
+      "artifact_git_blob": "9040d738789dac08f3d9f8d26f747e21d8c07fe1",
+      "pinned_repository_blob": "9040d738789dac08f3d9f8d26f747e21d8c07fe1",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "armeabi-v7a",
+      "file": "libffmpeg.zip.so",
+      "bytes": 30476956,
+      "artifact_git_blob": "11e2cbf7e00420c000108c3a6c3f90a27ec9cd5d",
+      "pinned_repository_blob": "11e2cbf7e00420c000108c3a6c3f90a27ec9cd5d",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "x86",
+      "file": "libffmpeg.so",
+      "bytes": 320692,
+      "artifact_git_blob": "a150d27e2689dd9f0cf22ae20533dda5570cbe56",
+      "pinned_repository_blob": "a150d27e2689dd9f0cf22ae20533dda5570cbe56",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "x86",
+      "file": "libffprobe.so",
+      "bytes": 209704,
+      "artifact_git_blob": "2cff09eb226850a2c4025d234de54ff857224338",
+      "pinned_repository_blob": "2cff09eb226850a2c4025d234de54ff857224338",
+      "pinned_source_matches": true
+    },
+    {
+      "abi": "x86",
+      "file": "libffmpeg.zip.so",
+      "bytes": 34544829,
+      "artifact_git_blob": "85b234573b787e4c8899f3cf73d43577733ca34a",
+      "pinned_repository_blob": "85b234573b787e4c8899f3cf73d43577733ca34a",
+      "pinned_source_matches": true
+    }
+  ]
+}

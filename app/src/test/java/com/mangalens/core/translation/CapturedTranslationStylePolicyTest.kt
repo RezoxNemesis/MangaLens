@@ -13,7 +13,7 @@ class CapturedTranslationStylePolicyTest {
             assertEquals(respectfulHindi, TranslationQualityPolicy.chooseDraft(source,
                 TranslationDraft("अपनी पुस्तक दो।"), respectfulHindi, "hi", style).text)
         }
-        assertEquals("कृपया अपनी पुस्तक दो।", TranslationQualityPolicy.choose(source, respectfulHindi, "", "hi"))
+        assertEquals("कृपया अपनी पुस्तक दो।", TranslationQualityPolicy.choose(source, respectfulHindi, "", "hi", style = TranslationStyleProfile.NATURAL))
     }
 
     @Test fun capturedStylePreservesIndependentRomanRefinement() {

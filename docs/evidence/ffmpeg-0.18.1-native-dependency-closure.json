@@ -1,0 +1,1895 @@
+[
+  {
+    "abi": "arm64-v8a",
+    "python_required_files": [
+      "usr/lib/libandroid-posix-semaphore.so",
+      "usr/lib/libandroid-support.so",
+      "usr/lib/libc++_shared.so",
+      "usr/lib/libcrypto.so.3",
+      "usr/lib/libexpat.so.1",
+      "usr/lib/libexpat.so.1.11.1"
+    ],
+    "system_libraries": [
+      "libc.so",
+      "libdl.so",
+      "libm.so"
+    ],
+    "dt_needed_edges": {
+      "libffmpeg.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavdevice.so.61": [
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavfilter.so.10": [
+        "libswscale.so.8",
+        "libpostproc.so.58",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libm.so",
+        "librubberband.so",
+        "libharfbuzz.so",
+        "libfribidi.so",
+        "liblcms2.so",
+        "libvmaf.so",
+        "libass.so",
+        "libvidstab.so",
+        "libzmq.so",
+        "libzimg.so",
+        "libOpenCL.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libswscale.so.8": [
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavutil.so.59": [
+        "libm.so",
+        "libOpenCL.so",
+        "libandroid.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libOpenCL.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libandroid.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libpostproc.so.58": [
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavformat.so.61": [
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libm.so",
+        "libxml2.so.16",
+        "libbz2.so.1.0",
+        "libgme.so",
+        "libopenmpt.so",
+        "libbluray.so",
+        "libz.so.1",
+        "libgnutls.so",
+        "libsrt.so",
+        "libssh.so",
+        "libzmq.so",
+        "libiconv.so",
+        "libandroid-glob.so",
+        "libc.so"
+      ],
+      "libavcodec.so.61": [
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libvpx.so.11",
+        "libm.so",
+        "libwebpmux.so",
+        "libwebp.so",
+        "libiconv.so",
+        "liblcms2.so",
+        "liblzma.so.5",
+        "libdav1d.so",
+        "libopencore-amrwb.so",
+        "libaom.so",
+        "libmp3lame.so",
+        "libopencore-amrnb.so",
+        "libopus.so",
+        "librav1e.so",
+        "libSvtAv1Enc.so",
+        "libtheoraenc.so",
+        "libtheoradec.so",
+        "libvo-amrwbenc.so.0",
+        "libvorbis.so",
+        "libvorbisenc.so",
+        "libx264.so.164",
+        "libx265.so",
+        "libxvidcore.so.4",
+        "libandroid.so",
+        "libmediandk.so",
+        "libz.so.1",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libswresample.so.5": [
+        "libavutil.so.59",
+        "libm.so",
+        "libsoxr.so",
+        "libc.so"
+      ],
+      "libsoxr.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libvpx.so.11": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libwebpmux.so": [
+        "libwebp.so",
+        "libc.so"
+      ],
+      "libwebp.so": [
+        "libsharpyuv.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libsharpyuv.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libiconv.so": [
+        "libc.so"
+      ],
+      "liblcms2.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "liblzma.so.5": [
+        "libc.so"
+      ],
+      "libdav1d.so": [
+        "libc.so"
+      ],
+      "libopencore-amrwb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libaom.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libmp3lame.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopencore-amrnb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopus.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "librav1e.so": [
+        "libdl.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libSvtAv1Enc.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libtheoraenc.so": [
+        "libogg.so",
+        "libc.so"
+      ],
+      "libogg.so": [
+        "libc.so"
+      ],
+      "libtheoradec.so": [
+        "libc.so"
+      ],
+      "libvo-amrwbenc.so.0": [
+        "libc.so"
+      ],
+      "libvorbis.so": [
+        "libm.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libvorbisenc.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libx264.so.164": [
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libx265.so": [
+        "libandroid-posix-semaphore.so",
+        "libc.so",
+        "libdl.so",
+        "libc++_shared.so",
+        "libm.so"
+      ],
+      "libandroid-posix-semaphore.so": [
+        "libc.so"
+      ],
+      "libc++_shared.so": [
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libxvidcore.so.4": [
+        "libc.so",
+        "libm.so"
+      ],
+      "libmediandk.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libz.so.1": [
+        "libc.so"
+      ],
+      "libxml2.so.16": [
+        "libz.so.1",
+        "libiconv.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libbz2.so.1.0": [
+        "libc.so"
+      ],
+      "libgme.so": [
+        "libz.so.1",
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libopenmpt.so": [
+        "libz.so.1",
+        "libmpg123.so",
+        "libvorbis.so",
+        "libvorbisfile.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libmpg123.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libvorbisfile.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libbluray.so": [
+        "libxml2.so.16",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libudfread.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfontconfig.so": [
+        "libfreetype.so",
+        "libexpat.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libfreetype.so": [
+        "libz.so.1",
+        "libbz2.so.1.0",
+        "libpng16.so",
+        "libbrotlidec.so",
+        "libc.so"
+      ],
+      "libpng16.so": [
+        "libz.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libbrotlidec.so": [
+        "libbrotlicommon.so",
+        "libc.so"
+      ],
+      "libbrotlicommon.so": [
+        "libc.so"
+      ],
+      "libexpat.so.1": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libudfread.so": [
+        "libc.so"
+      ],
+      "libgnutls.so": [
+        "libc.so",
+        "libz.so.1",
+        "libidn2.so",
+        "libunistring.so",
+        "libdl.so",
+        "libhogweed.so.6",
+        "libnettle.so.8",
+        "libgmp.so"
+      ],
+      "libidn2.so": [
+        "libiconv.so",
+        "libunistring.so",
+        "libandroid-support.so",
+        "libc.so"
+      ],
+      "libunistring.so": [
+        "libc.so",
+        "libiconv.so",
+        "libandroid-support.so"
+      ],
+      "libandroid-support.so": [
+        "libc.so"
+      ],
+      "libhogweed.so.6": [
+        "libnettle.so.8",
+        "libgmp.so",
+        "libc.so"
+      ],
+      "libnettle.so.8": [
+        "libc.so"
+      ],
+      "libgmp.so": [
+        "libc.so"
+      ],
+      "libsrt.so": [
+        "libcrypto.so.3",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libcrypto.so.3": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libssh.so": [
+        "libc.so",
+        "libcrypto.so.3",
+        "libz.so.1"
+      ],
+      "libzmq.so": [
+        "libsodium.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libsodium.so": [
+        "libc.so"
+      ],
+      "libandroid-glob.so": [
+        "libc.so"
+      ],
+      "librubberband.so": [
+        "libfftw3.so",
+        "libsamplerate.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfftw3.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libsamplerate.so": [
+        "libc.so"
+      ],
+      "libharfbuzz.so": [
+        "libm.so",
+        "libfreetype.so",
+        "libglib-2.0.so.0",
+        "libgraphite2.so",
+        "libc.so"
+      ],
+      "libglib-2.0.so.0": [
+        "libandroid-support.so",
+        "libm.so",
+        "libiconv.so",
+        "libpcre2-8.so",
+        "libc.so"
+      ],
+      "libpcre2-8.so": [
+        "libc.so"
+      ],
+      "libgraphite2.so": [
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfribidi.so": [
+        "libc.so"
+      ],
+      "libvmaf.so": [
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libass.so": [
+        "libm.so",
+        "libiconv.so",
+        "libfribidi.so",
+        "libharfbuzz.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libvidstab.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libzimg.so": [
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libffprobe.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ]
+    }
+  },
+  {
+    "abi": "armeabi-v7a",
+    "python_required_files": [
+      "usr/lib/libandroid-posix-semaphore.so",
+      "usr/lib/libandroid-support.so",
+      "usr/lib/libc++_shared.so",
+      "usr/lib/libcrypto.so.3",
+      "usr/lib/libexpat.so.1",
+      "usr/lib/libexpat.so.1.11.1"
+    ],
+    "system_libraries": [
+      "libc.so",
+      "libdl.so",
+      "libm.so"
+    ],
+    "dt_needed_edges": {
+      "libffmpeg.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavdevice.so.61": [
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavfilter.so.10": [
+        "libswscale.so.8",
+        "libpostproc.so.58",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libm.so",
+        "librubberband.so",
+        "libharfbuzz.so",
+        "libfribidi.so",
+        "liblcms2.so",
+        "libvmaf.so",
+        "libass.so",
+        "libvidstab.so",
+        "libzmq.so",
+        "libzimg.so",
+        "libOpenCL.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libswscale.so.8": [
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavutil.so.59": [
+        "libm.so",
+        "libOpenCL.so",
+        "libandroid.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libOpenCL.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libandroid.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libpostproc.so.58": [
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavformat.so.61": [
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libm.so",
+        "libxml2.so.16",
+        "libbz2.so.1.0",
+        "libgme.so",
+        "libopenmpt.so",
+        "libbluray.so",
+        "libz.so.1",
+        "libgnutls.so",
+        "libsrt.so",
+        "libssh.so",
+        "libzmq.so",
+        "libiconv.so",
+        "libandroid-glob.so",
+        "libc.so"
+      ],
+      "libavcodec.so.61": [
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libvpx.so.11",
+        "libm.so",
+        "libwebpmux.so",
+        "libwebp.so",
+        "libiconv.so",
+        "liblcms2.so",
+        "liblzma.so.5",
+        "libdav1d.so",
+        "libopencore-amrwb.so",
+        "libaom.so",
+        "libmp3lame.so",
+        "libopencore-amrnb.so",
+        "libopus.so",
+        "librav1e.so",
+        "libSvtAv1Enc.so",
+        "libtheoraenc.so",
+        "libtheoradec.so",
+        "libvo-amrwbenc.so.0",
+        "libvorbis.so",
+        "libvorbisenc.so",
+        "libx264.so.164",
+        "libx265.so",
+        "libxvidcore.so.4",
+        "libandroid.so",
+        "libmediandk.so",
+        "libz.so.1",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libswresample.so.5": [
+        "libavutil.so.59",
+        "libm.so",
+        "libsoxr.so",
+        "libc.so"
+      ],
+      "libsoxr.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libvpx.so.11": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libwebpmux.so": [
+        "libwebp.so",
+        "libc.so"
+      ],
+      "libwebp.so": [
+        "libsharpyuv.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libsharpyuv.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libiconv.so": [
+        "libc.so"
+      ],
+      "liblcms2.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "liblzma.so.5": [
+        "libc.so"
+      ],
+      "libdav1d.so": [
+        "libc.so"
+      ],
+      "libopencore-amrwb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libaom.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libmp3lame.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopencore-amrnb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopus.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "librav1e.so": [
+        "libdl.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libSvtAv1Enc.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libtheoraenc.so": [
+        "libogg.so",
+        "libc.so"
+      ],
+      "libogg.so": [
+        "libc.so"
+      ],
+      "libtheoradec.so": [
+        "libc.so"
+      ],
+      "libvo-amrwbenc.so.0": [
+        "libc.so"
+      ],
+      "libvorbis.so": [
+        "libm.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libvorbisenc.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libx264.so.164": [
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libx265.so": [
+        "libandroid-posix-semaphore.so",
+        "libc.so",
+        "libdl.so",
+        "libc++_shared.so",
+        "libm.so"
+      ],
+      "libandroid-posix-semaphore.so": [
+        "libc.so"
+      ],
+      "libc++_shared.so": [
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libxvidcore.so.4": [
+        "libc.so",
+        "libm.so"
+      ],
+      "libmediandk.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libz.so.1": [
+        "libc.so"
+      ],
+      "libxml2.so.16": [
+        "libz.so.1",
+        "libiconv.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libbz2.so.1.0": [
+        "libc.so"
+      ],
+      "libgme.so": [
+        "libz.so.1",
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libopenmpt.so": [
+        "libz.so.1",
+        "libmpg123.so",
+        "libvorbis.so",
+        "libvorbisfile.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so"
+      ],
+      "libmpg123.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libvorbisfile.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libbluray.so": [
+        "libxml2.so.16",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libudfread.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfontconfig.so": [
+        "libfreetype.so",
+        "libexpat.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libfreetype.so": [
+        "libz.so.1",
+        "libbz2.so.1.0",
+        "libpng16.so",
+        "libbrotlidec.so",
+        "libc.so"
+      ],
+      "libpng16.so": [
+        "libz.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libbrotlidec.so": [
+        "libbrotlicommon.so",
+        "libc.so"
+      ],
+      "libbrotlicommon.so": [
+        "libc.so"
+      ],
+      "libexpat.so.1": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libudfread.so": [
+        "libc.so"
+      ],
+      "libgnutls.so": [
+        "libc.so",
+        "libz.so.1",
+        "libidn2.so",
+        "libunistring.so",
+        "libdl.so",
+        "libhogweed.so.6",
+        "libnettle.so.8",
+        "libgmp.so"
+      ],
+      "libidn2.so": [
+        "libiconv.so",
+        "libunistring.so",
+        "libandroid-support.so",
+        "libc.so"
+      ],
+      "libunistring.so": [
+        "libc.so",
+        "libiconv.so",
+        "libandroid-support.so"
+      ],
+      "libandroid-support.so": [
+        "libc.so"
+      ],
+      "libhogweed.so.6": [
+        "libnettle.so.8",
+        "libgmp.so",
+        "libc.so"
+      ],
+      "libnettle.so.8": [
+        "libc.so"
+      ],
+      "libgmp.so": [
+        "libc.so"
+      ],
+      "libsrt.so": [
+        "libcrypto.so.3",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so"
+      ],
+      "libcrypto.so.3": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libssh.so": [
+        "libc.so",
+        "libcrypto.so.3",
+        "libz.so.1"
+      ],
+      "libzmq.so": [
+        "libsodium.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libsodium.so": [
+        "libc.so"
+      ],
+      "libandroid-glob.so": [
+        "libc.so"
+      ],
+      "librubberband.so": [
+        "libfftw3.so",
+        "libsamplerate.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libfftw3.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libsamplerate.so": [
+        "libc.so"
+      ],
+      "libharfbuzz.so": [
+        "libm.so",
+        "libfreetype.so",
+        "libglib-2.0.so.0",
+        "libgraphite2.so",
+        "libc.so"
+      ],
+      "libglib-2.0.so.0": [
+        "libandroid-support.so",
+        "libm.so",
+        "libiconv.so",
+        "libpcre2-8.so",
+        "libc.so"
+      ],
+      "libpcre2-8.so": [
+        "libc.so"
+      ],
+      "libgraphite2.so": [
+        "libc++_shared.so",
+        "libc.so"
+      ],
+      "libfribidi.so": [
+        "libc.so"
+      ],
+      "libvmaf.so": [
+        "libm.so",
+        "libc++_shared.so",
+        "libc.so"
+      ],
+      "libass.so": [
+        "libm.so",
+        "libiconv.so",
+        "libfribidi.so",
+        "libharfbuzz.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libvidstab.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libzimg.so": [
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libffprobe.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ]
+    }
+  },
+  {
+    "abi": "x86",
+    "python_required_files": [
+      "usr/lib/libandroid-posix-semaphore.so",
+      "usr/lib/libandroid-support.so",
+      "usr/lib/libc++_shared.so",
+      "usr/lib/libcrypto.so.3",
+      "usr/lib/libexpat.so.1",
+      "usr/lib/libexpat.so.1.11.1"
+    ],
+    "system_libraries": [
+      "libc.so",
+      "libdl.so",
+      "libm.so"
+    ],
+    "dt_needed_edges": {
+      "libffmpeg.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavdevice.so.61": [
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavfilter.so.10": [
+        "libswscale.so.8",
+        "libpostproc.so.58",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libm.so",
+        "librubberband.so",
+        "libharfbuzz.so",
+        "libfribidi.so",
+        "liblcms2.so",
+        "libvmaf.so",
+        "libass.so",
+        "libvidstab.so",
+        "libzmq.so",
+        "libzimg.so",
+        "libOpenCL.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libswscale.so.8": [
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavutil.so.59": [
+        "libm.so",
+        "libOpenCL.so",
+        "libandroid.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libOpenCL.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libandroid.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libpostproc.so.58": [
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavformat.so.61": [
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libm.so",
+        "libxml2.so.16",
+        "libbz2.so.1.0",
+        "libgme.so",
+        "libopenmpt.so",
+        "libbluray.so",
+        "libz.so.1",
+        "libgnutls.so",
+        "libsrt.so",
+        "libssh.so",
+        "libzmq.so",
+        "libiconv.so",
+        "libandroid-glob.so",
+        "libc.so"
+      ],
+      "libavcodec.so.61": [
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libvpx.so.11",
+        "libm.so",
+        "libwebpmux.so",
+        "libwebp.so",
+        "libiconv.so",
+        "liblcms2.so",
+        "liblzma.so.5",
+        "libdav1d.so",
+        "libopencore-amrwb.so",
+        "libaom.so",
+        "libmp3lame.so",
+        "libopencore-amrnb.so",
+        "libopus.so",
+        "librav1e.so",
+        "libSvtAv1Enc.so",
+        "libtheoraenc.so",
+        "libtheoradec.so",
+        "libvo-amrwbenc.so.0",
+        "libvorbis.so",
+        "libvorbisenc.so",
+        "libx264.so.164",
+        "libx265.so",
+        "libxvidcore.so.4",
+        "libandroid.so",
+        "libmediandk.so",
+        "libz.so.1",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libswresample.so.5": [
+        "libavutil.so.59",
+        "libm.so",
+        "libsoxr.so",
+        "libc.so"
+      ],
+      "libsoxr.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libvpx.so.11": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libwebpmux.so": [
+        "libwebp.so",
+        "libc.so"
+      ],
+      "libwebp.so": [
+        "libsharpyuv.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libsharpyuv.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libiconv.so": [
+        "libc.so"
+      ],
+      "liblcms2.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "liblzma.so.5": [
+        "libc.so"
+      ],
+      "libdav1d.so": [
+        "libc.so"
+      ],
+      "libopencore-amrwb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libaom.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libmp3lame.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopencore-amrnb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopus.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "librav1e.so": [
+        "libdl.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libSvtAv1Enc.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libtheoraenc.so": [
+        "libogg.so",
+        "libc.so"
+      ],
+      "libogg.so": [
+        "libc.so"
+      ],
+      "libtheoradec.so": [
+        "libc.so"
+      ],
+      "libvo-amrwbenc.so.0": [
+        "libc.so"
+      ],
+      "libvorbis.so": [
+        "libm.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libvorbisenc.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libx264.so.164": [
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libx265.so": [
+        "libandroid-posix-semaphore.so",
+        "libc.so",
+        "libdl.so",
+        "libc++_shared.so",
+        "libm.so"
+      ],
+      "libandroid-posix-semaphore.so": [
+        "libc.so"
+      ],
+      "libc++_shared.so": [
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libxvidcore.so.4": [
+        "libc.so",
+        "libm.so"
+      ],
+      "libmediandk.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libz.so.1": [
+        "libc.so"
+      ],
+      "libxml2.so.16": [
+        "libz.so.1",
+        "libiconv.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libbz2.so.1.0": [
+        "libc.so"
+      ],
+      "libgme.so": [
+        "libz.so.1",
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libopenmpt.so": [
+        "libz.so.1",
+        "libmpg123.so",
+        "libvorbis.so",
+        "libvorbisfile.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libmpg123.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libvorbisfile.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libbluray.so": [
+        "libxml2.so.16",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libudfread.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfontconfig.so": [
+        "libfreetype.so",
+        "libexpat.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libfreetype.so": [
+        "libz.so.1",
+        "libbz2.so.1.0",
+        "libpng16.so",
+        "libbrotlidec.so",
+        "libc.so"
+      ],
+      "libpng16.so": [
+        "libz.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libbrotlidec.so": [
+        "libbrotlicommon.so",
+        "libc.so"
+      ],
+      "libbrotlicommon.so": [
+        "libc.so"
+      ],
+      "libexpat.so.1": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libudfread.so": [
+        "libc.so"
+      ],
+      "libgnutls.so": [
+        "libc.so",
+        "libz.so.1",
+        "libidn2.so",
+        "libunistring.so",
+        "libdl.so",
+        "libhogweed.so.6",
+        "libnettle.so.8",
+        "libgmp.so"
+      ],
+      "libidn2.so": [
+        "libiconv.so",
+        "libunistring.so",
+        "libandroid-support.so",
+        "libc.so"
+      ],
+      "libunistring.so": [
+        "libc.so",
+        "libiconv.so",
+        "libandroid-support.so"
+      ],
+      "libandroid-support.so": [
+        "libc.so"
+      ],
+      "libhogweed.so.6": [
+        "libnettle.so.8",
+        "libgmp.so",
+        "libc.so"
+      ],
+      "libnettle.so.8": [
+        "libc.so"
+      ],
+      "libgmp.so": [
+        "libc.so"
+      ],
+      "libsrt.so": [
+        "libcrypto.so.3",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libcrypto.so.3": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libssh.so": [
+        "libc.so",
+        "libcrypto.so.3",
+        "libz.so.1"
+      ],
+      "libzmq.so": [
+        "libsodium.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libsodium.so": [
+        "libc.so"
+      ],
+      "libandroid-glob.so": [
+        "libc.so"
+      ],
+      "librubberband.so": [
+        "libfftw3.so",
+        "libsamplerate.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfftw3.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libsamplerate.so": [
+        "libc.so"
+      ],
+      "libharfbuzz.so": [
+        "libm.so",
+        "libfreetype.so",
+        "libglib-2.0.so.0",
+        "libgraphite2.so",
+        "libc.so"
+      ],
+      "libglib-2.0.so.0": [
+        "libandroid-support.so",
+        "libm.so",
+        "libiconv.so",
+        "libpcre2-8.so",
+        "libc.so"
+      ],
+      "libpcre2-8.so": [
+        "libc.so"
+      ],
+      "libgraphite2.so": [
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfribidi.so": [
+        "libc.so"
+      ],
+      "libvmaf.so": [
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libass.so": [
+        "libm.so",
+        "libiconv.so",
+        "libfribidi.so",
+        "libharfbuzz.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libvidstab.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libzimg.so": [
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libffprobe.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ]
+    }
+  },
+  {
+    "abi": "x86_64",
+    "python_required_files": [
+      "usr/lib/libandroid-posix-semaphore.so",
+      "usr/lib/libandroid-support.so",
+      "usr/lib/libc++_shared.so",
+      "usr/lib/libcrypto.so.3",
+      "usr/lib/libexpat.so.1",
+      "usr/lib/libexpat.so.1.11.1"
+    ],
+    "system_libraries": [
+      "libc.so",
+      "libdl.so",
+      "libm.so"
+    ],
+    "dt_needed_edges": {
+      "libffmpeg.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavdevice.so.61": [
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavfilter.so.10": [
+        "libswscale.so.8",
+        "libpostproc.so.58",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libm.so",
+        "librubberband.so",
+        "libharfbuzz.so",
+        "libfribidi.so",
+        "liblcms2.so",
+        "libvmaf.so",
+        "libass.so",
+        "libvidstab.so",
+        "libzmq.so",
+        "libzimg.so",
+        "libOpenCL.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libswscale.so.8": [
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ],
+      "libavutil.so.59": [
+        "libm.so",
+        "libOpenCL.so",
+        "libandroid.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libOpenCL.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libandroid.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libpostproc.so.58": [
+        "libavutil.so.59",
+        "libc.so"
+      ],
+      "libavformat.so.61": [
+        "libavcodec.so.61",
+        "libavutil.so.59",
+        "libm.so",
+        "libxml2.so.16",
+        "libbz2.so.1.0",
+        "libgme.so",
+        "libopenmpt.so",
+        "libbluray.so",
+        "libz.so.1",
+        "libgnutls.so",
+        "libsrt.so",
+        "libssh.so",
+        "libzmq.so",
+        "libiconv.so",
+        "libandroid-glob.so",
+        "libc.so"
+      ],
+      "libavcodec.so.61": [
+        "libswresample.so.5",
+        "libavutil.so.59",
+        "libvpx.so.11",
+        "libm.so",
+        "libwebpmux.so",
+        "libwebp.so",
+        "libiconv.so",
+        "liblcms2.so",
+        "liblzma.so.5",
+        "libdav1d.so",
+        "libopencore-amrwb.so",
+        "libaom.so",
+        "libmp3lame.so",
+        "libopencore-amrnb.so",
+        "libopus.so",
+        "librav1e.so",
+        "libSvtAv1Enc.so",
+        "libtheoraenc.so",
+        "libtheoradec.so",
+        "libvo-amrwbenc.so.0",
+        "libvorbis.so",
+        "libvorbisenc.so",
+        "libx264.so.164",
+        "libx265.so",
+        "libxvidcore.so.4",
+        "libandroid.so",
+        "libmediandk.so",
+        "libz.so.1",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libswresample.so.5": [
+        "libavutil.so.59",
+        "libm.so",
+        "libsoxr.so",
+        "libc.so"
+      ],
+      "libsoxr.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libvpx.so.11": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libwebpmux.so": [
+        "libwebp.so",
+        "libc.so"
+      ],
+      "libwebp.so": [
+        "libsharpyuv.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libsharpyuv.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libiconv.so": [
+        "libc.so"
+      ],
+      "liblcms2.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "liblzma.so.5": [
+        "libc.so"
+      ],
+      "libdav1d.so": [
+        "libc.so"
+      ],
+      "libopencore-amrwb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libaom.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libmp3lame.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopencore-amrnb.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libopus.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "librav1e.so": [
+        "libdl.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libSvtAv1Enc.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libtheoraenc.so": [
+        "libogg.so",
+        "libc.so"
+      ],
+      "libogg.so": [
+        "libc.so"
+      ],
+      "libtheoradec.so": [
+        "libc.so"
+      ],
+      "libvo-amrwbenc.so.0": [
+        "libc.so"
+      ],
+      "libvorbis.so": [
+        "libm.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libvorbisenc.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libx264.so.164": [
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libx265.so": [
+        "libandroid-posix-semaphore.so",
+        "libc.so",
+        "libdl.so",
+        "libc++_shared.so",
+        "libm.so"
+      ],
+      "libandroid-posix-semaphore.so": [
+        "libc.so"
+      ],
+      "libc++_shared.so": [
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libxvidcore.so.4": [
+        "libc.so",
+        "libm.so"
+      ],
+      "libmediandk.so": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libz.so.1": [
+        "libc.so"
+      ],
+      "libxml2.so.16": [
+        "libz.so.1",
+        "libiconv.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libbz2.so.1.0": [
+        "libc.so"
+      ],
+      "libgme.so": [
+        "libz.so.1",
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so"
+      ],
+      "libopenmpt.so": [
+        "libz.so.1",
+        "libmpg123.so",
+        "libvorbis.so",
+        "libvorbisfile.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libmpg123.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libvorbisfile.so": [
+        "libvorbis.so",
+        "libogg.so",
+        "libc.so"
+      ],
+      "libbluray.so": [
+        "libxml2.so.16",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libudfread.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfontconfig.so": [
+        "libfreetype.so",
+        "libexpat.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libfreetype.so": [
+        "libz.so.1",
+        "libbz2.so.1.0",
+        "libpng16.so",
+        "libbrotlidec.so",
+        "libc.so"
+      ],
+      "libpng16.so": [
+        "libz.so.1",
+        "libm.so",
+        "libc.so"
+      ],
+      "libbrotlidec.so": [
+        "libbrotlicommon.so",
+        "libc.so"
+      ],
+      "libbrotlicommon.so": [
+        "libc.so"
+      ],
+      "libexpat.so.1": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libudfread.so": [
+        "libc.so"
+      ],
+      "libgnutls.so": [
+        "libc.so",
+        "libz.so.1",
+        "libidn2.so",
+        "libunistring.so",
+        "libdl.so",
+        "libhogweed.so.6",
+        "libnettle.so.8",
+        "libgmp.so"
+      ],
+      "libidn2.so": [
+        "libiconv.so",
+        "libunistring.so",
+        "libandroid-support.so",
+        "libc.so"
+      ],
+      "libunistring.so": [
+        "libc.so",
+        "libiconv.so",
+        "libandroid-support.so"
+      ],
+      "libandroid-support.so": [
+        "libc.so"
+      ],
+      "libhogweed.so.6": [
+        "libnettle.so.8",
+        "libgmp.so",
+        "libc.so"
+      ],
+      "libnettle.so.8": [
+        "libc.so"
+      ],
+      "libgmp.so": [
+        "libc.so"
+      ],
+      "libsrt.so": [
+        "libcrypto.so.3",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libcrypto.so.3": [
+        "libdl.so",
+        "libc.so"
+      ],
+      "libssh.so": [
+        "libc.so",
+        "libcrypto.so.3",
+        "libz.so.1"
+      ],
+      "libzmq.so": [
+        "libsodium.so",
+        "libc.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so"
+      ],
+      "libsodium.so": [
+        "libc.so"
+      ],
+      "libandroid-glob.so": [
+        "libc.so"
+      ],
+      "librubberband.so": [
+        "libfftw3.so",
+        "libsamplerate.so",
+        "libc++_shared.so",
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfftw3.so": [
+        "libm.so",
+        "libc.so"
+      ],
+      "libsamplerate.so": [
+        "libc.so"
+      ],
+      "libharfbuzz.so": [
+        "libm.so",
+        "libfreetype.so",
+        "libglib-2.0.so.0",
+        "libgraphite2.so",
+        "libc.so"
+      ],
+      "libglib-2.0.so.0": [
+        "libandroid-support.so",
+        "libm.so",
+        "libiconv.so",
+        "libpcre2-8.so",
+        "libc.so"
+      ],
+      "libpcre2-8.so": [
+        "libc.so"
+      ],
+      "libgraphite2.so": [
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libfribidi.so": [
+        "libc.so"
+      ],
+      "libvmaf.so": [
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libass.so": [
+        "libm.so",
+        "libiconv.so",
+        "libfribidi.so",
+        "libharfbuzz.so",
+        "libfontconfig.so",
+        "libfreetype.so",
+        "libc.so"
+      ],
+      "libvidstab.so": [
+        "libm.so",
+        "libdl.so",
+        "libc.so"
+      ],
+      "libzimg.so": [
+        "libc++_shared.so",
+        "libm.so",
+        "libc.so",
+        "libdl.so"
+      ],
+      "libffprobe.so": [
+        "libavdevice.so.61",
+        "libavfilter.so.10",
+        "libavformat.so.61",
+        "libavcodec.so.61",
+        "libpostproc.so.58",
+        "libswresample.so.5",
+        "libswscale.so.8",
+        "libavutil.so.59",
+        "libm.so",
+        "libc.so"
+      ]
+    }
+  }
+]

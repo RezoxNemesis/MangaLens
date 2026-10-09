@@ -94,6 +94,10 @@ object TranslationQualityPolicy {
             if (candidate != exactRendering) return false
             true
         }
+        // Exact validated Hindi remains the grammar evidence for its Roman output.
+        // Roman spelling alone cannot reliably infer Hindi gender/case; an unproven
+        // refiner candidate must pass independently rather than borrow that proof.
+        if (!verifiedHindiRendering && !TranslationFluencyPolicy.isPlausible(source, candidate, targetLanguage)) return false
         if (HindiRomanization.isTarget(targetLanguage) && candidate.none(Char::isLetter)) {
             // Ellipses, punctuation and numbers are valid dialogue; preserve their
             // actual value instead of manufacturing a Hindi word to satisfy a ratio.
@@ -220,9 +224,10 @@ object TranslationQualityPolicy {
      */
     private fun harmonizeRegister(source: String, translation: String, targetLanguage: String, style: TranslationStyleProfile? = null): String {
         if (languageTag(targetLanguage) != "hi") return translation
-        // An explicit formal/custom instruction owns the register. Default natural
-        // dialogue still uses the source-aware normalization below.
-        if (style?.id in setOf("formal", "custom")) return translation
+        // Without an explicit register choice preserve the validated model grammar.
+        // Formal/custom/faithful own their register; only the following explicit
+        // dialogue profiles permit conservative normalization of known address forms.
+        if (style?.id !in setOf("natural", "casual", "webtoon")) return translation
         val sourceLower = source.lowercase(Locale.ROOT)
         val addressesSomeone = Regex("""\b(you|your|you're|you've|you'll|don't|do not|can you|will you)\b""").containsMatchIn(sourceLower)
         if (!addressesSomeone) return translation
@@ -236,52 +241,10 @@ object TranslationQualityPolicy {
             """\b(son of a|bastard|idiot|moron|fool|damn|hell|shut up|pissed|asshole|jerk|trash|scum|beat(?:en)? up)\b"""
         ).containsMatchIn(sourceLower)
 
-        if (HindiRomanization.isTarget(targetLanguage)) {
-            val replacements = if (hostile) mapOf("aapko" to "tujhe", "aapka" to "tera", "aapki" to "teri", "aapke" to "tere", "aap" to "tu",
-                "tumhein" to "tujhe", "tumhe" to "tujhe", "tumhara" to "tera", "tumhari" to "teri", "tumhare" to "tere")
-            else mapOf("aapko" to "tumhein", "aapka" to "tumhara", "aapki" to "tumhari", "aapke" to "tumhare", "aap" to "tum")
-            var roman = translation
-            replacements.forEach { (from, to) -> roman = roman.replace(Regex("\\b$from\\b", RegexOption.IGNORE_CASE), to) }
-            val imperatives = mapOf("kijiye" to "karo", "keejiye" to "karo", "kariye" to "karo", "jaiye" to "jao", "aaiye" to "aao",
-                "bataiye" to "batao", "rahiye" to "raho", "lijiye" to "lo", "leejiye" to "lo", "dijiye" to "do", "deejiye" to "do")
-            imperatives.forEach { (from, to) -> roman = roman.replace(Regex("\\b$from\\b", RegexOption.IGNORE_CASE),
-                if (hostile) mapOf("karo" to "kar", "jao" to "ja", "aao" to "aa", "batao" to "bata", "raho" to "rah", "lo" to "le")[to] ?: to else to) }
-            return roman
-        }
-
-        var out = translation
-        if (hostile) {
-            out = out
-                .replace("आपको", "तुझे")
-                .replace("आपका", "तेरा")
-                .replace("आपकी", "तेरी")
-                .replace("आपके", "तेरे")
-                .replace(Regex("""\bआप\b"""), "तू")
-                .replace("तुम्हें", "तुझे")
-                .replace("तुम्हारा", "तेरा")
-                .replace("तुम्हारी", "तेरी")
-                .replace("तुम्हारे", "तेरे")
-        } else {
-            out = out
-                .replace("आपको", "तुम्हें")
-                .replace("आपका", "तुम्हारा")
-                .replace("आपकी", "तुम्हारी")
-                .replace("आपके", "तुम्हारे")
-                .replace(Regex("""\bआप\b"""), "तुम")
-        }
-
-        // High-confidence polite imperatives that otherwise make casual dialogue sound deferential.
-        out = out
-            .replace("चिंता मत कीजिए", if (hostile) "चिंता मत कर" else "चिंता मत करो")
-            .replace("बताइए", if (hostile) "बता" else "बताओ")
-            .replace("जाइए", if (hostile) "जा" else "जाओ")
-            .replace("आइए", if (hostile) "आ" else "आओ")
-            .replace("रहिए", if (hostile) "रह" else "रहो")
-            .replace("लीजिए", if (hostile) "ले" else "लो")
-            .replace("दीजिए", if (hostile) "दे" else "दो")
-            .replace("कीजिए", if (hostile) "कर" else "करो")
-            .replace("करिए", if (hostile) "कर" else "करो")
-        return out
+        val harmonized = HindiRegisterPolicy.normalize(translation, HindiRomanization.isTarget(targetLanguage), hostile)
+        // Address words may also be explicit names. A register edit never grants
+        // permission to lose a protected source identity or numeric/polarity cue.
+        return harmonized.takeIf { TranslationMeaningPolicy.isCompatible(source, it, targetLanguage) } ?: translation
     }
 
     private fun restoreTerminalPunctuation(source: String, translation: String): String {
@@ -300,4 +263,3 @@ object TranslationQualityPolicy {
 
     private const val MAX_HINDI_DRAFT_CHARS = 8000
 }
-

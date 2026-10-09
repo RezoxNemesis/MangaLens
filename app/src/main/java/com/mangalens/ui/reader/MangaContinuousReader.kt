@@ -143,8 +143,20 @@ fun MangaContinuousReader(
         if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
         else pagerState.settledPage to 0
     }) }
-    fun goToPage(position: Int) {
+    fun observeReader(action: String, expectedRequest: Long? = null, targetPage: Int? = null,
+                      physicalOverride: Pair<Int, Int>? = null, physicalMode: String = readingMode) {
+        if (!ReaderNavigationDiagnostics.enabled) return
+        runCatching {
+            val physical = physicalOverride ?: currentViewport()
+            ReaderNavigationDiagnostics.observe(ReaderNavigationObservation(action, chapterId, positionState,
+                physicalMode, physical.first, physical.second, geometryChecked, controls, hudVisible,
+                expectedRequest, targetPage))
+        }
+    }
+    fun goToPage(position: Int, action: String = "page_command") {
+        observeReader(action, targetPage = position)
         positionState = positionState.navigate(position, pages.size)
+        observeReader("page_command_accepted", targetPage = position)
     }
     val transformState = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 4f)
@@ -159,6 +171,7 @@ fun MangaContinuousReader(
         if (pages.isEmpty() || !geometryChecked) return@LaunchedEffect
         val captured = positionState
         val target = captured.page.coerceIn(0, pages.lastIndex)
+        observeReader("restoration_started", captured.request, target)
         try {
             if (captured.mode == "vertical") {
                 if (captured.animate) listState.animateScrollToItem(target, captured.offset)
@@ -174,6 +187,7 @@ fun MangaContinuousReader(
             val offset = if (captured.mode == "vertical") listState.firstVisibleItemScrollOffset else 0
             positionState = positionState.restored(captured, physical, offset, currentPages.size,
                 geometryChecked = currentGeometryChecked)
+            observeReader("restoration_finished", captured.request, target, physical to offset, captured.mode)
         }
     }
     LaunchedEffect(chapterId, readingMode, positionState.request, positionRestored, geometryChecked) {
@@ -183,7 +197,9 @@ fun MangaContinuousReader(
             if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
             else pagerState.settledPage to 0
         }.collect { (position, offset) ->
+            val previous = positionState
             positionState = positionState.observed(captured.request, captured.mode, position, offset, currentPages.size)
+            if (positionState != previous) observeReader("viewport_observed", captured.request)
         }
     }
     LaunchedEffect(chapterId) {
@@ -217,13 +233,16 @@ fun MangaContinuousReader(
     LaunchedEffect(hudVisible, controls) {
         if (hudVisible) {
             delay(4000)
-            if (!controls) hudVisible = false
+            if (!controls) {
+                hudVisible = false
+                observeReader("hud_expired")
+            }
         }
     }
 
     Box(
         modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).pointerInput(Unit) {
-            detectTapGestures(onTap = { hudVisible = !hudVisible })
+            detectTapGestures(onTap = { hudVisible = !hudVisible; observeReader("surface_hud_tap") })
         }
     ) {
         if (readingMode == "vertical") {
@@ -248,7 +267,7 @@ fun MangaContinuousReader(
                     }
                     val surface = pageSurfaces.getValue(page.index)
                     Box(Modifier.fillMaxWidth().pointerInput(page.sourceUrl) {
-                        detectTapGestures(onTap = { hudVisible = !hudVisible },
+                        detectTapGestures(onTap = { hudVisible = !hudVisible; observeReader("vertical_hud_tap") },
                             onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
                             onLongPress = { onLongPressPage(page) })
                     }) {
@@ -288,10 +307,12 @@ fun MangaContinuousReader(
                         .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
                         .pointerInput(page.sourceUrl, readingMode) {
                             detectTapGestures(onTap = { tap ->
-                                if (scale > 1f || tap.x in size.width * .25f..size.width * .75f) hudVisible = !hudVisible
-                                else {
+                                if (scale > 1f || tap.x in size.width * .25f..size.width * .75f) {
+                                    hudVisible = !hudVisible
+                                    observeReader("pager_hud_tap")
+                                } else {
                                     val next = (tap.x > size.width / 2) != (readingMode == "rtl")
-                                    goToPage(positionState.page + if (next) 1 else -1)
+                                    goToPage(positionState.page + if (next) 1 else -1, "pager_edge_tap")
                                 }
                             }, onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
                                 onLongPress = { onLongPressPage(page) })
@@ -354,7 +375,7 @@ fun MangaContinuousReader(
                         }
                         Row {
                             if (translated) Text(if (originalVisible) "Original" else "Translated", color = MaterialTheme.colorScheme.secondary)
-                            TextButton(onClick = { controls = !controls; hudVisible = true }) { Text("Reader tools") }
+                            TextButton(onClick = { controls = !controls; hudVisible = true; observeReader("tools_toggle") }) { Text("Reader tools") }
                         }
                     }
                     if (translationTotal > 0) {
@@ -398,13 +419,13 @@ fun MangaContinuousReader(
             ) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton({ goToPage(positionState.page - 1) }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
+                        TextButton({ goToPage(positionState.page - 1, "previous_button") }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
                         Text("${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelMedium)
-                        TextButton({ goToPage(positionState.page + 1) }, enabled = pages.isNotEmpty() && activePage < pages.lastIndex) { Text("Next ›") }
+                        TextButton({ goToPage(positionState.page + 1, "next_button") }, enabled = pages.isNotEmpty() && activePage < pages.lastIndex) { Text("Next ›") }
                     }
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(pages, key = { it.index }) { page ->
-                            AsyncImage(rememberMangaThumbnailRequest(page.localPath ?: page.sourceUrl), "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page)) }, contentScale = ContentScale.Crop)
+                            AsyncImage(rememberMangaThumbnailRequest(page.localPath ?: page.sourceUrl), "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page), "thumbnail") }, contentScale = ContentScale.Crop)
                         }
                     }
                     if (controls) {
@@ -412,6 +433,7 @@ fun MangaContinuousReader(
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL").forEach { (mode, label) ->
                                 androidx.compose.material3.FilterChip(selected = readingMode == mode, onClick = {
+                                    observeReader("mode_click_" + mode)
                                     if (mode != positionState.mode) {
                                         val physical = if (!geometryChecked) positionState.page
                                             else if (readingMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
@@ -421,6 +443,7 @@ fun MangaContinuousReader(
                                         autoScroll = false
                                         scale = 1f; panX = 0f; panY = 0f
                                         prefs.edit().putString(modeKey, mode).putString("default_mode", mode).apply()
+                                        observeReader("mode_accepted_" + mode)
                                     }
                                 }, label = { Text(label) })
                             }

@@ -60,15 +60,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
     ): ResolvedMediaLink? {
         session.checkActive()
         val browserCookies = browserCookieFile(url)
-        val heightFilter = if (quality == DownloadQuality.BEST) "" else "[height<=${quality.height}]"
-        val format = if (allowSeparateStreams) {
-            "bestvideo$heightFilter[ext=mp4]+bestaudio[ext=m4a]/" +
-                "bestvideo$heightFilter+bestaudio/" +
-                "best$heightFilter/" +
-                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
-        } else {
-            "best$heightFilter/best"
-        }
+        val format = OriginalMediaFormatPolicy.selector(quality, allowSeparateStreams)
         val request = YoutubeDLRequest(url).apply {
             addOption("--ignore-config")
             addOption("--no-plugin-dirs")
@@ -76,7 +68,9 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             addOption("--no-geo-bypass")
             addOption("--no-playlist")
             addOption("--skip-download")
-            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats})j")
+            // Inventory is never persisted; the parser rejects JSON over 16 MiB.
+            // Only safe selected facts persist with the complete source tuple.
+            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,format_id,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats,formats})j")
             addOption("--no-warnings")
             addOption("--socket-timeout", "8")
             addOption("--retries", "1")
@@ -89,6 +83,9 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
                 addOption("--extractor-args", "youtube:player_client=$youtubeClient")
             }
             addOption("-f", format)
+            addOption("--format-sort", OriginalMediaFormatPolicy.SORT)
+            addOption("--format-sort-force")
+            if (allowSeparateStreams) addOption("--audio-multistreams")
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
         val guard = MediaProcessGuard(session, processId, timeoutMs, YoutubeDL::destroyProcessById)
@@ -98,7 +95,9 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             guard.checkActive()
             val response = YoutubeDL.execute(request, processId = processId, callback = null)
             guard.checkActive()
-            SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)
+            SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)?.let { media ->
+                media.copy(originalSelection = media.originalSelection?.copy(client = youtubeClient ?: "default"))
+            }
         } } finally {
             guard.close()
             browserCookies?.delete()
@@ -151,36 +150,55 @@ internal object SiteMediaInfoParser {
         if (allowSeparateStreams && formats?.length() == 2) {
             val parts = (0 until formats.length()).map { formats.getJSONObject(it) }
             if (parts.any { it.optBoolean("has_drm") }) return null
-            val video = parts.singleOrNull { it.optString("vcodec") != "none" && it.optString("acodec") == "none" } ?: return null
+            val video = parts.singleOrNull { it.optString("vcodec").let { codec -> codec.isNotBlank() && codec != "none" } } ?: return null
             val audio = parts.singleOrNull { it.optString("vcodec") == "none" && it.optString("acodec") != "none" } ?: return null
-            if (video.optString("ext") != "mp4" || audio.optString("ext") !in setOf("m4a", "mp4")) return null
+            val videoMime = OriginalMediaFormatPolicy.videoMime(video.optString("ext")) ?: return null
+            if (parts.any { protectedOrUnsupportedProtocol(it) }) return null
             val videoUrl = video.optString("url").takeIf(::isWebUrl) ?: return null
             val audioUrl = audio.optString("url").takeIf(::isWebUrl) ?: return null
-            return ResolvedMediaLink(videoUrl, "video/mp4", info.optString("extractor_key", "yt-dlp"),
+            return ResolvedMediaLink(videoUrl, videoMime, info.optString("extractor_key", "yt-dlp"),
                 detectedHeight = heightHint(video), title = info.optString("title"),
                 sourcePageUrl = sourcePage, headers = safeHeaders(info) + safeHeaders(video),
                 audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio),
-                expectedDurationUs = durationUs(info))
+                expectedDurationUs = durationUs(info), originalSelection = selection(info, video, audio))
         }
         if (info.optString("vcodec") == "none" || info.optString("acodec") == "none") return null
         // Never substitute one of requested_formats: those commonly contain separate tracks.
         if (info.optJSONArray("requested_formats")?.length()?.let { it > 1 } == true) return null
         val url = info.optString("url").takeIf(::isWebUrl) ?: return null
         val protocol = info.optString("protocol")
-        if (protocol.contains("drm", true) || protocol.contains("rtmp", true)) return null
+        if (protectedOrUnsupportedProtocol(info)) return null
         val mime = when {
             protocol.startsWith("m3u8") -> "application/x-mpegURL"
             protocol.contains("dash") || url.substringBefore('?').endsWith(".mpd", true) -> "application/dash+xml"
-            info.optString("ext") == "webm" -> "video/webm"
-            info.optString("ext") == "mov" -> "video/quicktime"
-            else -> "video/mp4"
+            else -> OriginalMediaFormatPolicy.videoMime(info.optString("ext")) ?: "video/mp4"
         }
         val headers = safeHeaders(info)
         return ResolvedMediaLink(
             url = url, mimeType = mime, provider = info.optString("extractor_key", "yt-dlp"),
             detectedHeight = heightHint(info),
             title = info.optString("title").takeIf { it.isNotBlank() },
-            sourcePageUrl = sourcePage, headers = headers, expectedDurationUs = durationUs(info)
+            sourcePageUrl = sourcePage, headers = headers, expectedDurationUs = durationUs(info),
+            originalSelection = selection(info, info, info)
+        )
+    }
+
+    private fun protectedOrUnsupportedProtocol(info: JSONObject): Boolean =
+        info.optString("protocol").let { it.contains("drm", true) || it.contains("rtmp", true) }
+
+    private fun selection(info: JSONObject, video: JSONObject, audio: JSONObject): OriginalMediaSelection {
+        val formats = info.optJSONArray("formats")
+        val maximum = formats?.let { rows -> (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            if (row.optBoolean("has_drm") || row.optString("vcodec") == "none") null
+            else heightHint(row)
+        }.maxOrNull() }
+        return OriginalMediaSelection(
+            videoFormatId = OriginalMediaFormatPolicy.safeFormatId(video.optString("format_id")),
+            audioFormatId = OriginalMediaFormatPolicy.safeFormatId(audio.optString("format_id")),
+            videoCodec = OriginalMediaFormatPolicy.safeCodec(video.optString("vcodec")),
+            audioCodec = OriginalMediaFormatPolicy.safeCodec(audio.optString("acodec")),
+            maximumReportedHeight = maximum
         )
     }
 

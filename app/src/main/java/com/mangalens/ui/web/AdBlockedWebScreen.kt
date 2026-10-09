@@ -346,20 +346,32 @@ fun AdBlockedWebScreen(
     }
 
     if (showAddress) AlertDialog(
-        onDismissRequest = { showAddress = false },
+        onDismissRequest = { observeBrowser("address_dismissed"); showAddress = false },
         title = { Text("Search or open a website") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(address, { address = it; addressError = null }, singleLine = true,
+            OutlinedTextField(address, {
+                val hadError = addressError != null
+                address = it; addressError = null
+                if (WebNavigationDiagnostics.enabled) observeBrowser("address_changed",
+                    targetUrl = BrowserAddress.resolve(it), detail = "had_error=$hadError;nonblank=${it.isNotBlank()}")
+            }, singleLine = true,
                 label = { Text("URL or search") }, modifier = Modifier.fillMaxWidth())
             addressError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } },
         confirmButton = { TextButton(onClick = {
             val value = address.trim()
             val target = BrowserAddress.resolve(value)
-            if (target == null) addressError = "Use an HTTP(S) URL or a search phrase."
-            else { loadPage(target); showAddress = false; hudVisible = true }
+            observeBrowser("address_open_requested", targetUrl = target,
+                detail = "resolved=${target != null};view_ready=${webView != null}")
+            if (target == null) {
+                addressError = "Use an HTTP(S) URL or a search phrase."
+                observeBrowser("address_open_rejected")
+            } else {
+                loadPage(target); showAddress = false; hudVisible = true
+                observeBrowser("address_open_accepted", targetUrl = target)
+            }
         }, enabled = address.isNotBlank()) { Text("Open") } },
-        dismissButton = { TextButton(onClick = { showAddress = false }) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = { observeBrowser("address_cancelled"); showAddress = false }) { Text("Cancel") } }
     )
 
     LaunchedEffect(pageReady, translated, webView, targetLanguage, navigationEpoch) {

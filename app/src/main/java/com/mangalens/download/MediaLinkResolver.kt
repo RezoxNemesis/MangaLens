@@ -29,7 +29,8 @@ data class ResolvedMediaLink(
     val audioUrl: String? = null,
     val audioHeaders: Map<String, String> = emptyMap(),
     val requestedHeight: Int? = null,
-    val expectedDurationUs: Long? = null
+    val expectedDurationUs: Long? = null,
+    val originalSelection: OriginalMediaSelection? = null
 )
 
 class MediaLinkResolver(

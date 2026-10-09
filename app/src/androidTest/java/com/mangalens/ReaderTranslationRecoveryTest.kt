@@ -19,6 +19,7 @@ import com.mangalens.orez.OrezTranslationEntity
 import com.mangalens.ui.MangaLensViewModel
 import com.mangalens.core.translation.ChapterTranslationJobs
 import com.mangalens.core.translation.ChapterTranslationConfig
+import com.mangalens.core.translation.ChapterTranslationPage
 import com.mangalens.core.translation.ChapterTranslationPageStatus
 import com.mangalens.core.translation.ChapterTranslationStatus
 import com.mangalens.core.translation.ChapterTranslationStore
@@ -112,7 +113,7 @@ class ReaderTranslationRecoveryTest {
             assertEquals(originalHashes, partial.pages.associate { it.sourcePath!! to it.sourceSha256!! })
             val coldPartial = ChapterTranslationStore(File(app.filesDir, "chapter_translations"), directory)
                 .refresh(partial.id, partial.generation)!!
-            assertEquals(partial.pages, coldPartial.pages)
+            assertEquals(canonicalPagePaths(partial.pages), canonicalPagePaths(coldPartial.pages))
             assertEquals(partial.config, coldPartial.config)
             assertEquals(partial.status, coldPartial.status)
             assertEquals(partial.error, coldPartial.error)
@@ -162,7 +163,7 @@ class ReaderTranslationRecoveryTest {
             assertEquals(setOf(1, 2, 3), repaired.translatedBackgrounds.keys)
             val coldRepaired = ChapterTranslationStore(File(app.filesDir, "chapter_translations"), directory)
                 .refresh(task.id, task.generation)!!
-            assertEquals(task.pages, coldRepaired.pages)
+            assertEquals(canonicalPagePaths(task.pages), canonicalPagePaths(coldRepaired.pages))
             assertEquals(task.config, coldRepaired.config)
             assertEquals(ChapterTranslationStatus.COMPLETED, coldRepaired.status)
             val repairedFile = repaired.translatedBackgrounds[2]!!
@@ -194,6 +195,12 @@ class ReaderTranslationRecoveryTest {
             restorePreferences(settings, originalSettings)
         }
     }
+
+    // Android /data/user/0 and /data/data can name the same managed files. The cold
+    // journal canonicalizes paths; every other source/output/lettering/status field stays exact.
+    private fun canonicalPagePaths(pages: List<ChapterTranslationPage>) = pages.map { page -> page.copy(
+        sourcePath = page.sourcePath?.let { File(it).canonicalPath },
+        cleanedPath = page.cleanedPath?.let { File(it).canonicalPath }) }
 
     private fun restorePreferences(preferences: SharedPreferences, original: Map<String, Any?>) {
         assertTrue(preferences.edit().apply {

@@ -177,9 +177,11 @@ fi
 ARGS=(-w -r -e expected_source_sha "$SOURCE_SHA" -e require_model "$REQUIRE_MODEL")
 if [[ "$SUITE" == full ]]; then
   bash scripts/android/stage-speech-reference.sh "$PACKAGE" "$DIAGNOSTICS"
+  bash scripts/android/stage-user-source-ocr.sh "$PACKAGE" "$DIAGNOSTICS"
   ARGS+=(-e whisper_model_path "/data/user/0/$PACKAGE/files/privateqa/speech/ggml-tiny.bin")
   ARGS+=(-e reference_audio_path "/data/user/0/$PACKAGE/files/privateqa/speech/jfk.wav")
   ARGS+=(-e sample_video "/data/user/0/$PACKAGE/files/privateqa/video/jfk-two-pass-720p.mp4")
+  ARGS+=(-e real_manhwa_ocr_fixture "/data/user/0/$PACKAGE/files/privateqa/manhwa/reader002.jpg")
 fi
 if [[ -n "$CLASSES" ]]; then ARGS+=(-e class "$CLASSES"); fi
 set +e

@@ -11,6 +11,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.Direction
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -53,6 +54,9 @@ internal class CoreScreenSmokeSupport(private val name: String) {
 
     fun tap(selector: BySelector): UiObject2 = node(selector).also { it.click() }
 
+    fun tapSettled(selector: BySelector, timeout: Long = 15_000): UiObject2 =
+        clickSettledUi(device, selector, timeout)
+
     fun waitFor(message: String, timeout: Long = 10_000, predicate: () -> Boolean) {
         val deadline = SystemClock.uptimeMillis() + timeout
         while (!predicate() && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(100)
@@ -76,16 +80,130 @@ internal class CoreScreenSmokeSupport(private val name: String) {
         return node(selector, 2_000)
     }
 
-    fun openHomeShortcut(label: String) {
-        repeat(6) {
-            device.findObject(By.text(label))?.takeIf { it.visibleBounds.height() > 0 }?.let { it.click(); return }
-            val row = device.findObjects(By.scrollable(true))
-                .filter { it.visibleBounds.width() > it.visibleBounds.height() }
-                .maxByOrNull { it.visibleBounds.width() }
-                ?: throw AssertionError("Home shortcut row was not scrollable")
-            row.scroll(Direction.RIGHT, .7f)
+    fun openHomeShortcut(label: String, minimumWidthDp: Int) {
+        val deadline = SystemClock.uptimeMillis() + 15_000
+        scrollHomeToStart(deadline)
+        val search = HomeShortcutSearch(deadline)
+        val selector = By.text(label).pkg(context.packageName)
+            .hasAncestor(By.desc("Home section: Quick actions").pkg(context.packageName))
+        val minimumWidthPx = (minimumWidthDp * context.resources.displayMetrics.density).toInt()
+        while (search.canContinue(SystemClock.uptimeMillis())) {
+            try {
+                val row = homeShortcutRow()
+                val target = device.findObject(selector)?.let(::homeClickableAncestor)
+                if (homeShortcutFullyVisible(target?.actionBounds(), row?.actionBounds(), minimumWidthPx)) {
+                    val remaining = deadline - SystemClock.uptimeMillis()
+                    if (remaining <= 0) break
+                    clickSettledUi(device, selector, remaining, ready = {
+                        val current = device.findObject(selector)?.let(::homeClickableAncestor)
+                        homeShortcutFullyVisible(current?.actionBounds(), homeShortcutRow()?.actionBounds(), minimumWidthPx)
+                    }, beforeClick = { bounds ->
+                        check(homeShortcutFullyVisible(bounds, homeShortcutRow()?.actionBounds(), minimumWidthPx)) {
+                            "Home shortcut $label moved outside its row before the tap"
+                        }
+                    })
+                    return
+                }
+                if (row == null) {
+                    homeList()?.let { scrollHomeBeforeDeadline(it, Direction.DOWN, deadline) }
+                } else {
+                    scrollHomeBeforeDeadline(row, Direction.RIGHT, deadline)
+                }
+            } catch (_: StaleObjectException) {
+                // Lazy composition replaced this frame. Reacquire the actual row/target.
+            }
+            SystemClock.sleep(minOf(50L, (deadline - SystemClock.uptimeMillis()).coerceAtLeast(0)))
         }
-        throw AssertionError("Home shortcut $label was not reachable")
+        throw AssertionError("Home shortcut $label was not fully reachable within 15000 ms")
+    }
+
+    fun assertHomeSectionsInOrder(before: String, after: String, message: String) {
+        val deadline = SystemClock.uptimeMillis() + 15_000
+        scrollHomeToStart(deadline)
+        val probe = HomeModuleOrderProbe(before, after)
+        val settled = SettledUiTarget()
+        var previous: List<HomeSectionSample>? = null
+        var observed: HomeOrderObservation = HomeOrderObservation.SEEKING
+        while (SystemClock.uptimeMillis() < deadline) {
+            try {
+                val list = homeList() ?: throw AssertionError("Home module list was not visible")
+                val sections = device.findObjects(By.descStartsWith("Home section: ").pkg(context.packageName))
+                    .map { HomeSectionSample(it.contentDescription, it.actionBounds()) }
+                    .filter { it.bounds.visible }.sortedBy { it.bounds.top }
+                if (sections != previous) {
+                    previous = sections
+                    settled.observe(null, false, SystemClock.uptimeMillis())
+                }
+                if (settled.observe(list.actionBounds(), true, SystemClock.uptimeMillis())) {
+                    observed = probe.observe(homeHeaderVisible(), sections)
+                    if (observed != HomeOrderObservation.SEEKING) break
+                    scrollHomeBeforeDeadline(list, Direction.DOWN, deadline)
+                    previous = null
+                    settled.observe(null, false, SystemClock.uptimeMillis())
+                }
+            } catch (_: StaleObjectException) {
+                previous = null
+                settled.observe(null, false, SystemClock.uptimeMillis())
+            }
+            SystemClock.sleep(minOf(50L, (deadline - SystemClock.uptimeMillis()).coerceAtLeast(0)))
+        }
+        assertTrue(message, observed == HomeOrderObservation.IN_ORDER)
+        // Restore the real header for the next Customize/Reset action and existing screenshots.
+        scrollHomeToStart(deadline)
+    }
+
+    private fun scrollHomeToStart(deadline: Long) {
+        val settled = SettledUiTarget()
+        while (SystemClock.uptimeMillis() < deadline) {
+            try {
+                val header = device.findObject(By.desc("Customize Home").pkg(context.packageName))
+                if (settled.observe(header?.actionBounds(), homeHeaderVisible(), SystemClock.uptimeMillis())) return
+                if (!homeHeaderVisible()) homeList()?.let { scrollHomeBeforeDeadline(it, Direction.UP, deadline) }
+            } catch (_: StaleObjectException) {
+                settled.observe(null, false, SystemClock.uptimeMillis())
+            }
+            SystemClock.sleep(minOf(50L, (deadline - SystemClock.uptimeMillis()).coerceAtLeast(0)))
+        }
+        throw AssertionError("Home header was not restored within the existing action deadline")
+    }
+
+    private fun homeHeaderVisible(): Boolean =
+        device.findObject(By.desc("MangaLens logo").pkg(context.packageName))?.actionBounds()?.visible == true &&
+            device.findObject(By.text("MangaLens").pkg(context.packageName))?.actionBounds()?.visible == true &&
+            device.findObject(By.desc("Customize Home").pkg(context.packageName))?.actionBounds()?.visible == true
+
+    private fun homeList(): UiObject2? = device.findObjects(By.scrollable(true).pkg(context.packageName))
+        .maxByOrNull { it.visibleBounds.width().toLong() * it.visibleBounds.height() }
+
+    private fun homeShortcutRow(): UiObject2? {
+        val section = device.findObject(By.desc("Home section: Quick actions").pkg(context.packageName)) ?: return null
+        val candidates = section.findObjects(By.scrollable(true)) + if (section.isScrollable) listOf(section) else emptyList()
+        return candidates.filter { it.visibleBounds.width() > it.visibleBounds.height() }
+            .maxByOrNull { it.visibleBounds.width() }
+    }
+
+    private fun homeClickableAncestor(label: UiObject2): UiObject2? {
+        var current: UiObject2? = label
+        repeat(8) {
+            val node = current ?: return null
+            if (node.isClickable && node.isEnabled && !node.visibleBounds.isEmpty) return node
+            current = node.parent
+        }
+        return null
+    }
+
+    private fun UiObject2.actionBounds(): UiActionBounds = visibleBounds.let {
+        UiActionBounds(it.left, it.top, it.right, it.bottom)
+    }
+
+    private fun scrollHomeBeforeDeadline(list: UiObject2, direction: Direction, deadline: Long) {
+        // Slow, bounded physical scrolls allow lazy items to settle on small CI displays.
+        // Do not start a gesture that would consume the remaining original action budget.
+        val distance = if (direction == Direction.RIGHT) list.visibleBounds.width() else list.visibleBounds.height()
+        val speed = (600 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        val fraction = .45f
+        val gestureMs = (distance * fraction * 1_000 / speed).toLong()
+        if (deadline - SystemClock.uptimeMillis() > gestureMs + 200) list.scroll(direction, fraction, speed)
     }
 
     fun checkableBeside(label: String): UiObject2 {

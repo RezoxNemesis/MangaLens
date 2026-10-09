@@ -11,6 +11,7 @@ internal object OrezSubtitleRequest {
     private val subtitle = Regex("""\b(?:subtitles?|captions?)\b""", RegexOption.IGNORE_CASE)
     private val thenGenerate = Regex("""\bthen\s+(?:generate|create|make|transcribe|caption)\b""", RegexOption.IGNORE_CASE)
     private val urls = Regex("""(?:https?|content|file|android\.resource)://[^\s<>"']+""", RegexOption.IGNORE_CASE)
+    private val destination = Regex("""\b(?:to|into)\s+([a-z][a-z-]*(?:\s+(?!(?:for|with|using|then|now|please|subtitles?|captions?)\b)[a-z][a-z-]*){0,4})""")
     private val targets = linkedMapOf("hi-latn" to listOf("hinglish", "roman hindi", "hindi latin", "romanized hindi", "romanised hindi", "hi-latn"),
         "en" to listOf("english"), "hi" to listOf("hindi"), "ja" to listOf("japanese"), "ko" to listOf("korean"),
         "zh" to listOf("chinese"), "fr" to listOf("french"), "es" to listOf("spanish"), "de" to listOf("german"),
@@ -29,9 +30,18 @@ internal object OrezSubtitleRequest {
     }
 
     fun target(input: String, fallback: String): String {
-        val lower = input.lowercase(Locale.ROOT)
+        val lower = urls.replace(input, " ").lowercase(Locale.ROOT)
+        // An explicit destination precedes language descriptors of the original cues.
+        // Keep unknown destinations visible rather than falling back to a known source.
+        destination.find(lower)?.groupValues?.get(1)?.trim()?.let { requested ->
+            return targets.entries.firstOrNull { requested in it.value }?.key ?: requested.take(41)
+        }
         for ((tag, names) in targets) if (names.any { name ->
-            Regex("(?:\\b(?:in|into|to)\\s+${Regex.escape(name)}(?:\\b|$)|\\b${Regex.escape(name)}\\s+(?:subtitles?|captions?)\\b)").containsMatchIn(lower)
+            Regex("\\bin\\s+${Regex.escape(name)}(?:\\b|$)").containsMatchIn(lower)
+        }) return tag
+        // Output-mode words may separate a requested language from the cue noun.
+        for ((tag, names) in targets) if (names.any { name ->
+            Regex("\\b${Regex.escape(name)}\\s+(?:(?:dual|bilingual)\\s+)?(?:subtitles?|captions?)\\b").containsMatchIn(lower)
         }) return tag
         // Preserve a plainly requested unsupported target for a visible provider error.
         return Regex("""\b(?:in|into|to)\s+([a-z][a-z -]{0,40})\s*[.!?]*$""").find(lower)?.groupValues?.get(1)?.trim() ?: fallback

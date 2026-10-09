@@ -75,7 +75,11 @@ class WebNavigationSmokeTest {
             capture("unsafe-address-rejected")
             node(By.clazz("android.widget.EditText")).text = server.url("/first").toString()
             probe.record("first_open_requested")
-            tap(By.text("Open"))
+            clickSettledUi(device, By.text("Open").pkg(context.packageName), 15_000,
+                ready = {
+                    device.findObject(By.clazz("android.widget.EditText").pkg(context.packageName))?.text == server.url("/first").toString() &&
+                        device.findObject(By.text("Use an HTTP(S) URL or a search phrase.")) == null
+                }, beforeClick = { bounds -> probe.record("first_open_admitted", "bounds" to bounds.toString()) })
             probe.record("first_open_returned")
             probe.sample("after-first-open")
             node(By.text("■"), 5_000)
@@ -109,7 +113,10 @@ class WebNavigationSmokeTest {
             revealWebControls().click()
             node(By.clazz("android.widget.EditText")).text = server.url("/recover").toString()
             probe.record("recovery_open_requested")
-            tap(By.text("Open"))
+            clickSettledUi(device, By.text("Open").pkg(context.packageName), 15_000,
+                ready = {
+                    device.findObject(By.clazz("android.widget.EditText").pkg(context.packageName))?.text == server.url("/recover").toString()
+                }, beforeClick = { bounds -> probe.record("recovery_open_admitted", "bounds" to bounds.toString()) })
             probe.record("recovery_open_returned")
             probe.sample("after-recovery-open")
             node(By.text("Page could not load. Check your connection and retry."))

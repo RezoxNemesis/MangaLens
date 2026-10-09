@@ -14,7 +14,6 @@ import com.mangalens.core.reader.ChapterLibrary
 import com.mangalens.core.reader.ChapterPage
 import com.mangalens.core.reader.SavedChapter
 import com.mangalens.core.translation.ChapterTranslationJobs
-import com.mangalens.core.translation.ChapterTranslationConfig
 import com.mangalens.core.translation.ChapterTranslationStatus
 import com.mangalens.core.translation.ChapterTranslationPageStatus
 import com.mangalens.core.translation.ChapterTranslationStore
@@ -75,17 +74,35 @@ class OrezNativeChapterWorkflowTest {
             hasActiveChapter = true, activeChapterId = id,
             translationOptions = OrezTranslationOptions(targetLanguage = "en", ocrScript = "LATIN", highAccuracy = false,
                 localRefinement = false))).plan!!
+        // The tests own an actual Room journal; reopening follows its new DAO rather
+        // than consulting a different application database for the same owner string.
+        fun nativeHost(journal: () -> OrezTaskStore) = OrezNativeChapterHost(context, ownerPlan = { requestId ->
+            OrezDownloadTaskLink.candidates(requestId).firstNotNullOfOrNull { planId ->
+                journal().load(planId)?.takeIf { plan -> plan.steps.any { step ->
+                    step.call.name == "translate_saved_chapter" && OrezDurablePlanRules.requestId(plan.id, step.index) == requestId
+                } }
+            }
+        })
         suspend fun queuedPlan(journal: OrezTaskStore): Pair<OrezTaskPlan, com.mangalens.core.translation.ChapterTranslationTask> {
             val proposed = plan(); val options = proposed.authorization!!.translation!!
-            val config = ChapterTranslationConfig(options.targetLanguage, options.styleId, options.customStyle, options.ocrScript,
-                options.highAccuracy, options.preserveStyle, options.localRefinement)
-            val task = ChapterTranslationStore.shared(context).start(chapter, config,
+            val host = nativeHost { journal }
+            val inspected = requireNotNull(host.inspect(id)) { "The actual saved fixture could not be inspected." }
+            val intent = proposed.copy(status = OrezTaskStatus.RUNNING, steps = proposed.steps.map {
+                if (it.index == 0) it.copy(status = OrezStepStatus.COMPLETED,
+                    outputs = inspected.outputs(OrezDurablePlanRules.requestId(proposed.id, 0)), outputKind = OrezOutputKind.SAVED_CHAPTER)
+                else it.copy(status = OrezStepStatus.RUNNING)
+            })
+            // Inspection and exact translation intent are durable before the native
+            // owner exists; an unqualified lookup can now resolve committed scope.
+            check(journal.checkpoint(intent))
+            val task = ChapterTranslationStore.shared(context).start(chapter, options.nativeChapterConfig(),
                 ownerRequestId = OrezDurablePlanRules.requestId(proposed.id, 1))
-            val receipt = OrezNativeChapterHost(context).observe(task.id)!!
-            val saved = proposed.copy(status = OrezTaskStatus.RUNNING, steps = proposed.steps.map {
-                if (it.index == 0) it.copy(status = OrezStepStatus.COMPLETED, outputs = receipt.chapter.outputs(OrezDurablePlanRules.requestId(proposed.id, 0)),
-                    outputKind = OrezOutputKind.SAVED_CHAPTER)
-                else it.copy(status = OrezStepStatus.RUNNING, outputs = receipt.outputs(task.ownerRequestId!!))
+            assertNull("An owner string without a committed plan must not grant receipt access.",
+                OrezNativeChapterHost(context, ownerPlan = { null }).observe(task.id))
+            val receipt = requireNotNull(host.observe(task.id)) { "Committed fixture owner/source/config scope did not produce a receipt." }
+            OrezChapterTools.verify(receipt, inspected, options, task.ownerRequestId!!)
+            val saved = intent.copy(steps = intent.steps.map {
+                if (it.index == 1) it.copy(outputs = receipt.outputs(task.ownerRequestId!!)) else it
             })
             check(journal.checkpoint(saved))
             return saved to task
@@ -115,7 +132,7 @@ class OrezNativeChapterWorkflowTest {
         val fixture = Fixture(); var db = fixture.database()
         try {
             var journal = OrezTaskStore(db.tasks()); val plan = fixture.plan(); journal.checkpoint(plan)
-            val host = OrezNativeChapterHost(fixture.context)
+            val host = fixture.nativeHost { journal }
             fun executor() = OrezTaskExecutor(journal, OrezChapterTools(host, plan.authorization!!) {
                 journal.isExecuting(plan.id, plan.executionEpoch)
             })

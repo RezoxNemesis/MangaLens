@@ -39,21 +39,21 @@ class HomeCustomizationSmokeTest {
             node(By.desc("Home section: Quick actions").pkg(context.packageName))
             node(By.text("Continue reading"))
             capture("default-home")
-            tap(By.desc("Customize Home").pkg(context.packageName))
-            node(By.desc("Show Quick actions on Home")).click()
+            tapSettled(By.desc("Customize Home").pkg(context.packageName))
+            tapSettled(By.desc("Show Quick actions on Home"))
             waitFor("Quick-action checkbox did not become unchecked") { device.findObject(By.desc("Show Quick actions on Home"))?.isChecked == false }
             node(By.text("Save"))
             capture("editor-before-reorder")
             val beforeMove = node(By.desc("Move Recent Manga up")).visibleBounds.centerY()
-            node(By.desc("Move Recent Manga up")).click()
+            tapSettled(By.desc("Move Recent Manga up"))
             waitFor("Recent Manga did not move in the actual editor") {
                 device.findObject(By.desc("Move Recent Manga up"))?.visibleBounds?.let { !it.isEmpty && it.centerY() < beforeMove } == true
             }
-            node(By.desc("Move Recent Manga up")).click()
+            tapSettled(By.desc("Move Recent Manga up"))
             waitFor("Recent Manga did not reach the first editor slot") {
                 device.findObject(By.desc("Move Recent Manga up"))?.let { !it.visibleBounds.isEmpty && !it.isEnabled } == true
             }
-            tap(By.text("Save"))
+            tapSettled(By.text("Save"))
             waitFor("Home layout did not persist the actual hide/reorder controls") {
                 val layout = HomeLayoutPolicy.decode(prefs.getString("layout_v1", null))
                 HomeModule.QUICK_ACTIONS in layout.hidden && layout.order.first() == HomeModule.RECENT_MANGA
@@ -62,19 +62,19 @@ class HomeCustomizationSmokeTest {
                 device.findObject(By.desc("Customize Home").pkg(context.packageName)) != null &&
                     device.findObject(By.desc("Home section: Quick actions").pkg(context.packageName)) == null
             }
-            val recent = node(By.text("Recently saved"))
-            val continueReading = node(By.text("Continue reading"))
-            assertTrue("Reordering changed preferences but not real Home placement", recent.visibleBounds.top < continueReading.visibleBounds.top)
+            assertHomeSectionsInOrder("Home section: Recent Manga", "Home section: Continue Reading",
+                "Reordering changed preferences but not real Home placement")
             capture("hidden-and-reordered-home")
 
             recreateActivity()
             node(By.desc("Customize Home").pkg(context.packageName))
             assertNull(device.findObject(By.desc("Home section: Quick actions").pkg(context.packageName)))
-            assertTrue("Recreation lost real module order", node(By.text("Recently saved")).visibleBounds.top < node(By.text("Continue reading")).visibleBounds.top)
+            assertHomeSectionsInOrder("Home section: Recent Manga", "Home section: Continue Reading",
+                "Recreation lost real module order")
             capture("custom-home-after-recreation")
-            tap(By.desc("Customize Home").pkg(context.packageName))
-            tap(By.text("Reset"))
-            tap(By.text("Save"))
+            tapSettled(By.desc("Customize Home").pkg(context.packageName))
+            tapSettled(By.text("Reset"))
+            tapSettled(By.text("Save"))
             waitFor("Reset did not persist the original Home layout") { HomeLayoutPolicy.decode(prefs.getString("layout_v1", null)) == HomeLayout() }
             node(By.desc("Home section: Quick actions").pkg(context.packageName))
             capture("reset-default-home")
@@ -111,20 +111,20 @@ class HomeCustomizationSmokeTest {
                 listOf(ChapterPage(1, "content://explicit-qa-image", source.absolutePath)), bookmarked = true))
             launchHome()
             node(By.text("Your Home sections are hidden"))
-            tap(By.desc("Customize Home").pkg(context.packageName))
-            node(By.desc("Show Bookmarks on Home")).click()
+            tapSettled(By.desc("Customize Home").pkg(context.packageName))
+            tapSettled(By.desc("Show Bookmarks on Home"))
             waitFor("Bookmark checkbox did not become checked") { device.findObject(By.desc("Show Bookmarks on Home"))?.isChecked == true }
-            tap(By.text("Save"))
+            tapSettled(By.text("Save"))
             node(By.desc("Home section: Bookmarks").pkg(context.packageName))
             node(By.text("Your bookmarks"))
             // The freshly written native library fixture is the newest bookmark.
             node(By.text("Persisted Home bookmark QA"))
             capture("enabled-real-bookmarks")
             val beforeCancel = prefs.getString("layout_v1", null)
-            tap(By.desc("Customize Home").pkg(context.packageName))
-            node(By.desc("Show Bookmarks on Home")).click()
+            tapSettled(By.desc("Customize Home").pkg(context.packageName))
+            tapSettled(By.desc("Show Bookmarks on Home"))
             waitFor("Cancel fixture did not actually change the bookmark checkbox") { device.findObject(By.desc("Show Bookmarks on Home"))?.isChecked == false }
-            tap(By.text("Cancel"))
+            tapSettled(By.text("Cancel"))
             assertEquals("Cancel persisted an unsaved edit", beforeCancel, prefs.getString("layout_v1", null))
             recreateActivity()
             node(By.desc("Home section: Bookmarks").pkg(context.packageName))

@@ -57,7 +57,8 @@ fun MangaLensNavGraph(
     onResolvedVideo: (String, Map<String, String>, String, String?, Map<String, String>) -> Unit,
     onIngestionCancelled: () -> Unit = {},
     onVideoRefreshed: (VideoPlaybackSelection, VideoPlaybackSelection, () -> Boolean) -> Boolean = { _, _, _ -> false },
-    onVideoReady: (VideoReadyObservation) -> Unit = {}
+    onVideoReady: (VideoReadyObservation) -> Unit = {},
+    onChapterMetadata: (suspend (String, com.mangalens.core.reader.LibraryChapterMetadata) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -142,7 +143,7 @@ fun MangaLensNavGraph(
                 )
             }
             composable("library") {
-                LibraryScreen(state = state, onChapterDetails = onChapterDetails, onDeleteChapter = onDeleteSavedChapter, onOpenSavedChapter = { id -> onOpenSavedChapter(id); navController.navigate("reader") }, onOpenReader = { navController.navigate("reader") }, onOpenLocalVideo = { navController.navigate("local_video") })
+                LibraryScreen(state = state, onChapterDetails = onChapterDetails, onChapterMetadata = onChapterMetadata, onDeleteChapter = onDeleteSavedChapter, onOpenSavedChapter = { id -> onOpenSavedChapter(id); navController.navigate("reader") }, onOpenReader = { navController.navigate("reader") }, onOpenLocalVideo = { navController.navigate("local_video") })
             }
             composable("orez") {
                 OrezAiScreen(hasActiveChapter = state.pages.isNotEmpty(),
