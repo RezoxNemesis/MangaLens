@@ -10,11 +10,14 @@ class OrezNativeEngine {
         val available: Boolean = runCatching { System.loadLibrary("mangalens_orez_native"); true }.getOrDefault(false)
         // JNI currently shares one physical model; each feature holds its own lease.
         private val modelLeases = NativeModelLeaseRegistry<OrezNativeEngine>()
+        private val memoryReleases = NativeMemoryReleaseCoordinator<OrezNativeEngine> {
+            android.util.Log.w("MangaLens", "Local model memory release failed", it)
+        }
         val sharedModelPath: String? get() = modelLeases.sharedPath
-        fun trimMemory() {
-            val owners = modelLeases.owners()
-            owners.forEach { it.cancelGenerations() }
-            Thread({ owners.forEach { it.close() } }, "orez-memory-release").start()
+        @JvmOverloads
+        fun trimMemory(scheduleRelease: ((() -> Unit) -> Unit)? = null) {
+            memoryReleases.request(modelLeases.owners(), OrezNativeEngine::cancelGenerations,
+                OrezNativeEngine::close, scheduleRelease)
         }
     }
 

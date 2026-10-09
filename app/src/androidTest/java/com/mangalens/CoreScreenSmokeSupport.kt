@@ -181,7 +181,15 @@ internal class CoreScreenSmokeSupport(private val name: String) {
         // Preserve generated evidence before any Gradle target uninstall.
         val publicEvidence = "/sdcard/Download/mangalens-qa/core-smoke/$name"
         val previousPublic = "/sdcard/Download/mangalens-qa/core-smoke-history/$name/$runId"
-        device.executeShellCommand("if [ -d $publicEvidence ]; then mkdir -p /sdcard/Download/mangalens-qa/core-smoke-history/$name; mv $publicEvidence $previousPublic; fi")
+        // UiAutomation on older Android executes one program, without parsing shell built-ins.
+        // A failed Runtime.exec("if ...") can leave its output pipe open and stall the runner.
+        if (device.executeShellCommand("ls -d $publicEvidence").trim() == publicEvidence) {
+            device.executeShellCommand("mkdir -p /sdcard/Download/mangalens-qa/core-smoke-history/$name")
+            device.executeShellCommand("mv $publicEvidence $previousPublic")
+            check(device.executeShellCommand("ls -d $previousPublic").trim() == previousPublic) {
+                "Could not preserve previous public QA evidence for $name"
+            }
+        }
         device.executeShellCommand("mkdir -p $publicEvidence")
         device.executeShellCommand("cp -R ${evidence.absolutePath}/. /sdcard/Download/mangalens-qa/core-smoke/$name/")
     }
