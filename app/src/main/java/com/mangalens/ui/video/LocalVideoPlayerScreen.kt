@@ -35,7 +35,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.MimeTypes
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.roundToInt
@@ -48,6 +47,7 @@ fun LocalVideoPlayerScreen(
     modifier: Modifier = Modifier,
     vm: LocalVideoPlayerViewModel = viewModel()
 ) {
+    val playbackLifecycle by vm.lifecycle.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
     val speechState by vm.speech.state.collectAsState()
@@ -55,35 +55,30 @@ fun LocalVideoPlayerScreen(
     var controls by rememberSaveable { mutableStateOf(true) }
     var zoom by rememberSaveable { mutableFloatStateOf(1f) }
     var resizeMode by rememberSaveable { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    var fullscreen by rememberSaveable { mutableStateOf(true) }
+    val fallbackWindow = remember { kotlinx.coroutines.flow.MutableStateFlow(PlaybackWindowState()) }
+    val windowState by ((activity as? PlaybackWindowHost)?.playbackWindow?.state ?: fallbackWindow).collectAsState()
+    val fullscreen = windowState.fullscreen
     var showTools by rememberSaveable { mutableStateOf(false) }
-    var subtitle by rememberSaveable { mutableStateOf<Uri?>(null) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var subtitleBusy by rememberSaveable { mutableStateOf(false) }
-    var subtitleStatus by rememberSaveable { mutableStateOf<String?>(null) }
     var subtitleLanguage by rememberSaveable { mutableStateOf("hi") }
     var liveTranslationEnabled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(playbackLifecycle.nativeCaption) { if (playbackLifecycle.nativeCaption != null) liveTranslationEnabled = false }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var activeVideoUri by rememberSaveable { mutableStateOf(initialUri?.toString()) }
     val scope = rememberCoroutineScope()
     val fullSubtitleGenerator = remember(vm.speech, scope) {
-        FullVideoSubtitleGenerator(context.applicationContext, vm.speech, scope)
+        FullVideoSubtitleGenerator(context.applicationContext, vm.speech, scope,
+            attachmentAllowed = vm::canAttachGenerated, attachManually = vm::selectGeneratedCaption)
     }
     val subtitleMediaSource = activeVideoUri?.let {
         SubtitleMediaSource(uri = it, cacheKey = it, label = "Local video")
     }
     LaunchedEffect(subtitleMediaSource) { subtitleMediaSource?.let(fullSubtitleGenerator::bind) }
 
+    val presentationLease = PlayerPresentationLifecycle(vm, playerView)
+
     fun immersive(enabled: Boolean) {
-        fullscreen = enabled
-        activity?.window?.let { window ->
-            WindowCompat.setDecorFitsSystemWindows(window, !enabled)
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                if (enabled) hide(WindowInsetsCompat.Type.systemBars())
-                else show(WindowInsetsCompat.Type.systemBars())
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        }
+        (activity as? PlaybackWindowHost)?.playbackWindow?.setFullscreen(enabled)
     }
 
     fun interact() {
@@ -93,15 +88,10 @@ fun LocalVideoPlayerScreen(
     }
 
     LaunchedEffect(Unit) {
-        immersive(true)
         while (true) {
             kotlinx.coroutines.delay(250)
             if (controls && System.currentTimeMillis() - lastInteraction >= 3_000L) controls = false
         }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { immersive(false) }
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -111,7 +101,6 @@ fun LocalVideoPlayerScreen(
             vm.open(it)
         }
     }
-    val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> subtitle = uri; subtitleStatus = uri?.let { "Subtitle file selected." } }
 
     LaunchedEffect(initialUri) {
         initialUri?.let {
@@ -163,10 +152,12 @@ fun LocalVideoPlayerScreen(
             })
     ) {
         AndroidView(
-            factory = { (android.view.LayoutInflater.from(it).inflate(com.mangalens.R.layout.ocr_player_view, null) as PlayerView).apply { playerView = this; vm.bind(this); useController = true; controllerAutoShow = false } },
+            factory = { (android.view.LayoutInflater.from(it).inflate(com.mangalens.R.layout.ocr_player_view, null) as PlayerView).apply { playerView = this; vm.bind(this, presentationLease); useController = true; controllerAutoShow = false } },
             update = { view ->
                 playerView = view
-                view.useController = !locked
+                view.player = vm.player.takeIf { vm.session.policy.ownsPresentation(presentationLease) }
+                view.useController = !locked && !playbackLifecycle.inPictureInPicture
+                if (playbackLifecycle.inPictureInPicture) view.hideController()
                 view.setResizeMode(resizeMode)
                 view.scaleX = zoom
                 view.scaleY = zoom
@@ -178,13 +169,13 @@ fun LocalVideoPlayerScreen(
             enabled = liveTranslationEnabled,
             targetLanguage = subtitleLanguage,
             playerView = playerView,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (controls) 76.dp else 8.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if (controls && !playbackLifecycle.inPictureInPicture) 76.dp else 8.dp)
         )
 
-        LiveAudioSubtitleOverlay(vm.speech, modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp).padding(bottom = if (controls) 90.dp else 24.dp))
+        LiveAudioSubtitleOverlay(vm.speech, modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp).padding(bottom = if (playbackLifecycle.inPictureInPicture) 8.dp else if (controls) 90.dp else 24.dp))
 
         AnimatedVisibility(
-            visible = controls && !locked,
+            visible = controls && !locked && !playbackLifecycle.inPictureInPicture,
             enter = fadeIn(tween(180)),
             exit = fadeOut(tween(350)),
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -247,7 +238,7 @@ fun LocalVideoPlayerScreen(
             }
         }
 
-        if (speechState.ready && controls) {
+        if (speechState.ready && controls && !playbackLifecycle.inPictureInPicture) {
             VideoStatusChip(
                 if (speechState.generated) "Generated English subtitles • offline"
                 else if (speechState.enabled) speechState.status
@@ -257,13 +248,15 @@ fun LocalVideoPlayerScreen(
             )
         }
 
-        if (locked) {
+        if (locked && !playbackLifecycle.inPictureInPicture) {
             TextButton(onClick = { locked = false; interact() }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock") }
         }
-        if (showTools) {
+        if (showTools && !playbackLifecycle.inPictureInPicture) {
             ModalBottomSheet(onDismissRequest = { showTools = false }) {
                 Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     PlaybackTrackControlsPanel(vm.player)
+                    HorizontalDivider()
+                    PlayerLifecycleControlsPanel(vm)
                     HorizontalDivider()
                     SubtitleToolsPanel(vm.speech, fullSubtitleGenerator, subtitleMediaSource)
                     HorizontalDivider()
@@ -287,38 +280,11 @@ fun LocalVideoPlayerScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { picker.launch(arrayOf("video/*")); showTools = false }) { Text("Open") }
                     }
-                    Button(onClick = {
-                        val current = vm.player.currentMediaItem?.localConfiguration?.uri ?: return@Button
-                        val sub = subtitle
-                        if (sub == null) subtitlePicker.launch(arrayOf("text/*", "application/x-subrip", "text/vtt"))
-                        else {
-                            vm.player.setMediaItem(androidx.media3.common.MediaItem.Builder().setUri(current).setSubtitleConfigurations(
-                                listOf(androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(sub)
-                                    .setMimeType(if (sub.toString().lowercase().endsWith(".srt")) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
-                                    .setLanguage("und").build())
-                            ).build(), vm.player.currentPosition)
-                            vm.player.prepare(); vm.player.playWhenReady = true
-                            subtitleStatus = "Subtitles applied."
-                        }
-                    }, Modifier.fillMaxWidth()) { Text(if (subtitle == null) "Choose SRT / VTT" else "Apply subtitles") }
+                    ImportedCaptionControls(vm)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Translate to " + subtitleLanguage.uppercase())
-                        TextButton(onClick = { subtitleLanguage = when (subtitleLanguage) { "hi" -> "en"; "en" -> "ja"; "ja" -> "ko"; "ko" -> "zh"; else -> "hi" } }) { Text("Change") }
+                        Text("Live OCR to " + subtitleLanguage.uppercase())
+                        TextButton(onClick = { subtitleLanguage = when (subtitleLanguage) { "hi" -> "hi-latn"; "hi-latn" -> "en"; "en" -> "ja"; "ja" -> "ko"; "ko" -> "zh"; else -> "hi" } }) { Text("Change") }
                     }
-                    Button(enabled = subtitle != null && !subtitleBusy, onClick = {
-                        val source = subtitle
-                        if (source != null) {
-                            subtitleBusy = true
-                            subtitleStatus = "Translating subtitles…"
-                            scope.launch {
-                                runCatching { VideoSubtitleTranslator(context).translate(source, subtitleLanguage) }
-                                    .onSuccess { subtitleStatus = "Translated subtitle saved to Downloads." }
-                                    .onFailure { subtitleStatus = it.message ?: "Subtitle translation failed." }
-                                subtitleBusy = false
-                            }
-                        }
-                    }, modifier = Modifier.fillMaxWidth()) { Text(if (subtitleBusy) "Translating…" else "Create translated subtitles") }
-                    subtitleStatus?.let { Text(it, color = if (it.contains("failed", true)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
                     Button(onClick = {
                         val uri = vm.player.currentMediaItem?.localConfiguration?.uri ?: return@Button
                         runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {

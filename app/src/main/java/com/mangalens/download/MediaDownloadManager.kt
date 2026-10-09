@@ -69,7 +69,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         val mime = mimeType ?: resolved.mimeType ?: "application/octet-stream"
         contexts.write(id, resolved.copy(
             sourcePageUrl = sourcePageUrl ?: resolved.sourcePageUrl,
-            headers = resolved.headers + headers
+            headers = resolvedDownloadHeaders(clean, resolved.url, resolved.headers, headers)
         ))
         val pageUrl = sourcePageUrl ?: resolved.sourcePageUrl ?: clean
         dao.upsert(

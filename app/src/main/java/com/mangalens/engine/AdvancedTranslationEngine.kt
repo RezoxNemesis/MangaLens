@@ -298,6 +298,15 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             textSize = region.textSize / minOf(plan.scaleX, plan.scaleY))
     }
 
+    private fun mapContextualRetryReading(region: TranslationRegion, plan: OcrContextualRetryPlan): TranslationRegion? {
+        fun mapBox(box: RectF): RectF? = plan.map(OcrBox(box.left, box.top, box.right, box.bottom))?.let {
+            RectF(it.left, it.top, it.right, it.bottom)
+        }
+        val bounds = mapBox(region.bounds) ?: return null
+        return region.copy(bounds = bounds, lineBounds = region.lineBounds.mapNotNull(::mapBox),
+            textSize = region.textSize / plan.pixels.transform.a)
+    }
+
     private suspend fun retryEmptyTile(
         bitmap: Bitmap, configuredScript: String, session: OcrRecognizerSession<TextRecognizer>
     ): List<TranslationRegion> {
@@ -327,17 +336,23 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             val original = regions[index]
             val candidate = readingCandidate(original)
             val uncertainSource = OcrSourceQuality.needsPixelRetry(original.source)
-            val plan = planOcrRetryWithScale(candidate.bounds, bitmap.width, bitmap.height, original.textSize,
+            val neighbors = regions.indices.filter { it != index }.map { readingCandidate(regions[it]) }
+            val contextual = if (uncertainSource) planContextualOcrRetry(candidate, bitmap.width, bitmap.height,
+                neighbors.map { it.bounds }) else null
+            val plan = if (contextual == null) planOcrRetryWithScale(candidate.bounds, bitmap.width, bitmap.height, original.textSize,
                 maxPixels = 1_000_000, maxDimension = 1280,
-                maxScale = if (uncertainSource) 3f else 2f) ?: continue
-            val crop = Bitmap.createBitmap(bitmap, plan.crop.left.toInt(), plan.crop.top.toInt(), plan.crop.width.toInt(), plan.crop.height.toInt())
+                maxScale = if (uncertainSource) 3f else 2f) else null
+            val cropBounds = contextual?.crop ?: plan?.crop ?: continue
+            val crop = Bitmap.createBitmap(bitmap, cropBounds.left.toInt(), cropBounds.top.toInt(), cropBounds.width.toInt(), cropBounds.height.toInt())
             try {
-                val enhanced = Bitmap.createScaledBitmap(crop, plan.scaledWidth, plan.scaledHeight, true)
+                val enhanced = if (contextual != null) renderContextualOcrRetry(crop, contextual.pixels)
+                    else Bitmap.createScaledBitmap(crop, plan!!.scaledWidth, plan.scaledHeight, true)
                 try {
                     val script = if (configuredScript == "AUTO") candidate.script else configuredScript
                     val reread = session.read(script) { recognizeWith(it, enhanced, script) }
-                    val mapped = reread.map { mapRetryReading(it, plan) }
-                    val selected = chooseOcrRetryReadingGroup(candidate, mapped.map(::readingCandidate))
+                    val mapped = if (contextual != null) reread.mapNotNull { mapContextualRetryReading(it, contextual) }
+                        else reread.map { mapRetryReading(it, plan!!) }
+                    val selected = chooseOcrRetryReadingGroup(candidate, mapped.map(::readingCandidate), neighbors)
                     if (selected.isNotEmpty()) {
                         val parts = selected.map(mapped::get)
                         val combined = composeOcrRetryReading(parts.map(::readingCandidate))

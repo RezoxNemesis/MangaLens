@@ -30,6 +30,12 @@ object OcrSourceQuality {
         """\b(?:I['’]M|IM|I\s+AM|(?:YOU|WE|THEY)\s+ARE|(?:HE|SHE|IT)\s+IS|(?:I|HE|SHE|IT)\s+WAS|(?:YOU|WE|THEY)\s+WERE)\s+[A-Z]{1,2}[01][A-Z]{0,2}\b""",
         RegexOption.IGNORE_CASE
     )
+    private val numericCopulaModifier = Regex(
+        """\b(?:I['’]M|IM|I\s+AM)\s*50\s+([A-Za-z]+(?:['’][A-Za-z]+)?)\b""", RegexOption.IGNORE_CASE
+    )
+    private val numericContinuation = setOf("year", "years", "old", "today", "now", "and", "but", "or", "dollar", "dollars",
+        "minute", "minutes", "second", "seconds", "meter", "meters", "mile", "miles", "percent", "kg", "pounds", "euros")
+    private val identifierPrefix = Regex("""\b(?:code|model|identifier|ID|part|serial|variable|version)\b""", RegexOption.IGNORE_CASE)
     private val intrawordBackslash = Regex("""[A-Za-z]+\\[A-Za-z]+""")
     private val technicalContext = Regex(
         """\b(?:code|command|directory|drive|file|folder|path|regex|SDK|version)\b""",
@@ -66,8 +72,16 @@ object OcrSourceQuality {
         if (clauseEvidence(inspected) == 0) return false
         if (numericCopulaComplement.containsMatchIn(inspected)) return true
         if (numericFunctionWord.containsMatchIn(inspected)) return true
+        if (numericCopulaModifier.findAll(inspected).any { match ->
+                val continuation = match.groupValues[1].lowercase(Locale.ROOT)
+                val prefix = inspected.substring(maxOf(0, match.range.first - 32), match.range.first)
+                continuation !in numericContinuation && !identifierPrefix.containsMatchIn(prefix)
+            }) return true
         return !technicalContext.containsMatchIn(inspected) && intrawordBackslash.containsMatchIn(inspected)
     }
+
+    internal fun isUncertainComparativeWord(text: String, word: String): Boolean =
+        ambiguousComparative.findAll(text).any { match -> words.findAll(match.value).lastOrNull()?.value.equals(word, ignoreCase = true) }
 
     internal fun hasMalformedMixedCase(text: String): Boolean {
         // An internal capital inside a lower-case word in a recognisable clause

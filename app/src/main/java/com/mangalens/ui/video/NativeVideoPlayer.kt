@@ -71,6 +71,8 @@ fun NativeVideoPlayer(
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
     val playerVm: LocalVideoPlayerViewModel = viewModel()
     val player = playerVm.player
+    val playbackLifecycle by playerVm.lifecycle.collectAsState()
+    LaunchedEffect(playbackLifecycle.nativeCaption) { if (playbackLifecycle.nativeCaption != null) liveTranslationEnabled = false }
     val speechState by playerVm.speech.state.collectAsState()
     var playing by remember { mutableStateOf(player.isPlaying) }
     var playbackHeight by remember { mutableIntStateOf(player.videoSize.height) }
@@ -96,8 +98,10 @@ fun NativeVideoPlayer(
     val currentOnOpenWeb by rememberUpdatedState(onOpenWeb)
     val currentOnSourceRefreshed by rememberUpdatedState(onSourceRefreshed)
     val currentOnReadySource by rememberUpdatedState(onReadySource)
+    val presentationLease = PlayerPresentationLifecycle(playerVm, playerView)
     val fullSubtitleGenerator = remember(playerVm.speech, scope) {
-        FullVideoSubtitleGenerator(context.applicationContext, playerVm.speech, scope)
+        FullVideoSubtitleGenerator(context.applicationContext, playerVm.speech, scope,
+            attachmentAllowed = playerVm::canAttachGenerated, attachManually = playerVm::selectGeneratedCaption)
     }
     val subtitleSource = remember(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, sourcePageUrl) {
         SubtitleMediaSource(
@@ -131,7 +135,6 @@ fun NativeVideoPlayer(
 
     fun goBack() {
         cancelRefresh()
-        player.pause()
         currentOnBack()
     }
 
@@ -252,20 +255,6 @@ fun NativeVideoPlayer(
     }
     LaunchedEffect(translationEnabled) { if (!translationEnabled) liveTranslationEnabled = false }
 
-    DisposableEffect(Unit) {
-        val window = (context as? Activity)?.window
-        if (window != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                hide(WindowInsetsCompat.Type.systemBars())
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        }
-        onDispose {
-            if (window != null) WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-
     LaunchedEffect(hudVisible) {
         if (hudVisible) {
             delay(2000)
@@ -298,14 +287,9 @@ fun NativeVideoPlayer(
             }
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) { publishReadySource() }
         }
-        val owner = context as? androidx.lifecycle.LifecycleOwner
-        val lifecycleListener = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) player.pause()
-        }
-        owner?.lifecycle?.addObserver(lifecycleListener)
         player.addListener(listener)
         publishReadySource()
-        onDispose { owner?.lifecycle?.removeObserver(lifecycleListener); player.removeListener(listener); player.pause(); playerView?.player = null }
+        onDispose { player.removeListener(listener) }
     }
 
     Box(
@@ -360,7 +344,7 @@ fun NativeVideoPlayer(
         AndroidView(
             factory = {
                 (android.view.LayoutInflater.from(it).inflate(com.mangalens.R.layout.ocr_player_view, null) as PlayerView).apply {
-                    this.player = player
+                    this.player = player.takeIf { playerVm.session.policy.ownsPresentation(presentationLease) }
                     playerView = this
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -370,7 +354,7 @@ fun NativeVideoPlayer(
                     this.resizeMode = resizeMode
                 }
             },
-            update = { it.resizeMode = resizeMode; playerView = it },
+            update = { it.player = player.takeIf { playerVm.session.policy.ownsPresentation(presentationLease) }; it.resizeMode = resizeMode; playerView = it },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -380,36 +364,40 @@ fun NativeVideoPlayer(
             enabled = liveTranslationEnabled,
             targetLanguage = targetLanguage,
             playerView = playerView,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = if (hudVisible) 76.dp else 20.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = if (hudVisible && !playbackLifecycle.inPictureInPicture) 76.dp else 8.dp)
         )
 
         LiveAudioSubtitleOverlay(
             playerVm.speech,
             modifier = Modifier.align(Alignment.BottomCenter)
                 .padding(horizontal = 24.dp)
-                .padding(bottom = if (hudVisible) 154.dp else 26.dp)
+                .padding(bottom = if (playbackLifecycle.inPictureInPicture) 8.dp else if (hudVisible) 154.dp else 26.dp)
         )
-        if (showPlaybackSettings) {
+        if (showPlaybackSettings && !playbackLifecycle.inPictureInPicture) {
             ModalBottomSheet(onDismissRequest = { showPlaybackSettings = false }) {
                 Column(
                     Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                         .padding(20.dp).padding(bottom = 24.dp)
                 ) {
                     PlaybackTrackControlsPanel(player)
+                    HorizontalDivider()
+                    PlayerLifecycleControlsPanel(playerVm)
                 }
             }
         }
-        if (showSpeechSettings) {
+        if (showSpeechSettings && !playbackLifecycle.inPictureInPicture) {
             androidx.compose.ui.window.Dialog(onDismissRequest = { showSpeechSettings = false }) {
                 Surface(shape = MaterialTheme.shapes.large) {
                     Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState())) {
                         SubtitleToolsPanel(playerVm.speech, fullSubtitleGenerator, subtitleSource)
+                        HorizontalDivider()
+                        ImportedCaptionControls(playerVm)
                         TextButton(onClick = { showSpeechSettings = false }) { Text("Close") }
                     }
                 }
             }
         }
-        if (refreshingStream) {
+        if (refreshingStream && !playbackLifecycle.inPictureInPicture) {
             Surface(
                 Modifier.align(Alignment.Center).padding(24.dp),
                 shape = RoundedCornerShape(18.dp),
@@ -433,7 +421,7 @@ fun NativeVideoPlayer(
                     TextButton(onClick = { openSource() }, enabled = sourceForOpen != null) { Text("Open source page") }
                 }
             }
-        } else if (playbackError != null) {
+        } else if (playbackError != null && !playbackLifecycle.inPictureInPicture) {
             Surface(Modifier.align(Alignment.Center).padding(24.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(playbackError!!)
@@ -443,10 +431,10 @@ fun NativeVideoPlayer(
                 }
             }
         }
-        if (refreshingStream) {
+        if (refreshingStream && !playbackLifecycle.inPictureInPicture) {
             LinearProgressIndicator(Modifier.align(Alignment.TopCenter).fillMaxWidth(.34f).padding(top = 64.dp))
         }
-        if (speechState.ready && hudVisible) {
+        if (speechState.ready && hudVisible && !playbackLifecycle.inPictureInPicture) {
             VideoStatusChip(
                 if (speechState.generated) "Generated English subtitles • offline"
                 else if (speechState.enabled) speechState.status
@@ -455,9 +443,9 @@ fun NativeVideoPlayer(
                 active = speechState.enabled || speechState.generated
             )
         }
-        downloadStatus?.let { Text(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp), color = MaterialTheme.colorScheme.onSurface) }
-        if (controlsLocked) TextButton(onClick = { controlsLocked = false; hudVisible = true }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock controls") }
-        if (hudVisible && !controlsLocked) {
+        if (!playbackLifecycle.inPictureInPicture) downloadStatus?.let { Text(it, modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp), color = MaterialTheme.colorScheme.onSurface) }
+        if (controlsLocked && !playbackLifecycle.inPictureInPicture) TextButton(onClick = { controlsLocked = false; hudVisible = true }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock controls") }
+        if (hudVisible && !controlsLocked && !playbackLifecycle.inPictureInPicture) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextButton(onClick = { goBack() }) { Text("Back") }
@@ -559,7 +547,7 @@ fun NativeVideoPlayer(
                         VideoDockAction(
                             label = "Fullscreen",
                             status = playbackHeight.takeIf { it > 0 }?.let { "${it}p" } ?: "Auto",
-                            onClick = { hudVisible = false }
+                            onClick = { (context as? PlaybackWindowHost)?.playbackWindow?.setFullscreen(true); hudVisible = false }
                         )
                     }
                 }

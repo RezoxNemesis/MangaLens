@@ -1,34 +1,7 @@
-MangaLens original-media tools
+MangaLens original-copy and site-extractor components
 
-Bundled artifact: io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1
-Existing extraction wrapper: io.github.junkfood02.youtubedl-android:library:0.18.1
-Publisher project: https://github.com/yausername/youtubedl-android
-Exact release source: https://github.com/yausername/youtubedl-android/tree/d725d5c9a18c3a99a13ee0308bf78275dc310760
-Both wrappers retain the upstream GNU General Public License version 3.
-The unchanged upstream license is included as youtubedl-android-GPL-3.0.txt.
-The unchanged FFmpeg 7.1.1 COPYING.GPLv3 and LICENSE.md files are also included.
+The app-owned original-stream copy/probe executables are FFmpeg 7.1.1, built from the unchanged official source under LGPL-2.1-or-later. The exact profile disables GPL, nonfree, version3, networking, encoders, decoders and external codecs. It dynamically requires Android libc and libm only. Fixed two-ABI SHA-256 and build-recipe/receipt pins ship in mangalens-ffmpeg-7.1.1-pins.json; the unchanged LGPL 2.1 text ships alongside this notice.
 
-The ffmpeg artifact contains FFmpeg 7.1.1 and free native dependencies built
-for Android with Termux. Its recorded configuration enables GPL and version 3.
-All twelve executable/probe/dependency-archive blobs across the four published
-ABIs match the exact upstream 0.18.1 release tree. The APK runtime verifies
-the executable, archive and extracted dependency pins before activation.
+Corresponding source, exact completed recipe, generated configurations, toolchain identity, build log, binary hashes and ELF receipts are distributed in the app source repository at third_party/ffmpeg/mangalens-ffmpeg-7.1.1-corresponding-source.tar.gz. Archive SHA-256: a324a0cfc51ecac7154d1fa96bc119c5501c7990249dd43886dce54ad4968476. Official FFmpeg source tar SHA-256: 733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1. Source: https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
 
-Release build instructions:
-https://github.com/yausername/youtubedl-android/blob/d725d5c9a18c3a99a13ee0308bf78275dc310760/BUILD_FFMPEG.md
-FFmpeg 7.1.1 source: https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
-Official source archive SHA-256:
-733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
-Termux package recipes: https://github.com/termux/termux-packages
-
-The publisher's release instructions do not identify the corresponding Termux
-recipe commit for these native blobs. Binary-to-release-tree correspondence
-is verified; complete native build reconstruction and a complete corresponding
-source bundle are separate distribution requirements and are not claimed here.
-MangaLens must carry those sources/patches/build instructions and dependency
-license notices when distributing this GPL-enabled native runtime. This notice
-does not change or replace any upstream license or label MangaLens source.
-
-These local tools only probe files and copy the selected original video/audio
-packets into a compatible container. No encoder, remote updater, paid resolver,
-authentication bypass or model-supplied executable is involved in that path.
+The io.github.junkfood02.youtubedl-android library/common 0.18.1 site-extractor wrapper is retained with its upstream GPL-3.0 text. Upstream release: https://github.com/yausername/youtubedl-android/tree/d725d5c9a18c3a99a13ee0308bf78275dc310760 . Its Python/QuickJS and other bundled component obligations are separate from the owned FFmpeg source offer. Their complete native build correspondence remains under verification; this notice does not claim that unrelated bundle is complete.

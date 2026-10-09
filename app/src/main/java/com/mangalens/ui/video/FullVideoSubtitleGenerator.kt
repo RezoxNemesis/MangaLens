@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.withLock
 
 /** UI facade only: WorkManager owns decoding, inference and atomic window checkpoints. */
-class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpeechEngine, private val scope: CoroutineScope) {
+class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpeechEngine, private val scope: CoroutineScope,
+    private val attachmentAllowed: (SubtitleGenerationTask) -> Boolean = { true },
+    private val attachManually: ((SubtitleGenerationTask) -> Boolean)? = null) {
     private val app = context.applicationContext
     private val store = SubtitleGenerationStore.shared(app)
     private val mutable = MutableStateFlow(FullSubtitleState())
@@ -106,16 +108,47 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
             catch (failure: Exception) { publishFailure(operation.token, "Cannot resume subtitles", failure.message) }
         }
     }
-    fun applyToPlayer() = publication.capture { _ ->
-        mutable.value.cues.takeIf { it.isNotEmpty() }?.let { engine.applyGeneratedCues(it, mutable.value.outputMode) }
-        Unit
+    fun applyToPlayer() {
+        val captured = publication.capture { token ->
+            selected?.takeIf { it.id == mutable.value.taskId && it.generation == mutable.value.generation }
+                ?.let { token to it }
+        } ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val task = store.refresh(captured.second.id, captured.second.generation) ?: return@launch
+                if (!qualifies(task, captured.second)) return@launch
+                val fresh = SubtitleInputs.capture(app, task.source.source)
+                if (!canTrustSubtitleSource(task.source, fresh)) {
+                    publishFailure(captured.first, "Cannot apply saved subtitles", "The video source changed. Reopen it before applying saved subtitles.")
+                    return@launch
+                }
+                withContext(Dispatchers.Main.immediate) {
+                    publication.publish(captured.first) {
+                        val latest = store.get(task.id) ?: return@publish
+                        if (!scope.isActive || latest != task || !qualifies(latest, captured.second)) return@publish
+                        val applied = attachManually?.invoke(task) ?: run {
+                            engine.applyGeneratedCues(task.cues, task.config.outputMode); true
+                        }
+                        if (applied) attachment.attached(task.generation)
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { publishFailure(captured.first, "Cannot apply saved subtitles", "Saved subtitles could not be verified. Resume or regenerate them.") }
+        }
     }
+
+    private fun qualifies(task: SubtitleGenerationTask, captured: SubtitleGenerationTask): Boolean =
+        sameSubtitlePlaybackReceipt(task, captured) && !task.validationPending && !task.pcmValidationRequired &&
+            hasSubtitleSourceProof(task.source) && task.cues.isNotEmpty() &&
+            (captured.status != SubtitleGenerationStatus.COMPLETED || task.status == SubtitleGenerationStatus.COMPLETED && task.srtPath != null && task.vttPath != null)
 
     private fun launchCommand(action: suspend () -> Unit) {
         commands.launch(start = CoroutineStart.UNDISPATCHED) {
             commandLane.withLock { withContext(Dispatchers.IO) { action() } }
         }
     }
+    /** Wait for accepted scheduling/control operations; it does not wait for background inference. */
+    internal suspend fun awaitAcceptedCommands() { commandLane.withLock { } }
     private suspend fun applyPendingControl(operation: SubtitleGenerationRequest, task: SubtitleGenerationTask) {
         when (operation.control) {
             "cancel" -> SubtitleGenerationJobs.cancel(app, task.id, task.generation)
@@ -159,6 +192,16 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                 store.states.collect { tasks ->
                     if (publication.current() != token) return@collect
                     val task = tasks.firstOrNull { it.id == captured.id } ?: return@collect
+                    if (!sameSubtitlePlaybackReceipt(task, captured)) {
+                        withContext(Dispatchers.Main.immediate) {
+                            publication.publish(token) {
+                                if (scope.isActive && store.get(captured.id)?.let { !sameSubtitlePlaybackReceipt(it, captured) } == true)
+                                    mutable.value = mutable.value.copy(running = false, stage = "Saved subtitle request was replaced",
+                                        error = "Reopen this video's subtitle tools to observe the new request.")
+                            }
+                        }
+                        return@collect
+                    }
                     val cues = task.cues
                     val running = task.status in setOf(SubtitleGenerationStatus.QUEUED, SubtitleGenerationStatus.RUNNING)
                     val stage = when {
@@ -185,12 +228,16 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                     withContext(Dispatchers.Main.immediate) {
                         publication.publish(token) {
                             if (!scope.isActive) return@publish
+                            val latest = store.get(captured.id) ?: return@publish
+                            if (!sameSubtitlePlaybackReceipt(latest, captured) || latest != task) return@publish
                             selected = task
                             activeRequest?.takeIf { it.token == token }?.receipt = task
                             mutable.value = display
-                            if (attach && task.status == SubtitleGenerationStatus.COMPLETED && !task.validationPending && !task.pcmValidationRequired && attachment.shouldAttach(task.generation)) {
-                                attachment.attached(task.generation)
-                                engine.applyGeneratedCues(cues, task.config.outputMode)
+                            if (attach && attachment.shouldAttach(task.generation)) {
+                                attachAutomaticSubtitleTrack(task, captured, attachmentAllowed) { verified ->
+                                    attachment.attached(verified.generation)
+                                    engine.applyGeneratedCues(verified.cues, verified.config.outputMode)
+                                }
                             }
                         }
                     }

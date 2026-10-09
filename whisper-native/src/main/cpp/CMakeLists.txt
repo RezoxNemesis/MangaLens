@@ -27,6 +27,12 @@ execute_process(COMMAND ${CMAKE_COMMAND} "-DWHISPER_SOURCE_DIR=${whisper_cpp_SOU
 if(NOT WHISPER_AUTO_PATCH_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to prepare the pinned cancellable Whisper automatic detection source")
 endif()
+execute_process(COMMAND ${CMAKE_COMMAND} "-DWHISPER_SOURCE_DIR=${whisper_cpp_SOURCE_DIR}"
+    -P "${CMAKE_CURRENT_LIST_DIR}/patch_f16_loop_unroll.cmake"
+    RESULT_VARIABLE WHISPER_VEC_PATCH_RESULT)
+if(NOT WHISPER_VEC_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Unable to prepare the pinned portable Whisper FP16 vector source")
+endif()
 add_library(mangalens_whisper SHARED whisper_jni.cpp)
 target_include_directories(mangalens_whisper PRIVATE ${whisper_cpp_SOURCE_DIR}/include)
 target_link_libraries(mangalens_whisper PRIVATE whisper log)

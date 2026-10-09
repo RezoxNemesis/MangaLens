@@ -87,8 +87,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
     // Bundled free, on-device yt-dlp site extractors (no external resolver service).
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
-    // Pinned original-stream copy/probe tools; source and GPL notices ship in assets/media.
-    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+    // App-owned fixed copy/probe jniLibs; exact corresponding source is in third_party/ffmpeg.
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

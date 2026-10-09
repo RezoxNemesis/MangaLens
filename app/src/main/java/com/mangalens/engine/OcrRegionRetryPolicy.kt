@@ -3,12 +3,18 @@ package com.mangalens.engine
 import kotlin.math.abs
 
 /** Selects a complete, better reading of one original region, not its easiest word. */
-internal fun chooseOcrRetryReadingGroup(original: OcrReading, retries: List<OcrReading>): List<Int> {
+internal fun chooseOcrRetryReadingGroup(original: OcrReading, retries: List<OcrReading>): List<Int> =
+    chooseOcrRetryReadingGroup(original, retries, emptyList())
+
+internal fun chooseOcrRetryReadingGroup(original: OcrReading, retries: List<OcrReading>, neighbors: List<OcrReading>): List<Int> {
     val eligible = retries.indices.filter { index ->
         val retry = retries[index]
         retry.plausible && retry.bounds.valid && retry.script == original.script &&
             retry.bounds.intersectionArea(original.bounds) > minOf(retry.bounds.area, original.bounds.area) * .55f &&
-            retry.bounds.area <= original.bounds.area * 2.5f
+            retry.bounds.area <= original.bounds.area * 2.5f && neighbors.none { neighbor ->
+                neighbor.bounds.valid && neighbor.bounds.intersectionArea(original.bounds) <= 0f &&
+                    retry.bounds.intersectionArea(neighbor.bounds) > minOf(retry.bounds.area, neighbor.bounds.area) * .20f
+            }
     }
     val groups = eligible.map { listOf(it) }.toMutableList()
     val remaining = eligible.toMutableSet()
@@ -59,6 +65,7 @@ private fun isBetterCompleteRetry(original: OcrReading, retry: OcrReading): Bool
     if (retry.source.count(Char::isLetterOrDigit) < original.source.count(Char::isLetterOrDigit) * .65f) return false
     if (knownNegations.findAll(retry.source).count() < knownNegations.findAll(original.source).count()) return false
     if (OcrSourceQuality.needsPixelRetry(retry.source)) return false
+    if (!retainsStableOcrSource(original.source, retry.source)) return false
     // Merely changing case can disguise the same broken annotation. A replacement
     // for that source must recover additional clause evidence from the crop.
     if (OcrSourceQuality.hasMalformedMixedCase(original.source) &&

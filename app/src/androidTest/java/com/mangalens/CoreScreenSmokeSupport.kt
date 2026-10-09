@@ -197,13 +197,25 @@ internal class CoreScreenSmokeSupport(private val name: String) {
     }
 
     private fun scrollHomeBeforeDeadline(list: UiObject2, direction: Direction, deadline: Long) {
-        // Slow, bounded physical scrolls allow lazy items to settle on small CI displays.
-        // Do not start a gesture that would consume the remaining original action budget.
-        val distance = if (direction == Direction.RIGHT) list.visibleBounds.width() else list.visibleBounds.height()
+        val started = SystemClock.uptimeMillis()
+        val bounds = list.actionBounds()
+        val measured = SystemClock.uptimeMillis()
+        val swipeDirection = when (direction) {
+            Direction.RIGHT -> HomeSwipeDirection.RIGHT
+            Direction.UP -> HomeSwipeDirection.UP
+            Direction.DOWN -> HomeSwipeDirection.DOWN
+            else -> throw IllegalArgumentException("Unsupported Home traversal direction")
+        }
         val speed = (600 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
-        val fraction = .45f
-        val gestureMs = (distance * fraction * 1_000 / speed).toLong()
-        if (deadline - SystemClock.uptimeMillis() > gestureMs + 200) list.scroll(direction, fraction, speed)
+        val swipe = homePhysicalSwipe(bounds, swipeDirection, speed, deadline - measured)
+        val accepted = swipe?.let { device.swipe(it.startX, it.startY, it.endX, it.endY, it.steps) } ?: false
+        val finished = SystemClock.uptimeMillis()
+        // Numeric QA trace distinguishes accessibility-bound query cost from physical injection.
+        File(evidence, "home-gestures.jsonl").appendText(JSONObject()
+            .put("direction", swipeDirection.name).put("queryMs", measured - started)
+            .put("injectionMs", finished - measured).put("remainingMs", (deadline - finished).coerceAtLeast(0))
+            .put("left", bounds.left).put("top", bounds.top).put("right", bounds.right).put("bottom", bounds.bottom)
+            .put("steps", swipe?.steps ?: 0).put("accepted", accepted).toString() + "\n")
     }
 
     fun checkableBeside(label: String): UiObject2 {

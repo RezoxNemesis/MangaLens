@@ -4,6 +4,7 @@ import android.content.Context
 import com.mangalens.download.AndroidNativeExtractorNetworking
 import com.mangalens.download.MediaProcessGuard
 import com.mangalens.download.MediaResolutionRunner
+import com.mangalens.download.NativeOwnedExtractorTools
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONArray
@@ -23,6 +24,7 @@ class OrezVideoSearch(private val context: Context) {
             addOption("--skip-download"); addOption("--socket-timeout", "10"); addOption("--retries", "0")
         }
         val source = "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query.take(500), "UTF-8")
+        NativeOwnedExtractorTools.configure(context, request, session)
         AndroidNativeExtractorNetworking.configure(context, request, source, session::checkActive)
         val id = "orez-video-${UUID.randomUUID()}"
         val guard = MediaProcessGuard(session, id, session.remainingMillis(), YoutubeDL::destroyProcessById)

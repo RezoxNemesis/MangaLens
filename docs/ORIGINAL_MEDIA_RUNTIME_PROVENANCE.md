@@ -55,56 +55,17 @@ presented as actual playback. Completion does not claim the maximum available
 across an entire provider or client inventory. Silent source files never claim
 an audio track was verified.
 
-## Exact packaged dependency
+## Exact packaged owned tools
 
-- Maven artifact: `io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1`.
-- AAR bytes: `139371444`.
-- AAR SHA-256: `0a87ffa6cf912b0fe76c1a99b9107f543ee2f247935fae2c71f0822eb7bc5f49`.
-- Published source JAR SHA-256: `fb95701c2697a501ebaf39c02112c58983dc3b855a4d957d825b7c6942b7afec`.
-- [Exact upstream release](https://github.com/yausername/youtubedl-android/tree/d725d5c9a18c3a99a13ee0308bf78275dc310760): tag `0.18.1`, commit `d725d5c9a18c3a99a13ee0308bf78275dc310760`.
-- All twelve executable, probe and dependency-ZIP Git blob hashes match that
-  release tree across `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64`.
-- Root's Android CLI version/build-configuration probes identified FFmpeg
-  `7.1.1` and Termux NDK `r28c`, API `24`. These CLI probes are distinct from
-  the integrated application's runtime/decoder acceptance.
+FFmpeg 7.1.1 copy/probe executables are built directly from the official source tar with Android NDK `29.0.13113456` / Clang 20, API 24, for arm64-v8a and x86_64. Fixed `libmangalens_ffmpeg.so` and `libmangalens_ffprobe.so` files are extracted by normal APK native-library packaging. The bounded pin asset records exact bytes, SHA-256, recipe and per-ABI receipt hashes. Admission checks both actual ELF64 ET_DYN files, linker64, regular canonical paths, bounded program/dynamic/string tables, hashes and exact system dependencies. RPATH/RUNPATH are rejected. No publisher ZIP or Python library is installed by this copy path. Child environments clear loader and proxy overrides and use the Android system PATH. Late-launch cancellation and original packet auditing are retained.
 
-`assets/media/ffmpeg-0.18.1-pins.json` pins the packaged executables, full FFmpeg
-library archive and its members for each ABI. A separate checksum-pinned
-Python archive contributes only the recursively required ELF dependencies:
-Android POSIX semaphore/support, C++ runtime, crypto and Expat. No Python code
-or scripts are installed or executed by this copy path. The dependency closure
-was derived from actual ELF `DT_NEEDED` records for every ABI.
+The minimal profile disables autodetection, networking, GPL, nonfree, version3, encoders, decoders and third-party codec libraries. Actual configure and CLI license output identify LGPL-2.1-or-later. Both ELF files require only Android libc and libm; every PT_LOAD alignment is 16 KiB. The app removes only the separate publisher FFmpeg AAR. Its library/common site extractors and Python/QuickJS remain. A verified raw `--ffmpeg-location` argument follows the wrapper's normal legacy option, choosing the owned executable and its sibling probe.
 
-Extraction uses a private version directory and atomically replaces a small
-activation pointer. Existing mapped/executed files retain their inode and are
-never overwritten. The runtime uses the APK's executable directly and fixed
-local-file arguments with protocol/format allowlists. It does not call the
-wrapper's mutable installer or any self-updater.
+## Corresponding source and licenses
 
-## Source and licenses
+[The exact corresponding-source offer](../third_party/ffmpeg/README.md) includes the unchanged official source tar, completed two-ABI recipe, generated configuration and logs, compiler/NDK identity, LGPL text, ELF reports and binary receipts. Archive SHA-256: `a324a0cfc51ecac7154d1fa96bc119c5501c7990249dd43886dce54ad4968476`. Source tar SHA-256: `733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1`. APK assets retain exact pins and LGPL license text.
 
-The wrappers retain their upstream GPL-3.0 license; the exact unchanged release
-license and source links ship in `assets/media`. FFmpeg was configured with
-`--enable-gpl --enable-version3`. The upstream release's
-[build instructions](https://github.com/yausername/youtubedl-android/blob/d725d5c9a18c3a99a13ee0308bf78275dc310760/BUILD_FFMPEG.md)
-use Termux but do not identify a corresponding Termux recipe commit. The
-earlier Junkfood fork master did **not** match the release's native blobs and
-is not used as release authority.
-
-The official FFmpeg 7.1.1 source archive is pinned by SHA-256
-`733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1`
-(11019500 bytes); its unchanged `COPYING.GPLv3` and `LICENSE.md` ship in assets.
-The upstream native update commit
-`f2280ae7d8bc8d59590c8727a89f047983867c10` identifies the FFmpeg 7.1.1 bump.
-Root also identified a Termux 7.1.1 revision-6 recipe compatible with the recorded
-configuration. That is compatible recipe evidence, not proof that the publisher
-used the same Termux commit; no exact-build correspondence is invented.
-
-Complete native reconstruction and a complete corresponding-source/dependency
-notice bundle remain distribution work until the actual release recipes,
-patches, library sources and license notices are collected. A source link or
-binary-tree match alone is not described as completing that bundle. Existing
-project licensing and third-party notices are preserved.
+The site-extractor wrapper retains its GPL-3.0 license and pinned upstream release identity. Python/common/QuickJS and other bundled component build correspondence and distribution obligations remain separate verification work. The owned source offer does not establish correspondence for those unrelated components. Historical publisher FFmpeg evidence remains in Git and the QA workspace; its unused runtime pins and separate dependency are retired from the app.
 
 ## Verification boundaries
 

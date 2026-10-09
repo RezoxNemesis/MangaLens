@@ -91,6 +91,8 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         val guard = MediaProcessGuard(session, processId, timeoutMs, YoutubeDL::destroyProcessById)
         return try { guard.run {
             guard.checkActive()
+            NativeOwnedExtractorTools.configure(app, request, session)
+            guard.checkActive()
             AndroidNativeExtractorNetworking.configure(app, request, url, session::checkActive)
             guard.checkActive()
             val response = YoutubeDL.execute(request, processId = processId, callback = null)

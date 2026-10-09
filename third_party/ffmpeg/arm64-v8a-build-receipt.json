@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "abi": "arm64-v8a",
+  "androidApi": 24,
+  "sourceSha256": "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1",
+  "buildRecipeSha256": "65372a01a494e388d3704170d59ab7e07055a7b32f67fc75a174453f56a9ad56",
+  "ndkProperties": "Pkg.Desc = Android NDK\nPkg.Revision = 29.0.13113456-beta1\nPkg.BaseRevision = 29.0.13113456\nPkg.ReleaseName = r29-beta1\n",
+  "compilerVersion": "Android (13065274, +pgo, +bolt, +lto, +mlgo, based on r547379) clang version 20.0.0 (https://android.googlesource.com/toolchain/llvm-project b718bcaf8c198c82f3021447d943401e3ab5bd54)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /workspace/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin\n",
+  "buildLogSha256": "531457c612828ced36654fb25898e3ea0529d418f8f450ca500566208be8f217",
+  "configureExit": 0,
+  "makeExit": 0,
+  "license": "LGPL-2.1-or-later",
+  "binaries": {
+    "libmangalens_ffmpeg.so": {
+      "bytes": 3233952,
+      "sha256": "f35369b3f60da68b0059b1cd52b940d397929d90a2bff95f1d6e914b0884ba61",
+      "systemNeeded": [
+        "libm.so",
+        "libc.so"
+      ]
+    },
+    "libmangalens_ffprobe.so": {
+      "bytes": 3187312,
+      "sha256": "b284709ed09dbe659b9fa21d0678bb293d656414bf2154c8ecc41cc15f6f6385",
+      "systemNeeded": [
+        "libm.so",
+        "libc.so"
+      ]
+    }
+  },
+  "elf16KiBLoadAlignment": true,
+  "runtimeAcceptance": "NOT_RUN"
+}
