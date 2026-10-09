@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "project": "yt-dlp/yt-dlp",
+  "version": "2026.08.19",
+  "channel": "stable",
+  "release_url": "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.08.19",
+  "source_commit": "594bd50c2c78ac432f81600d309fdc4e0a92d82c",
+  "download_url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp",
+  "artifact_format": "unchanged official Unix zipimport executable",
+  "size_bytes": 3072469,
+  "sha256": "1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6",
+  "checksum_source": "official GitHub release asset digest, independently matched against the downloaded file",
+  "wrapper_dependency": "io.github.junkfood02.youtubedl-android:library:0.18.1",
+  "wrapper_maven_metadata": "https://repo.maven.apache.org/maven2/io/github/junkfood02/youtubedl-android/library/maven-metadata.xml",
+  "wrapper_latest_checked": "0.18.1",
+  "wrapper_existing_archive_version": "2025.11.12",
+  "wrapper_existing_archive_sha256": "89a0d9058ea9018e380b7771898ff46e393a1986dcd13fef331693c87ce1fca4",
+  "runtime_compatibility": {
+    "minimum_python": "3.10",
+    "wrapper_python": "3.12",
+    "wrapper_js_runtime": "QuickJS via libqjs.so",
+    "wrapper_quickjs_version": "2025-04-26",
+    "minimum_quickjs_version": "2025-04-26",
+    "bundled_ejs_version": "0.8.0"
+  },
+  "licenses": [
+    {
+      "component": "yt-dlp",
+      "license": "Unlicense",
+      "source": "https://github.com/yt-dlp/yt-dlp/blob/2026.08.19/LICENSE",
+      "github_blob_sha": "68a49daad8ff7e35068f2b7a97d643aab440eaec",
+      "apk_asset": "third_party/yt-dlp-LICENSE.txt"
+    },
+    {
+      "component": "yt-dlp-ejs 0.8.0",
+      "license": "Unlicense",
+      "source": "https://github.com/yt-dlp/ejs/blob/0.8.0/LICENSE",
+      "github_blob_sha": "efb98088164f5786b17e83ed384971fc3c74f93c",
+      "apk_asset": "third_party/yt-dlp-ejs-LICENSE.txt"
+    },
+    {
+      "component": "Meriyah",
+      "license": "ISC",
+      "source": "https://github.com/yt-dlp/yt-dlp/blob/2026.08.19/THIRD_PARTY_LICENSES.txt",
+      "github_blob_sha": "88f9872c66b456703e91ca32db4041e1ec47258d",
+      "apk_asset": "third_party/yt-dlp-zipimport-THIRD_PARTY_LICENSES.txt"
+    },
+    {
+      "component": "Astring",
+      "license": "MIT",
+      "source": "https://github.com/yt-dlp/yt-dlp/blob/2026.08.19/THIRD_PARTY_LICENSES.txt",
+      "github_blob_sha": "88f9872c66b456703e91ca32db4041e1ec47258d",
+      "apk_asset": "third_party/yt-dlp-zipimport-THIRD_PARTY_LICENSES.txt"
+    }
+  ],
+  "activation_policy": "Verify the exact signed-APK resource locally, then atomically replace the standard private library archive before native initialization. Existing matching archives are reused. No network self-update or downloaded plugin/remote component execution."
+}
