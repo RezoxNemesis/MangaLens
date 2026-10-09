@@ -40,6 +40,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NativeVideoPlayer(
     url: String,
@@ -62,6 +63,7 @@ fun NativeVideoPlayer(
     var downloadStatus by remember { mutableStateOf<String?>(null) }
     var liveTranslationEnabled by remember { mutableStateOf(false) }
     var showSpeechSettings by remember { mutableStateOf(false) }
+    var showPlaybackSettings by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val targetLanguage = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE).getString("translation_target", "hi") ?: "hi"
     val playerVm: LocalVideoPlayerViewModel = viewModel()
@@ -131,6 +133,7 @@ fun NativeVideoPlayer(
         }
         if (refreshingStream) return
         val request = refreshRequests.begin()
+        val refreshFromRevision = playerVm.sourceRevision
         refreshingStream = true
         playbackError = null
         val playbackQuality = if (refreshAttempts <= 1)
@@ -175,7 +178,17 @@ fun NativeVideoPlayer(
                         activeAudioHeaders = resolvedAudioHeaders
                         playbackError = null
                     },
-                    restartUnchanged = { player.prepare(); player.play() }
+                    restartUnchanged = { player.prepare(); player.play() },
+                    beforeApply = {
+                        playerVm.openHttp(
+                            resolved.url,
+                            referer = sourcePageUrl,
+                            headers = resolvedHeaders,
+                            audioUrl = resolved.audioUrl,
+                            audioHeaders = resolvedAudioHeaders,
+                            refreshFromRevision = refreshFromRevision
+                        )
+                    }
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -347,6 +360,16 @@ fun NativeVideoPlayer(
                 .padding(horizontal = 24.dp)
                 .padding(bottom = if (hudVisible) 154.dp else 26.dp)
         )
+        if (showPlaybackSettings) {
+            ModalBottomSheet(onDismissRequest = { showPlaybackSettings = false }) {
+                Column(
+                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                        .padding(20.dp).padding(bottom = 24.dp)
+                ) {
+                    PlaybackTrackControlsPanel(player)
+                }
+            }
+        }
         if (showSpeechSettings) {
             androidx.compose.ui.window.Dialog(onDismissRequest = { showSpeechSettings = false }) {
                 Surface(shape = MaterialTheme.shapes.large) {
@@ -423,6 +446,11 @@ fun NativeVideoPlayer(
                     }
                     CinematicVideoDock(Modifier.fillMaxWidth()) {
                         VideoDockAction(
+                            label = "Playback",
+                            status = "Quality • tracks • speed",
+                            onClick = { showPlaybackSettings = true }
+                        )
+                        VideoDockAction(
                             label = "English Audio CC",
                             status = when {
                                 speechState.generated -> "Generated track active"
@@ -466,7 +494,7 @@ fun NativeVideoPlayer(
                             }
                         )
                         VideoDockAction(
-                            label = "Quality",
+                            label = "Download quality",
                             status = downloadQuality.label,
                             onClick = {
                                 downloadQuality = when (downloadQuality) {

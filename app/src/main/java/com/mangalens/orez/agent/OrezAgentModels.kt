@@ -4,6 +4,10 @@ import com.mangalens.orez.OrezRoute
 import java.util.UUID
 import java.util.Locale
 import java.security.MessageDigest
+import com.mangalens.core.translation.TranslationStyleProfile
+import com.mangalens.ui.video.SubtitleOutputMode
+import com.mangalens.ui.video.SubtitlePipeline
+import com.mangalens.ui.video.SubtitleRefinementPin
 
 enum class OrezTrustOrigin {
     USER,
@@ -66,35 +70,57 @@ data class OrezAgentContext(
 )
 
 /** Trusted UI selection, captured once. Tools receive only its opaque identity. */
+data class OrezAudioSelection(val uri: String, val resolutionId: String, val headers: Map<String, String> = emptyMap())
+
 data class OrezMediaSelection(
     val uri: String,
     val cacheKey: String = uri,
     val label: String = "Video",
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    val resolutionId: String? = null,
+    val audio: OrezAudioSelection? = null,
+    val expectedDurationUs: Long? = null
 ) {
     val sourceId: String get() {
         val digest = MessageDigest.getInstance("SHA-256")
+        val videoFields = listOf(uri, cacheKey) + headers.toSortedMap().flatMap { listOf(it.key, it.value) }
+        val fields = if (resolutionId == null && audio == null && expectedDurationUs == null) videoFields else
+            listOf("orez-selected-media-v2", uri, cacheKey, headers.size.toString()) +
+                headers.toSortedMap().flatMap { listOf(it.key, it.value) } +
+                listOf(resolutionId.orEmpty(), expectedDurationUs?.toString().orEmpty(), if (audio == null) "no-audio" else "audio") +
+                (audio?.let { listOf(it.uri, it.resolutionId, it.headers.size.toString()) +
+                    it.headers.toSortedMap().flatMap { entry -> listOf(entry.key, entry.value) } }.orEmpty())
         // Length framing prevents header/source delimiters from aliasing a selection.
-        for (value in listOf(uri, cacheKey) + headers.toSortedMap().flatMap { listOf(it.key, it.value) }) {
+        for (value in fields) {
             digest.update(value.toByteArray(Charsets.UTF_8).size.toString().toByteArray(Charsets.UTF_8))
             digest.update(':'.code.toByte()); digest.update(value.toByteArray(Charsets.UTF_8))
         }
         return "selected-" + digest.digest().joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 255) }.take(32)
     }
-    fun captured() = copy(headers = headers.toMap())
+    fun captured() = copy(headers = headers.toMap(), audio = audio?.copy(headers = audio.headers.toMap()))
 }
 
-/** This native provider produces English speech subtitles; other targets are rejected. */
+/** Complete captured native policy; a later Settings/model change cannot alter a queued request. */
 data class OrezSubtitleOptions(
     val sourceLanguage: String = "auto",
     val targetLanguage: String = "en",
     val style: String = "whisper-english",
     val windowSeconds: Int = 8,
     val overlapSeconds: Int = 1,
-    val threads: Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+    val threads: Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4),
+    val outputMode: SubtitleOutputMode = SubtitleOutputMode.TRANSLATED,
+    val pipeline: SubtitlePipeline = SubtitlePipeline.WHISPER_ENGLISH,
+    val customStyle: String = "",
+    val localRefinement: Boolean = false,
+    val translationPolicy: String = "whisper-english-v1",
+    val capturedStyle: TranslationStyleProfile? = null,
+    val refinementPin: SubtitleRefinementPin? = null
 ) {
     fun normalized() = copy(sourceLanguage = sourceLanguage.trim().lowercase(Locale.ROOT),
-        targetLanguage = targetLanguage.trim().lowercase(Locale.ROOT).replace('_', '-'), style = style.trim().lowercase(Locale.ROOT))
+        targetLanguage = targetLanguage.trim().lowercase(Locale.ROOT).replace('_', '-'), style = style.trim().lowercase(Locale.ROOT),
+        customStyle = customStyle.trim(), capturedStyle = capturedStyle ?: if (pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
+            if (style.trim().equals("custom", true)) TranslationStyleProfile.custom(customStyle) else TranslationStyleProfile.fromId(style)
+        else null)
 }
 
 /** Captured at the user request; changing Settings later cannot change queued work. */

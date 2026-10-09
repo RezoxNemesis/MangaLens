@@ -324,6 +324,21 @@ class OrezModelManager private constructor(val context: Context, recoverTransfer
         return candidates.distinctBy { it.absolutePath }.filterNot { it.absolutePath == unavailable }
     }
 
+    /** Only process-verified activation artifacts can satisfy a durable model pin. */
+    internal fun verifiedModelCandidates(pinnedModel: OrezModelPin? = null): List<OrezModelCandidate> {
+        if (platformIssue() != null) return emptyList()
+        val verified = (OrezModelCatalog.availableDescriptors.flatMap { store.runtimeArtifacts(it.tier.name) } +
+            store.runtimeArtifacts(OrezModelActivationStore.LEGACY_SLOT)).distinctBy { it.file.canonicalPath }
+        // A captured job may keep Lite after the user selects Core, or vice versa.
+        // Pinned resolution never walks ambient fallback order or unverified saved candidates.
+        val ordered = if (pinnedModel != null) verified else runtimeModelFiles().mapNotNull { file ->
+            verified.firstOrNull { it.file.canonicalPath == file.canonicalPath }
+        }
+        return OrezPinnedModelPolicy.select(pinnedModel, ordered.map {
+            OrezModelCandidate(it.file, OrezModelPin(it.modelId, it.sha256, it.bytes))
+        })
+    }
+
     internal fun platformIssue(): String? = OrezModelRuntimePolicy.platformIssue(
         android.os.Build.VERSION.SDK_INT, android.os.Build.SUPPORTED_ABIS?.toList().orEmpty(), OrezNativeEngine.available
     )

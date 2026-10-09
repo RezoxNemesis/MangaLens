@@ -7,6 +7,10 @@ import org.json.JSONObject
 import com.mangalens.orez.OrezRoute
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import com.mangalens.core.translation.TranslationStyleProfile
+import com.mangalens.ui.video.SubtitleOutputMode
+import com.mangalens.ui.video.SubtitlePipeline
+import com.mangalens.ui.video.SubtitleRefinementPin
 
 /**
  * Durable journal for autonomous Orez work.
@@ -26,7 +30,8 @@ class OrezTaskStore(
     internal fun decode(encoded: String): OrezTaskPlan {
         require(encoded.length <= 128 * 1024) { "Orez journal exceeds the safe limit" }
         val root = JSONObject(encoded)
-        require(root.getInt("schema") in 1..2) { "Unsupported Orez task schema" }
+        val schema = root.getInt("schema")
+        require(schema in 1..3) { "Unsupported Orez task schema" }
         val steps = root.getJSONArray("steps")
         require(steps.length() in 1..32) { "Invalid task step count" }
         return OrezTaskPlan(
@@ -42,11 +47,8 @@ class OrezTaskStore(
                             options.getString("customStyle"), options.getString("ocrScript"), options.getBoolean("highAccuracy"),
                             options.getBoolean("preserveStyle"), options.getBoolean("localRefinement"))
                     },
-                    scope.optJSONObject("selectedMedia")?.let { source -> OrezMediaSelection(source.getString("uri"),
-                        source.getString("cacheKey"), source.getString("label"), stringMap(source.getJSONObject("headers"))) },
-                    scope.optJSONObject("subtitle")?.let { options -> OrezSubtitleOptions(options.getString("sourceLanguage"),
-                        options.getString("targetLanguage"), options.getString("style"), options.getInt("windowSeconds"),
-                        options.getInt("overlapSeconds"), options.getInt("threads")) })
+                    scope.optJSONObject("selectedMedia")?.let { source -> selection(source, schema) },
+                    scope.optJSONObject("subtitle")?.let { options -> subtitle(options, schema) })
             },
             executionEpoch = root.optLong("executionEpoch", 0),
             pausedByUser = root.optBoolean("pausedByUser", false),
@@ -186,7 +188,8 @@ class OrezTaskStore(
 
     private fun encode(plan: OrezTaskPlan): String {
         val root = JSONObject()
-            .put("schema", if (plan.authorization != null || plan.executionEpoch != 0L || plan.pausedByUser || plan.resuming || plan.pendingControl != null ||
+            .put("schema", if (plan.authorization?.let { it.selectedMedia != null || it.subtitle != null } == true) 3 else
+                if (plan.authorization != null || plan.executionEpoch != 0L || plan.pausedByUser || plan.resuming || plan.pendingControl != null ||
                 plan.steps.any { it.dependsOn.isNotEmpty() || it.references.isNotEmpty() || it.outputKind != null }) 2 else 1)
             .put("id", plan.id)
             .put("objective", plan.objective)
@@ -202,10 +205,20 @@ class OrezTaskStore(
                 .put("ocrScript", options.ocrScript).put("highAccuracy", options.highAccuracy)
                 .put("preserveStyle", options.preserveStyle).put("localRefinement", options.localRefinement)) }
             scope.selectedMedia?.let { source -> authorization.put("selectedMedia", JSONObject()
-                .put("uri", source.uri).put("cacheKey", source.cacheKey).put("label", source.label).put("headers", JSONObject(source.headers))) }
+                .put("uri", source.uri).put("cacheKey", source.cacheKey).put("label", source.label).put("headers", JSONObject(source.headers))
+                .put("resolutionId", source.resolutionId ?: JSONObject.NULL).put("expectedDurationUs", source.expectedDurationUs ?: JSONObject.NULL)
+                .put("audio", source.audio?.let { audio -> JSONObject().put("uri", audio.uri).put("resolutionId", audio.resolutionId)
+                    .put("headers", JSONObject(audio.headers)) } ?: JSONObject.NULL)) }
             scope.subtitle?.let { options -> authorization.put("subtitle", JSONObject()
                 .put("sourceLanguage", options.sourceLanguage).put("targetLanguage", options.targetLanguage).put("style", options.style)
-                .put("windowSeconds", options.windowSeconds).put("overlapSeconds", options.overlapSeconds).put("threads", options.threads)) }
+                .put("windowSeconds", options.windowSeconds).put("overlapSeconds", options.overlapSeconds).put("threads", options.threads)
+                .put("outputMode", options.outputMode.name).put("pipeline", options.pipeline.name).put("customStyle", options.customStyle)
+                .put("localRefinement", options.localRefinement).put("translationPolicy", options.translationPolicy)
+                .put("capturedStyle", options.capturedStyle?.let { profile -> JSONObject().put("id", profile.id).put("name", profile.name)
+                    .put("instruction", profile.instruction).put("preserveHonorifics", profile.preserveHonorifics)
+                    .put("preserveNames", profile.preserveNames).put("naturalDialogue", profile.naturalDialogue) } ?: JSONObject.NULL)
+                .put("refinementPin", options.refinementPin?.let { pin -> JSONObject().put("modelId", pin.modelId)
+                    .put("sha256", pin.sha256).put("bytes", pin.bytes) } ?: JSONObject.NULL)) }
             root.put("authorization", authorization)
         }
 
@@ -239,6 +252,30 @@ class OrezTaskStore(
     companion object {
         private val journalLock = Mutex()
         private const val DEFAULT_RETENTION_MS = 7L * 24L * 60L * 60L * 1000L
+        private fun selection(source: JSONObject, schema: Int): OrezMediaSelection {
+            val legacy = OrezMediaSelection(source.getString("uri"), source.getString("cacheKey"), source.getString("label"), stringMap(source.getJSONObject("headers")))
+            if (schema <= 2) return legacy
+            require(listOf("resolutionId", "audio", "expectedDurationUs").all(source::has)) { "Captured playable source metadata is incomplete." }
+            return legacy.copy(resolutionId = if (source.isNull("resolutionId")) null else source.getString("resolutionId"),
+                expectedDurationUs = if (source.isNull("expectedDurationUs")) null else source.getLong("expectedDurationUs"),
+                audio = if (source.isNull("audio")) null else source.getJSONObject("audio").let { audio ->
+                    OrezAudioSelection(audio.getString("uri"), audio.getString("resolutionId"), stringMap(audio.getJSONObject("headers"))) })
+        }
+        private fun subtitle(options: JSONObject, schema: Int): OrezSubtitleOptions {
+            val legacy = OrezSubtitleOptions(options.getString("sourceLanguage"), options.getString("targetLanguage"), options.getString("style"),
+                options.getInt("windowSeconds"), options.getInt("overlapSeconds"), options.getInt("threads"))
+            if (schema <= 2) return legacy
+            require(listOf("outputMode", "pipeline", "customStyle", "localRefinement", "translationPolicy", "capturedStyle", "refinementPin").all(options::has)) {
+                "Captured subtitle policy metadata is incomplete."
+            }
+            return legacy.copy(outputMode = SubtitleOutputMode.valueOf(options.getString("outputMode")), pipeline = SubtitlePipeline.valueOf(options.getString("pipeline")),
+                customStyle = options.getString("customStyle"), localRefinement = options.getBoolean("localRefinement"), translationPolicy = options.getString("translationPolicy"),
+                capturedStyle = if (options.isNull("capturedStyle")) null else options.getJSONObject("capturedStyle").let { profile ->
+                    TranslationStyleProfile(profile.getString("id"), profile.getString("name"), profile.getString("instruction"),
+                        profile.getBoolean("preserveHonorifics"), profile.getBoolean("preserveNames"), profile.getBoolean("naturalDialogue")) },
+                refinementPin = if (options.isNull("refinementPin")) null else options.getJSONObject("refinementPin").let { pin ->
+                    SubtitleRefinementPin(pin.getString("modelId"), pin.getString("sha256"), pin.getLong("bytes")) })
+        }
         private fun stringMap(values: JSONObject): Map<String, String> = values.keys().asSequence().associateWith {
             require(values.get(it) is String) { "Journal arguments and outputs must be strings." }
             values.getString(it)

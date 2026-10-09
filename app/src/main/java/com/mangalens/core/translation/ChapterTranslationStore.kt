@@ -25,9 +25,10 @@ data class ChapterTranslationConfig(
     val ocrScript: String = "AUTO",
     val highAccuracy: Boolean = true,
     val preserveStyle: Boolean = true,
-    val localRefinement: Boolean = false
+    val localRefinement: Boolean = false,
+    val refinementRequest: TranslationRefinementRequest? = null
 ) {
-    fun style(): TranslationStyleProfile = if (styleId == "custom") TranslationStyleProfile.custom(customStyle)
+    fun style(): TranslationStyleProfile = refinementRequest?.style ?: if (styleId == "custom") TranslationStyleProfile.custom(customStyle)
         else TranslationStyleProfile.fromId(styleId)
 
     internal fun normalized(): ChapterTranslationConfig {
@@ -37,6 +38,13 @@ data class ChapterTranslationConfig(
         require(script in setOf("AUTO", "LATIN", "DEVANAGARI", "CHINESE", "JAPANESE", "KOREAN")) { "Unsupported OCR script." }
         require(customStyle.length <= TranslationStyleProfile.MAX_CUSTOM_INSTRUCTION_CHARS) { "Custom translation style is too long." }
         val style = styleId.trim().lowercase(Locale.ROOT)
+        refinementRequest?.let {
+            TranslationRefinementRequestCodec.validate(it)
+            require(it.enabled == localRefinement && it.style.id == if (style == "custom") "custom" else TranslationStyleProfile.fromId(style).id) {
+                "Captured refinement settings differ from the requested style."
+            }
+            require(style != "custom" || it.style.instruction == customStyle.trim()) { "Captured custom style differs from the request." }
+        }
         return copy(targetLanguage = language, styleId = if (style == "custom") style else TranslationStyleProfile.fromId(style).id,
             customStyle = if (style == "custom") customStyle.trim() else "", ocrScript = script)
     }
@@ -199,7 +207,7 @@ class ChapterTranslationStore internal constructor(
             .maxByOrNull { it.updatedAt }?.let(::visible)
 
     /** Re-hash bytes, including same-length replacements, and drop missing/corrupt cleaned surfaces. */
-    suspend fun refresh(taskId: String): ChapterTranslationTask? = withContext(Dispatchers.IO) { validate(taskId) }
+    suspend fun refresh(taskId: String, generation: String? = null): ChapterTranslationTask? = withContext(Dispatchers.IO) { validate(taskId, generation) }
 
     internal fun start(chapter: SavedChapter, configuration: ChapterTranslationConfig,
         requestedPages: List<Int>? = null, ownerRequestId: String? = null,
@@ -473,12 +481,12 @@ class ChapterTranslationStore internal constructor(
 
     internal fun sourceFile(page: ChapterTranslationPage): File? = page.sourcePath?.let(::requireManagedSource)
 
-    private fun validate(taskId: String): ChapterTranslationTask? {
-        val task = rawGet(taskId) ?: return null
+    private fun validate(taskId: String, generation: String? = null): ChapterTranslationTask? {
+        val task = rawGet(taskId)?.takeIf { generation == null || it.generation == generation } ?: return null
         val verified = validatedTask(task)
         return synchronized(this) {
             // Hashing a large chapter never holds the control lock or overwrites newer checkpoints.
-            if (tasks[taskId] != task) return@synchronized tasks[taskId]?.let(::visible)
+            if (tasks[taskId] != task) return@synchronized tasks[taskId]?.takeIf { generation == null || it.generation == generation }?.let(::visible)
             if (verified != task) saveVerified(verified)
             else { awaitingValidation.remove(taskId); publish() }
             verified
@@ -645,7 +653,9 @@ class ChapterTranslationStore internal constructor(
         val chapterId = json.getString("chapterId").also { require(it.matches(ID)) }
         val c = json.getJSONObject("config")
         val config = ChapterTranslationConfig(c.getString("targetLanguage"), c.getString("styleId"), c.optString("customStyle"),
-            c.getString("ocrScript"), c.getBoolean("highAccuracy"), c.getBoolean("preserveStyle"), c.getBoolean("localRefinement")).normalized()
+            c.getString("ocrScript"), c.getBoolean("highAccuracy"), c.getBoolean("preserveStyle"), c.getBoolean("localRefinement"),
+            if (!c.has("refinementRequest") || c.isNull("refinementRequest")) null
+            else TranslationRefinementRequestCodec.decode(c.getJSONObject("refinementRequest"))).normalized()
         require(id == digest(chapterId + "|" + configIdentity(config)).take(32))
         val rows = json.getJSONArray("pages")
         require(rows.length() in 1..MAX_PAGES)
@@ -689,9 +699,11 @@ class ChapterTranslationStore internal constructor(
     private fun configJson(c: ChapterTranslationConfig): JSONObject = JSONObject().put("targetLanguage", c.targetLanguage)
         .put("styleId", c.styleId).put("customStyle", c.customStyle).put("ocrScript", c.ocrScript)
         .put("highAccuracy", c.highAccuracy).put("preserveStyle", c.preserveStyle).put("localRefinement", c.localRefinement)
+        .put("refinementRequest", c.refinementRequest?.let(TranslationRefinementRequestCodec::encode))
 
-    private fun configIdentity(c: ChapterTranslationConfig): String = listOf(c.targetLanguage, c.styleId, c.customStyle,
-        c.ocrScript, c.highAccuracy.toString(), c.preserveStyle.toString(), c.localRefinement.toString())
+    private fun configIdentity(c: ChapterTranslationConfig): String = (listOf(c.targetLanguage, c.styleId, c.customStyle,
+        c.ocrScript, c.highAccuracy.toString(), c.preserveStyle.toString(), c.localRefinement.toString()) +
+        listOfNotNull(c.refinementRequest?.let(TranslationRefinementRequestCodec::identity)))
         .joinToString("|") { value -> "${value.length}:$value" }
 
     private fun JSONObject.nullableString(key: String): String? = if (isNull(key) || !has(key)) null else getString(key)

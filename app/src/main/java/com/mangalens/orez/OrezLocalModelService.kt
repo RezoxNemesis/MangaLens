@@ -1,11 +1,15 @@
 package com.mangalens.orez
 
 import com.mangalens.oreznative.OrezNativeEngine
+import com.mangalens.core.compute.NativeComputeAdmission
+import com.mangalens.core.compute.NativeComputePrecondition
+import com.mangalens.core.compute.checkNativeComputePrecondition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -17,33 +21,50 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.EmptyCoroutineContext
 
 class OrezLocalModelService(private val manager: OrezModelManager) {
     private val engine = OrezNativeEngine()
     private val packStore by lazy { OrezConversationPackStore(manager.context) }
+    private val operationMutex = Mutex()
     private val loadMutex = Mutex()
     private val temporarilyUnavailableUntil = ConcurrentHashMap<String, Long>()
     @Volatile private var idleReleaseJob: kotlinx.coroutines.Job? = null
     @Volatile private var loadedModelPath: String? = null
 
     suspend fun warmUp(): Boolean = withContext(Dispatchers.Default) {
-        idleReleaseJob?.cancel()
-        loadAvailableModel(7_000L)
+        operationMutex.withLock {
+            idleReleaseJob?.cancel()
+            loadAvailableModel(7_000L) != null
+        }
     }
 
-    private suspend fun loadAvailableModel(budgetMs: Long): Boolean {
+    /** Capture once at task creation. No model download or ambient choice is made on resume. */
+    suspend fun captureModelPin(): OrezModelPin? = withContext(Dispatchers.IO) {
+        manager.verifyExistingModels()
+        manager.verifiedModelCandidates().firstOrNull { manager.memoryIssue(it.file) == null }?.pin
+    }
+
+    private suspend fun loadAvailableModel(budgetMs: Long, pinnedModel: OrezModelPin? = null): OrezModelCandidate? {
         manager.verifyExistingModels()
         var pressure: String? = null
-        for (file in manager.runtimeModelFiles()) {
+        for (candidate in manager.verifiedModelCandidates(pinnedModel)) {
+            val file = candidate.file
             val memoryIssue = manager.memoryIssue(file, engine.isLoaded && loadedModelPath == file.canonicalPath)
             if (memoryIssue != null) { pressure = memoryIssue; continue }
-            if (ensureLoaded(file, budgetMs)) return true
+            val priority = if (pinnedModel == null) NativeComputeAdmission.Priority.INTERACTIVE else NativeComputeAdmission.Priority.BACKGROUND
+            if (ensureLoaded(candidate, budgetMs, priority) && stillVerified(candidate)) return candidate
         }
         if (pressure != null) manager.recordRuntimeUnavailable(null, pressure)
-        return false
+        return null
     }
 
-    private suspend fun ensureLoaded(file: File, budgetMs: Long): Boolean {
+    private fun stillVerified(candidate: OrezModelCandidate): Boolean = engine.isLoaded &&
+        loadedModelPath == candidate.file.canonicalPath &&
+        manager.verifiedModelCandidates(candidate.pin).any { it.file.canonicalPath == candidate.file.canonicalPath }
+
+    private suspend fun ensureLoaded(candidate: OrezModelCandidate, budgetMs: Long, priority: NativeComputeAdmission.Priority): Boolean {
+        val file = candidate.file
         val requestedPath = file.canonicalPath
         if (engine.isLoaded && loadedModelPath == requestedPath) return true
         val now = android.os.SystemClock.elapsedRealtime()
@@ -53,7 +74,10 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             val loaded = withTimeoutOrNull(budgetMs) {
                 loadMutex.withLock {
                     // Native model loading owns a lease until completion, including caller cancellation.
-                    withContext(NonCancellable + Dispatchers.IO) {
+                    nativeWork(priority) {
+                        check(manager.verifiedModelCandidates(candidate.pin).any { it.file.canonicalPath == requestedPath }) {
+                            "The captured local model changed while waiting for native compute. Retry with a verified model."
+                        }
                         val switched = OrezModelLeaseSwitch.switch(requestedPath, loadedModelPath, engine.isLoaded,
                             engine::load, engine::close, { OrezNativeEngine.sharedModelPath })
                         loadedModelPath = switched.loadedPath
@@ -67,7 +91,7 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
                             else "The local model could not load. Previous models were kept. Free memory and retry, or roll back the replacement.")
                         }
                         switched.requestedLoaded
-                    }
+                    } ?: false
                 }
             } ?: false
             if (!loaded && engine.isLoaded && loadedModelPath == requestedPath) {
@@ -79,16 +103,27 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         }
     }
 
-    suspend fun answer(prompt: String, recent: List<OrezMessageEntity>, structured: Boolean = false): String? = withContext(Dispatchers.Default) {
+    suspend fun answer(prompt: String, recent: List<OrezMessageEntity>, structured: Boolean = false): String? =
+        answerWithReceipt(prompt, recent, structured)?.text
+
+    /** A non-null pin is exact: missing/busy/unsafe models return no answer rather than falling back. */
+    suspend fun answerWithReceipt(prompt: String, recent: List<OrezMessageEntity>, structured: Boolean = false,
+        pinnedModel: OrezModelPin? = null): OrezModelAnswer? = withContext(Dispatchers.Default) {
+        operationMutex.withLock { answerLocked(prompt, recent, structured, pinnedModel) }
+    }
+
+    private suspend fun answerLocked(prompt: String, recent: List<OrezMessageEntity>, structured: Boolean,
+        pinnedModel: OrezModelPin?): OrezModelAnswer? {
         idleReleaseJob?.cancel()
-        if (!loadAvailableModel(7_000L)) return@withContext null
+        val captured = loadAvailableModel(7_000L, pinnedModel) ?: return null
 
         val history = recent.takeLast(10).joinToString("\n") { message ->
             val role = if (message.role.equals("assistant", true) || message.role.equals("OREZ", true)) "assistant" else "user"
             "<|im_start|>$role\n${OrezPromptBoundary.data(message.text)}\n<|im_end|>"
         }.takeLast(4200)
 
-        val examples = try { if (structured) emptyList() else packStore.search(prompt, 2) }
+        // Pinned refinement must not gain ambient conversation-pack examples between windows.
+        val examples = try { if (structured || pinnedModel != null) emptyList() else packStore.search(prompt, 2) }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (_: Exception) { emptyList() }
         val retrieval = examples.joinToString("\n\n") {
@@ -134,29 +169,40 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             prompt.length < 400 -> 224
             else -> 288
         }
-        val raw = withTimeoutOrNull(12_000L) { generate(promptText, tokenBudget) }
+        val raw = withTimeoutOrNull(12_000L) { generate(promptText, tokenBudget, captured,
+            if (pinnedModel == null) NativeComputeAdmission.Priority.INTERACTIVE else NativeComputeAdmission.Priority.BACKGROUND) }
             ?.trim()
             ?: run {
                 scheduleIdleRelease()
-                return@withContext null
+                return null
             }
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         scheduleIdleRelease()
-        (if (structured) raw else sanitize(raw)).takeIf { it.isNotBlank() }
+        if (!stillVerified(captured)) return null
+        return (if (structured) raw else sanitize(raw)).takeIf { it.isNotBlank() }
+            ?.let { OrezModelAnswer(it, captured.pin) }
     }
 
-    private suspend fun generate(prompt: String, maxTokens: Int): String = suspendCancellableCoroutine { continuation ->
+    private suspend fun generate(prompt: String, maxTokens: Int, captured: OrezModelCandidate,
+        priority: NativeComputeAdmission.Priority): String = suspendCancellableCoroutine { continuation ->
         val request = engine.newGeneration()
         continuation.invokeOnCancellation { request.cancel() }
         // Native cleanup must finish even when the caller's coroutine is cancelled.
-        cleanupScope.launch(Dispatchers.Default) {
+        cleanupScope.launch(Dispatchers.Default + (continuation.context[NativeComputePrecondition] ?: EmptyCoroutineContext)) {
+            var lease: NativeComputeAdmission.Lease? = null
             try {
+                lease = NativeComputeAdmission.shared.acquire(priority) { continuation.isActive } ?: return@launch
+                checkNativeComputePrecondition(lease.waited)
+                if (!continuation.isActive) return@launch
+                check(stillVerified(captured)) {
+                    "The captured local model changed while waiting for native compute. Saved work has been kept."
+                }
                 val result = engine.generate(prompt, maxTokens.coerceIn(96, 320), request)
                 if (continuation.isActive) continuation.resume(result)
             } catch (failure: Exception) {
                 if (continuation.isActive) continuation.resumeWithException(failure)
             } finally {
-                request.close()
+                try { request.close() } finally { lease?.close() }
             }
         }
     }
@@ -175,9 +221,11 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
             // chat turns. Context memory is already freed after each generation; keep only
             // the mmap'd model warm for a bounded conversational idle window.
             delay(90_000L)
-            loadMutex.withLock {
-                loadedModelPath = null
-                engine.close()
+            operationMutex.withLock {
+                loadMutex.withLock {
+                    loadedModelPath = null
+                    nativeWork(NativeComputeAdmission.Priority.BACKGROUND, cleanup = true) { engine.close() }
+                }
             }
         }
     }
@@ -186,15 +234,30 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
         idleReleaseJob?.cancel()
         engine.cancelGenerations()
         cleanupScope.launch {
-            loadMutex.withLock {
-                loadedModelPath = null
-                engine.close()
+            operationMutex.withLock {
+                loadMutex.withLock {
+                    loadedModelPath = null
+                    nativeWork(NativeComputeAdmission.Priority.BACKGROUND, cleanup = true) { engine.close() }
+                }
             }
         }
     }
 
     // A generation holds JNI/engine locks. Screen disposal must not wait for them on Main.
     fun close() { releaseMemory() }
+
+    private suspend fun <T> nativeWork(priority: NativeComputeAdmission.Priority, cleanup: Boolean = false,
+        block: suspend () -> T): T? {
+        val caller = kotlinx.coroutines.currentCoroutineContext()
+        val lease = NativeComputeAdmission.shared.acquire(priority) { caller.isActive }
+            ?: return null
+        try {
+            caller.ensureActive()
+            if (!cleanup) checkNativeComputePrecondition(lease.waited)
+            caller.ensureActive()
+            return withContext(NonCancellable + Dispatchers.IO) { block() }
+        } finally { lease.close() }
+    }
 
     companion object {
         private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

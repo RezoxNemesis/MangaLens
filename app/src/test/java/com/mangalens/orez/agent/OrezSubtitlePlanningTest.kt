@@ -69,10 +69,10 @@ class OrezSubtitlePlanningTest {
         }
     }
 
-    @Test fun unsupportedHindiSubtitleRequestFailsRatherThanClaimingEnglishAsHindi() {
-        val result = OrezAgentRuntime().decide("Generate subtitles for this video in Hinglish", OrezAgentContext(selectedMedia = media))
+    @Test fun unsupportedJapaneseSubtitleRequestFailsRatherThanClaimingEnglishAsJapanese() {
+        val result = OrezAgentRuntime().decide("Generate subtitles for this video in Japanese", OrezAgentContext(selectedMedia = media))
         assertFalse(result.continueToBrain); assertEquals(OrezTaskStatus.FAILED, result.plan!!.status)
-        assertTrue(result.message.contains("English", ignoreCase = true))
+        assertTrue(result.message.contains("Unsupported", ignoreCase = true))
     }
 
     @Test fun downloadThenSubtitlePlanReferencesItsOwnExactDownloadAndPinnedMedia() {

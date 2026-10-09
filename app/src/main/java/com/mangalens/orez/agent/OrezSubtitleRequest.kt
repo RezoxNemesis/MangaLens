@@ -1,6 +1,9 @@
 package com.mangalens.orez.agent
 
 import java.util.Locale
+import com.mangalens.core.translation.TranslationStyleProfile
+import com.mangalens.ui.video.SubtitleOutputMode
+import com.mangalens.ui.video.SubtitlePipeline
 
 /** Deterministic user-intent parsing; source descriptors never come from request text. */
 internal object OrezSubtitleRequest {
@@ -32,5 +35,19 @@ internal object OrezSubtitleRequest {
         }) return tag
         // Preserve a plainly requested unsupported target for a visible provider error.
         return Regex("""\b(?:in|into|to)\s+([a-z][a-z -]{0,40})\s*[.!?]*$""").find(lower)?.groupValues?.get(1)?.trim() ?: fallback
+    }
+
+    /** Only deterministic explicit user text and captured settings can select output policy. */
+    fun options(input: String, fallback: OrezSubtitleOptions): OrezSubtitleOptions {
+        val clean = urls.replace(input, " ").lowercase(Locale.ROOT)
+        val target = target(clean, fallback.targetLanguage).trim().lowercase(Locale.ROOT).replace('_', '-')
+        val dual = Regex("""\b(?:dual|bilingual)\s+(?:subtitles?|captions?)\b|\b(?:original|source)\s*(?:\+|and|with)\s*(?:translated|translation|target)\b""").containsMatchIn(clean)
+        val translatedOnly = Regex("""\b(?:translated|translation|target)\s+only\b""").containsMatchIn(clean)
+        val mode = if (dual) SubtitleOutputMode.DUAL else if (translatedOnly) SubtitleOutputMode.TRANSLATED else fallback.outputMode
+        val captured = fallback.normalized()
+        return if (OrezSubtitleContract.isLegacy(captured) && (target != "en" || mode == SubtitleOutputMode.DUAL))
+            captured.copy(targetLanguage = target, style = "natural", outputMode = mode, pipeline = SubtitlePipeline.SOURCE_TRANSLATION,
+                translationPolicy = "mlkit-dialogue-v1", capturedStyle = TranslationStyleProfile.NATURAL)
+        else captured.copy(targetLanguage = target, outputMode = mode).normalized()
     }
 }

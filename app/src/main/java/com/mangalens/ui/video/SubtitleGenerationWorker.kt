@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import com.mangalens.orez.agent.OrezTaskRecovery
+import com.mangalens.core.compute.NativeComputePrecondition
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -58,10 +59,10 @@ internal object SubtitleInputs {
                 validator != null, validator?.etag, validator?.size, validator?.url)
         }
     }
-    fun config(context: Context, sourceLanguage: String): SubtitleGenerationConfig {
+    fun config(context: Context, sourceLanguage: String, options: SubtitleTargetOptions? = null): SubtitleGenerationConfig {
         val model = File(context.filesDir, "speech/whisper.bin")
         return SubtitleGenerationConfig(sourceLanguage = sourceLanguage.trim().lowercase(java.util.Locale.ROOT),
-            modelSha256 = model.takeIf { it.isFile && it.length() in 1_000_000..600_000_000 }?.let(SubtitleGenerationStore::fileHash))
+            modelSha256 = model.takeIf { it.isFile && it.length() in 1_000_000..600_000_000 }?.let(SubtitleGenerationStore::fileHash)).let { config -> options?.let(config::withTarget) ?: config }
     }
     fun pcmHash(samples: FloatArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -80,6 +81,7 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
         val id = inputData.getString("subtitle_task") ?: return@withContext Result.failure()
         val generation = inputData.getString("subtitle_generation") ?: return@withContext Result.failure()
         val store = SubtitleGenerationStore.shared(applicationContext)
+        val workerCaller = currentCoroutineContext()
         try {
             val captured = store.get(id)?.takeIf { it.generation == generation } ?: return@withContext Result.success()
             suspend fun checkOwner() = enforceSubtitleOwnerGate(store, captured) {
@@ -87,87 +89,169 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
             }
             checkOwner()
             setForeground(notification(captured, "Checking video and speech model"))
-            generationLane.withLock {
+            withContext(NativeComputePrecondition { waited ->
+                workerCaller.ensureActive()
                 checkOwner()
-                val source = SubtitleInputs.capture(applicationContext, captured.source.source)
-                when (assessSubtitleSource(captured.source, source)) {
-                    SubtitleSourceCheck.UNVERIFIED -> {
-                        store.fail(id, generation, "Cannot verify this online video version. Completed windows have been kept; retry when the source is available.", requireValidation = true)
-                        return@withLock Result.failure()
-                    }
-                    SubtitleSourceCheck.CHANGED -> {
-                        store.fail(id, generation, "Video source changed. Generate a new subtitle task for the current video.", invalidate = true)
-                        return@withLock Result.failure()
-                    }
-                    SubtitleSourceCheck.MATCH -> Unit
-                }
-                if (canTrustSubtitleSource(captured.source, source) || captured.windows.isEmpty()) store.confirmValidated(id, generation)
-                val installed = SubtitleInputs.config(applicationContext, captured.config.sourceLanguage)
-                check(installed.modelSha256 != null) { "Install or import a multilingual Whisper model first." }
-                check(installed.modelSha256 == captured.config.modelSha256) { "Speech model changed. Generate a new task to use the installed model." }
-                checkOwner()
-                val task = store.running(id, generation) ?: return@withLock Result.success()
-                val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-                val engine = VideoSpeechEngine(applicationContext, workerScope)
-                try {
-                    engine.loadInstalled()
-                    check(engine.state.value.ready) { engine.state.value.status }
-                    check(SubtitleInputs.config(applicationContext, captured.config.sourceLanguage).modelSha256 == captured.config.modelSha256) {
-                        "Speech model changed while loading. Generate a task for the installed model."
-                    }
-                    var index = 0
-                    var requestedLanguage = task.detectedLanguage ?: task.config.sourceLanguage
-                    checkOwner()
-                    SubtitleAudioDecoder(applicationContext).decode(task.source.source, task.source.strongEtag, task.source.networkSize, task.source.networkUrl) { audio, startMs, progress, durationMs ->
-                        currentCoroutineContext().ensureActive()
-                        checkOwner()
-                        val endMs = startMs + audio.size * 1000L / 16000
-                        val hash = SubtitleInputs.pcmHash(audio)
-                        val previous = task.windows.getOrNull(index)
-                        if (previous != null) {
-                            if (previous.startMs != startMs || previous.endMs != endMs || previous.pcmSha256 != hash) {
-                                store.fail(id, generation, "Decoded video audio changed. Generate a fresh task for this source.", invalidate = true)
-                                throw CancellationException("Changed source audio invalidated its old checkpoints.")
-                            }
-                            checkOwner()
-                            if (index == task.windows.lastIndex) store.confirmValidated(id, generation, pcmVerified = true)
-                        } else {
-                            val silent = !SpeechWindowPolicy.hasActivity(audio)
-                            val cues = if (silent) emptyList() else withTimeout(120_000) {
-                                engine.inferEnglishChunk(audio, startMs, requestedLanguage, task.config.threads)
-                            }
-                            val detected = engine.detectedLanguageSnapshot()
-                            if (requestedLanguage == "auto" && detected != null) requestedLanguage = detected
-                            checkOwner()
-                            if (!store.checkpoint(id, generation, SubtitleWindow(index, startMs, endMs, hash, cues, silent), durationMs, detected))
-                                throw CancellationException("Subtitle checkpoint generation was replaced.")
-                        }
-                        index++
-                        val latest = store.get(id)?.takeIf { it.generation == generation } ?: throw CancellationException()
-                        setProgress(workDataOf("processed_windows" to index, "progress" to progress))
-                        setForeground(notification(latest, "${index} windows checked • ${(progress * 100).toInt()}%"))
-                    }
-                    check(index >= task.windows.size) { "Audio ended before all saved windows could be verified." }
-                    val finalSource = SubtitleInputs.capture(applicationContext, task.source.source)
-                    when (assessSubtitleSource(task.source, finalSource)) {
+                if (waited) {
+                    val fresh = SubtitleInputs.capture(applicationContext, captured.source.source)
+                    when (assessSubtitleSource(captured.source, fresh)) {
                         SubtitleSourceCheck.UNVERIFIED -> {
-                            store.fail(id, generation, "Cannot verify the final online video version. Completed windows have been kept; resume to verify them before export.", requireValidation = true)
+                            store.fail(id, generation, "Cannot verify this video after waiting for native compute. Saved speech has been kept.", requireValidation = true)
+                            throw SubtitleNetworkUnverified("Cannot verify this video after waiting for native compute. Saved speech has been kept.")
+                        }
+                        SubtitleSourceCheck.CHANGED -> {
+                            store.fail(id, generation, "Video changed while waiting for native compute. Generate a new task.", invalidate = true)
+                            throw SubtitleNetworkChanged("Video changed while waiting for native compute. Generate a new task.")
+                        }
+                        SubtitleSourceCheck.MATCH -> Unit
+                    }
+                    val sourceOnlyRepair = captured.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && captured.audioComplete &&
+                        !captured.pcmValidationRequired
+                    if (sourceOnlyRepair && !canTrustSubtitleSource(captured.source, fresh)) {
+                        store.fail(id, generation, "Saved original speech needs fresh source proof before target repair.", requireValidation = true)
+                        error("Saved original speech needs fresh source proof before target repair.")
+                    } else if (!sourceOnlyRepair && SubtitleInputs.config(applicationContext, captured.config.sourceLanguage).modelSha256 != captured.config.modelSha256) {
+                        store.fail(id, generation, "Speech model changed while waiting for native compute. Saved windows have been kept.")
+                        error("Speech model changed while waiting for native compute. Saved windows have been kept.")
+                    }
+                    checkOwner()
+                    workerCaller.ensureActive()
+                }
+            }) {
+                generationLane.withLock {
+                    checkOwner()
+                    val source = SubtitleInputs.capture(applicationContext, captured.source.source)
+                    when (assessSubtitleSource(captured.source, source)) {
+                        SubtitleSourceCheck.UNVERIFIED -> {
+                            store.fail(id, generation, "Cannot verify this online video version. Completed windows have been kept; retry when the source is available.", requireValidation = true)
                             return@withLock Result.failure()
                         }
                         SubtitleSourceCheck.CHANGED -> {
-                            store.fail(id, generation, "Video changed during subtitle generation. Generate a fresh task.", invalidate = true)
+                            store.fail(id, generation, "Video source changed. Generate a new subtitle task for the current video.", invalidate = true)
                             return@withLock Result.failure()
                         }
                         SubtitleSourceCheck.MATCH -> Unit
                     }
-                    check(SubtitleInputs.config(applicationContext, task.config.sourceLanguage).modelSha256 == task.config.modelSha256) {
-                        "Speech model changed during generation. Completed windows have been kept."
+                    if (canTrustSubtitleSource(captured.source, source) || captured.windows.isEmpty()) store.confirmValidated(id, generation)
+                    val targetOnly = captured.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && captured.audioComplete &&
+                        canTrustSubtitleSource(captured.source, source) && !captured.pcmValidationRequired
+                    if (targetOnly) {
+                        checkOwner()
+                        val task = store.running(id, generation) ?: return@withLock Result.success()
+                        val translator = SubtitleCueTranslator(applicationContext)
+                        try {
+                            val processor = SubtitleWindowProcessor(store, task, ::checkOwner, translator::translate)
+                            for (window in task.windows) {
+                                val progress = processor.translateSaved(window)
+                                progress.error?.let { store.noteTargetFailure(id, generation, it) }
+                                if (progress.failedTargets >= 3) {
+                                    store.fail(id, generation, progress.error ?: "The translation provider could not complete this window.")
+                                    return@withLock Result.failure()
+                                }
+                                setForeground(notification(store.get(id) ?: task, "Repairing saved speech translations • window ${window.index + 1}"))
+                            }
+                            val finalSource = SubtitleInputs.capture(applicationContext, task.source.source)
+                            when (assessSubtitleSource(task.source, finalSource)) {
+                                SubtitleSourceCheck.UNVERIFIED -> {
+                                    store.fail(id, generation, "Cannot verify the final video version. Original speech and target checkpoints have been kept.", requireValidation = true)
+                                    return@withLock Result.failure()
+                                }
+                                SubtitleSourceCheck.CHANGED -> {
+                                    store.fail(id, generation, "Video changed while repairing translations. Generate a new task.", invalidate = true)
+                                    return@withLock Result.failure()
+                                }
+                                SubtitleSourceCheck.MATCH -> Unit
+                            }
+                            checkOwner()
+                            store.finish(id, generation)
+                            return@withLock Result.success()
+                        } finally { translator.close() }
                     }
+                    val installed = SubtitleInputs.config(applicationContext, captured.config.sourceLanguage)
+                    check(installed.modelSha256 != null) { "Install or import a multilingual Whisper model first." }
+                    check(installed.modelSha256 == captured.config.modelSha256) { "Speech model changed. Generate a new task to use the installed model." }
                     checkOwner()
-                    store.finish(id, generation)
-                    Result.success()
-                } finally {
-                    withContext(NonCancellable) { engine.close(); workerScope.cancel() }
+                    val task = store.running(id, generation) ?: return@withLock Result.success()
+                    val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                    val engine = VideoSpeechEngine(applicationContext, workerScope)
+                    try {
+                        engine.loadInstalled()
+                        check(engine.state.value.ready) { engine.state.value.status }
+                        check(SubtitleInputs.config(applicationContext, captured.config.sourceLanguage).modelSha256 == captured.config.modelSha256) {
+                            "Speech model changed while loading. Generate a task for the installed model."
+                        }
+                        var index = 0
+                        var requestedLanguage = task.detectedLanguage ?: task.config.sourceLanguage
+                        val translator = if (task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION) SubtitleCueTranslator(applicationContext) else null
+                        val processor = translator?.let { SubtitleWindowProcessor(store, task, ::checkOwner, it::translate) }
+                        try {
+                        checkOwner()
+                        SubtitleAudioDecoder(applicationContext).decode(task.source.source, task.source.strongEtag, task.source.networkSize, task.source.networkUrl) { audio, startMs, progress, durationMs ->
+                            currentCoroutineContext().ensureActive()
+                            checkOwner()
+                            val endMs = startMs + audio.size * 1000L / 16000
+                            val hash = SubtitleInputs.pcmHash(audio)
+                            if (processor != null) {
+                                val progress = processor.process(index, startMs, endMs, hash, durationMs, !SpeechWindowPolicy.hasActivity(audio)) {
+                                    val cues = withTimeout(120_000) { engine.inferOriginalChunk(audio, startMs, task.config.sourceLanguage, task.config.threads) }
+                                    SubtitleRecognizedWindow(cues, engine.detectedLanguageSnapshot()?.takeIf { it.matches(Regex("[a-z]{2,3}")) }
+                                        ?: task.config.sourceLanguage.takeIf { it != "auto" })
+                                }
+                                checkOwner()
+                                if (index == task.windows.lastIndex) store.confirmValidated(id, generation, pcmVerified = true)
+                                progress.error?.let { store.noteTargetFailure(id, generation, it) }
+                                if (progress.failedTargets >= 3) error(progress.error ?: "The translation provider could not complete this window.")
+                            } else {
+                                val previous = task.windows.getOrNull(index)
+                                if (previous != null) {
+                                    if (previous.startMs != startMs || previous.endMs != endMs || previous.pcmSha256 != hash) {
+                                        store.fail(id, generation, "Decoded video audio changed. Generate a fresh task for this source.", invalidate = true)
+                                        throw CancellationException("Changed source audio invalidated its old checkpoints.")
+                                    }
+                                    checkOwner()
+                                    if (index == task.windows.lastIndex) store.confirmValidated(id, generation, pcmVerified = true)
+                                } else {
+                                    val silent = !SpeechWindowPolicy.hasActivity(audio)
+                                    val cues = if (silent) emptyList() else withTimeout(120_000) {
+                                        engine.inferEnglishChunk(audio, startMs, requestedLanguage, task.config.threads)
+                                    }
+                                    val detected = engine.detectedLanguageSnapshot()
+                                    if (requestedLanguage == "auto" && detected != null) requestedLanguage = detected
+                                    checkOwner()
+                                    if (!store.checkpoint(id, generation, SubtitleWindow(index, startMs, endMs, hash, cues, silent), durationMs, detected))
+                                        throw CancellationException("Subtitle checkpoint generation was replaced.")
+                                }
+                            }
+                            index++
+                            val latest = store.get(id)?.takeIf { it.generation == generation } ?: throw CancellationException()
+                            setProgress(workDataOf("processed_windows" to index, "progress" to progress))
+                            setForeground(notification(latest, "${index} windows checked • ${(progress * 100).toInt()}%"))
+                        }
+                        check(index >= task.windows.size) { "Audio ended before all saved windows could be verified." }
+                        val finalSource = SubtitleInputs.capture(applicationContext, task.source.source)
+                        when (assessSubtitleSource(task.source, finalSource)) {
+                            SubtitleSourceCheck.UNVERIFIED -> {
+                                store.fail(id, generation, "Cannot verify the final online video version. Completed windows have been kept; resume to verify them before export.", requireValidation = true)
+                                return@withLock Result.failure()
+                            }
+                            SubtitleSourceCheck.CHANGED -> {
+                                store.fail(id, generation, "Video changed during subtitle generation. Generate a fresh task.", invalidate = true)
+                                return@withLock Result.failure()
+                            }
+                            SubtitleSourceCheck.MATCH -> Unit
+                        }
+                        check(SubtitleInputs.config(applicationContext, task.config.sourceLanguage).modelSha256 == task.config.modelSha256) {
+                            "Speech model changed during generation. Completed windows have been kept."
+                        }
+                        checkOwner()
+                        store.completeAudio(id, generation, index)
+                        checkOwner()
+                        store.finish(id, generation)
+                        Result.success()
+                        } finally { translator?.close() }
+                    } finally {
+                        withContext(NonCancellable) { engine.close(); workerScope.cancel() }
+                    }
                 }
             }
         } catch (blocked: SubtitleOwnedWorkBlocked) {

@@ -44,7 +44,7 @@ class ChapterTranslationWorker(context: Context, parameters: WorkerParameters) :
             // Honor a durable owner-scoped pause/cancel before claiming page computation.
             val initial = store.get(taskId)?.takeIf { it.generation == generation } ?: return@withContext Result.success()
             if (!OrezTaskRecovery.allowChapterWork(applicationContext, store, initial)) return@withContext Result.success()
-            val snapshot = store.refresh(taskId)?.takeIf { it.generation == generation }
+            val snapshot = store.refresh(taskId, generation)?.takeIf { it.generation == generation }
                 ?: return@withContext Result.success()
             if (!store.isCurrent(taskId, generation)) return@withContext Result.success()
             setForeground(foreground(snapshot, waiting = true))
@@ -146,7 +146,13 @@ object ChapterTranslationJobs {
         withContext(Dispatchers.IO) {
             val store = ChapterTranslationStore.shared(context)
             val oldGenerations = store.states.value.associate { it.id to it.generation }
-            val task = store.start(chapter, config, requestedPages, ownerRequestId, allowOwnerReplacement, forceReprocess)
+            val captured = ChapterRefinementCapturePolicy.forStart(config, chapter.id, ownerRequestId, forceReprocess,
+                store.states.value) { style ->
+                TranslationOrezRefiner(context).let { refiner ->
+                    try { refiner.captureRequest(true, style) } finally { refiner.close() }
+                }
+            }
+            val task = store.start(chapter, captured, requestedPages, ownerRequestId, allowOwnerReplacement, forceReprocess)
             try {
                 oldGenerations[task.id]?.takeIf { it != task.generation }?.let { old ->
                     // Cancellation is scoped to the old generation, never a global chapter tag.

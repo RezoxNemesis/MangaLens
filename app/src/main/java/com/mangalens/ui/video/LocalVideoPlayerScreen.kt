@@ -35,10 +35,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
-import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.Tracks
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.roundToInt
@@ -55,14 +52,11 @@ fun LocalVideoPlayerScreen(
     val activity = context as? Activity
     val speechState by vm.speech.state.collectAsState()
     var locked by rememberSaveable { mutableStateOf(false) }
-    var playbackSpeed by rememberSaveable { mutableFloatStateOf(1f) }
     var controls by rememberSaveable { mutableStateOf(true) }
     var zoom by rememberSaveable { mutableFloatStateOf(1f) }
     var resizeMode by rememberSaveable { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var fullscreen by rememberSaveable { mutableStateOf(true) }
     var showTools by rememberSaveable { mutableStateOf(false) }
-    var groups by remember { mutableStateOf(emptyList<Tracks.Group>()) }
-    var audioIndex by rememberSaveable { mutableIntStateOf(0) }
     var subtitle by rememberSaveable { mutableStateOf<Uri?>(null) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var subtitleBusy by rememberSaveable { mutableStateOf(false) }
@@ -127,16 +121,6 @@ fun LocalVideoPlayerScreen(
         }
     }
     LaunchedEffect(translationEnabled) { if (!translationEnabled) liveTranslationEnabled = false }
-
-    DisposableEffect(vm.player) {
-        val listener = object : androidx.media3.common.Player.Listener {
-            override fun onTracksChanged(tracks: Tracks) {
-                groups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-            }
-        }
-        vm.player.addListener(listener)
-        onDispose { vm.player.removeListener(listener) }
-    }
 
     Box(
         modifier.fillMaxSize().background(Color.Black)
@@ -279,14 +263,11 @@ fun LocalVideoPlayerScreen(
         if (showTools) {
             ModalBottomSheet(onDismissRequest = { showTools = false }) {
                 Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PlaybackTrackControlsPanel(vm.player)
+                    HorizontalDivider()
                     SubtitleToolsPanel(vm.speech, fullSubtitleGenerator, subtitleMediaSource)
                     HorizontalDivider()
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton({
-                            val speeds = listOf(.5f, 1f, 1.25f, 1.5f, 2f)
-                            playbackSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.size]
-                            vm.player.setPlaybackSpeed(playbackSpeed)
-                        }) { Text("Speed: ${playbackSpeed}x") }
                         TextButton({ locked = true; controls = false; showTools = false }) { Text("Lock controls") }
                     }
                     Text("Video controls", style = MaterialTheme.typography.headlineSmall)
@@ -305,14 +286,6 @@ fun LocalVideoPlayerScreen(
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { picker.launch(arrayOf("video/*")); showTools = false }) { Text("Open") }
-                        Button(onClick = {
-                            if (groups.isNotEmpty()) {
-                                val group = groups[audioIndex % groups.size]
-                                vm.player.trackSelectionParameters = vm.player.trackSelectionParameters.buildUpon()
-                                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, audioIndex % group.length)).build()
-                                audioIndex++
-                            }
-                        }) { Text("Audio") }
                     }
                     Button(onClick = {
                         val current = vm.player.currentMediaItem?.localConfiguration?.uri ?: return@Button

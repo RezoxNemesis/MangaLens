@@ -10,28 +10,14 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import java.util.Locale
 
-internal fun normalizeEnglishDialogueForHindi(value: String): String {
-    var text = value.replace(Regex("\\s+"), " ").trim()
-    val replacements = listOf(
-        Regex("""(?i)\bpissed me off even more\b""") to "made me even angrier",
-        Regex("""(?i)\bpissed me off\b""") to "made me angry",
-        Regex("""(?i)\bused to get beaten up\b""") to "used to be beaten badly",
-        Regex("""(?i)\bget beaten up\b""") to "be beaten badly",
-        Regex("""(?i)\bbeaten up\b""") to "badly beaten",
-        Regex("""(?i)\bhurt a bit for me too\b""") to "hurt me a little too"
-    )
-    replacements.forEach { (pattern, replacement) -> text = text.replace(pattern, replacement) }
-    return text
-}
-
-
 class TranslationService {
     private val languageIdentifier = LanguageIdentification.getClient()
     private val translatorLock = Any()
     private val translators = LinkedHashMap<String, Translator>()
 
     suspend fun translate(text: String, targetLanguage: String, sourceLanguage: String? = null): String =
-        translateDraft(text, targetLanguage, sourceLanguage).text
+        if (text.isBlank()) text else TranslationQualityPolicy.chooseDraft(text,
+            translateDraft(text, targetLanguage, sourceLanguage), "", targetLanguage).text
 
     suspend fun translateDraft(text: String, targetLanguage: String, sourceLanguage: String? = null): TranslationDraft {
         val sourceText = text.trim()
@@ -53,10 +39,6 @@ class TranslationService {
             TranslateLanguage.fromLanguageTag(detected) ?: TranslateLanguage.ENGLISH
         }
         if (source == target) return if (romanHindi) HinglishTranslationOutput.fromHindiDraft(sourceText, sourceText) else TranslationDraft(text)
-        val translationInput = if (source == TranslateLanguage.ENGLISH && target == TranslateLanguage.HINDI) {
-            normalizeEnglishDialogueForHindi(sourceText)
-        } else sourceText
-
         val translator = synchronized(translatorLock) {
             val key = "$source->$target"
             translators[key] ?: Translation.getClient(
@@ -76,22 +58,24 @@ class TranslationService {
             }
         }
 
-        val draft = suspendCancellableCoroutine<String> { continuation ->
+        suspendCancellableCoroutine<Unit> { continuation ->
             translator.downloadModelIfNeeded()
                 .addOnSuccessListener {
-                    if (!continuation.isActive) return@addOnSuccessListener
-                    translator.translate(translationInput)
-                        .addOnSuccessListener { translated ->
-                            if (continuation.isActive) continuation.resume(translated)
-                        }
-                        .addOnFailureListener { failure ->
-                            if (continuation.isActive) continuation.resumeWithException(failure)
-                        }
+                    if (continuation.isActive) continuation.resume(Unit)
                 }
                 .addOnFailureListener { failure ->
                     if (continuation.isActive) continuation.resumeWithException(failure)
                 }
         }
+        suspend fun translateInput(input: String): String = suspendCancellableCoroutine { continuation ->
+            if (!continuation.isActive) return@suspendCancellableCoroutine
+            translator.translate(input)
+                .addOnSuccessListener { if (continuation.isActive) continuation.resume(it) }
+                .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
+        }
+        if (source == TranslateLanguage.ENGLISH && target == TranslateLanguage.HINDI)
+            return EnglishHindiTranslationInputs.translateDraft(sourceText, targetLanguage, ::translateInput)
+        val draft = translateInput(sourceText)
         // Translator instances are keyed by the ML Kit language pair; rendered output
         // and persisted memories retain the full hi-latn tag in their callers.
         return if (romanHindi) HinglishTranslationOutput.fromHindiDraft(sourceText, draft) else TranslationDraft(draft)

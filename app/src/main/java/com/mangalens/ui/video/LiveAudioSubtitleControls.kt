@@ -68,7 +68,7 @@ fun LiveAudioSubtitleOverlay(engine: VideoSpeechEngine, modifier: Modifier = Mod
                     shadow = Shadow(Color.Black, Offset(1f, 1f), 4f)
                 ),
                 textAlign = TextAlign.Center,
-                maxLines = 2,
+                maxLines = if (state.generated && state.generatedOutputMode == SubtitleOutputMode.DUAL) Int.MAX_VALUE else 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
         }
@@ -202,9 +202,16 @@ fun FullSubtitleGeneratorCard(
     modifier: Modifier = Modifier
 ) {
     val state by generator.state.collectAsState()
+    val context = LocalContext.current
+    val prefs = remember(context.applicationContext) { context.getSharedPreferences("full_video_subtitles", Context.MODE_PRIVATE) }
     var attachToPlayer by remember { mutableStateOf(true) }
+    var target by rememberSaveable { mutableStateOf(prefs.getString("target", "en")?.takeIf { it in setOf("en", "hi", "hi-latn") } ?: "en") }
+    var dual by rememberSaveable { mutableStateOf(prefs.getBoolean("dual", false)) }
+    var style by rememberSaveable { mutableStateOf(prefs.getString("style", "natural")?.takeIf { it in setOf("natural", "faithful") } ?: "natural") }
+    val options = remember(target, dual, style) { SubtitleTargetOptions(target,
+        if (dual) SubtitleOutputMode.DUAL else SubtitleOutputMode.TRANSLATED, style).capture() }
     val exports = rememberSubtitleExportActions(state, source)
-    LaunchedEffect(generator, source) { source?.let(generator::bind) }
+    LaunchedEffect(generator, source, options) { source?.let { generator.bind(it, options) } }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -222,9 +229,9 @@ fun FullSubtitleGeneratorCard(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Generate Full English Subtitles", style = MaterialTheme.typography.titleMedium)
+                    Text("Generate Full Subtitles", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Generate timed English subtitles from the complete video audio. Work continues in the background; completed windows survive pause and restart.",
+                        "Recognise the original speech, then translate it on device. Work continues in the background; saved speech and translations survive pause and restart. Translation models may need an initial download.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -238,6 +245,27 @@ fun FullSubtitleGeneratorCard(
                 if (attachToPlayer) "Attach to player: Yes (recommended)" else "Attach to player: No",
                 style = MaterialTheme.typography.labelMedium
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("en" to "English", "hi" to "Hindi", "hi-latn" to "Hinglish").forEach { (code, label) ->
+                    FilterChip(selected = target == code, enabled = !state.running, onClick = {
+                        target = code; prefs.edit().putString("target", code).apply()
+                    }, label = { Text(label) })
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(false to "Translated", true to "Original + translation").forEach { (paired, label) ->
+                    FilterChip(selected = dual == paired, enabled = !state.running, onClick = {
+                        dual = paired; prefs.edit().putBoolean("dual", paired).apply()
+                    }, label = { Text(label) })
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("natural" to "Natural", "faithful" to "Faithful").forEach { (id, label) ->
+                    FilterChip(selected = style == id, enabled = !state.running, onClick = {
+                        style = id; prefs.edit().putString("style", id).apply()
+                    }, label = { Text(label) })
+                }
+            }
 
             if (state.running) {
                 LinearProgressIndicator(progress = state.progress, modifier = Modifier.fillMaxWidth())
@@ -260,12 +288,12 @@ fun FullSubtitleGeneratorCard(
                     color = Color.Black.copy(alpha = .28f)
                 ) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Subtitle Preview (English)", style = MaterialTheme.typography.labelLarge)
+                        Text("Subtitle Preview (${FullVideoSubtitleGenerator.targetName(state.targetLanguage)}${if (state.outputMode == SubtitleOutputMode.DUAL) " + original" else ""})", style = MaterialTheme.typography.labelLarge)
                         state.cues.takeLast(3).forEach { cue ->
                             Text(
                                 "${previewTime(cue.startMs)}  ${cue.text}",
                                 style = MaterialTheme.typography.bodySmall,
-                                maxLines = 2,
+                                maxLines = if (state.outputMode == SubtitleOutputMode.DUAL) Int.MAX_VALUE else 2,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
@@ -288,7 +316,7 @@ fun FullSubtitleGeneratorCard(
                     }
                     Button(
                         enabled = source != null,
-                        onClick = { source?.let { generator.generate(it, attachToPlayer = attachToPlayer, force = state.cues.isNotEmpty()) } },
+                        onClick = { source?.let { generator.generate(it, attachToPlayer = attachToPlayer, force = state.cues.isNotEmpty(), targetOptions = options) } },
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(if (state.cues.isEmpty()) "Generate now" else "Regenerate")
@@ -306,6 +334,9 @@ fun FullSubtitleGeneratorCard(
                 ) { Text(exports.srtLabel) }
             }
             TextButton(enabled = exports.vttEnabled, onClick = exports.vtt) { Text(exports.vttLabel) }
+            if (state.sourceCues.isNotEmpty() && state.pendingTargetCues > 0) {
+                Text("${state.pendingTargetCues} speech cues still need translation. Resume keeps completed cues.", style = MaterialTheme.typography.bodySmall)
+            }
             if (source == null) {
                 Text("Open a local or online video first.", style = MaterialTheme.typography.bodySmall)
             }
@@ -362,7 +393,7 @@ internal fun rememberSubtitleExportActions(state: FullSubtitleState, source: Sub
                         spool.deliver(lease) { context.contentResolver.openOutputStream(uri) }
                     } finally { spool.release(lease) }
                 }
-                "Requested English ${format.uppercase(java.util.Locale.ROOT)} exported"
+                "Requested ${format.uppercase(java.util.Locale.ROOT)} subtitles exported"
             }
             status = result.getOrElse { it.message?.take(300) ?: "Export failed. Retry the export." }
             if (result.isSuccess || !available) {
@@ -394,7 +425,7 @@ internal fun rememberSubtitleExportActions(state: FullSubtitleState, source: Sub
                 prepared = true
                 if (format == "srt") { pendingSrt = durable; waitingSrt = true } else { pendingVtt = durable; waitingVtt = true }
                 status = "Choose a destination for the requested ${format.uppercase(java.util.Locale.ROOT)} export."
-                if (format == "srt") srtLauncher.launch("MangaLens-English.srt") else vttLauncher.launch("MangaLens-English.vtt")
+                if (format == "srt") srtLauncher.launch("MangaLens-subtitles.srt") else vttLauncher.launch("MangaLens-subtitles.vtt")
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (failure: Exception) {
                 if (format == "srt") waitingSrt = false else waitingVtt = false
@@ -407,7 +438,8 @@ internal fun rememberSubtitleExportActions(state: FullSubtitleState, source: Sub
             finally { if (format == "srt") preparingSrt = false else preparingVtt = false }
         }
     }
-    val ready = state.cues.isNotEmpty() && state.sourceCacheKey == source?.cacheKey
+    val ready = state.cues.isNotEmpty() && state.sourceCacheKey == source?.cacheKey &&
+        (state.pipeline != SubtitlePipeline.SOURCE_TRANSLATION || state.status == SubtitleGenerationStatus.COMPLETED && state.pendingTargetCues == 0)
     return SubtitleExportActions(srtEnabled = !preparingSrt && !waitingSrt && pendingSrt?.let(writing::contains) != true && (pendingSrt != null || ready && state.srt.isNotBlank()),
         vttEnabled = !preparingVtt && !waitingVtt && pendingVtt?.let(writing::contains) != true && (pendingVtt != null || ready && state.vtt.isNotBlank()),
         srtLabel = if (pendingSrt == null) "Export SRT" else "Retry SRT",

@@ -35,7 +35,7 @@ internal class OrezSubtitleControlOperations(private val host: OrezSubtitleHost)
         OrezSubtitlePlanScope.verifyOwned(plan, step, receipt, allowGenerationRecovery = original.resuming)
         val expected = OrezSubtitlePlanScope.expected(plan, step)
         val producer = plan.steps[step.references.getValue("sourceId").stepIndex]
-        val verified = if (producer.call.name == "inspect_selected_media") host.inspectSelection(expected.descriptor, expected.speechModelSha256)
+        val verified = host.revalidateOwned(receipt) ?: if (producer.call.name == "inspect_selected_media") host.inspectSelection(expected.descriptor, expected.speechModelSha256)
             else host.inspectDownload(requireNotNull(OrezSubtitlePlanScope.download(plan, expected.sourceId.removePrefix("download-"))), expected.speechModelSha256)
         require(verified == expected) { "The captured media source changed. Start a new subtitle request." }
         require(receipt.status != OrezNativeSubtitleStatus.CANCELLED) { "Cancelled native subtitles need a new explicit request." }

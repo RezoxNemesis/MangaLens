@@ -23,8 +23,9 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
     private val attachment = SubtitleAttachmentReceipt()
 
     /** Reopening a player observes its exact source/model/configuration without starting new work. */
-    fun bind(source: SubtitleMediaSource) {
-        val operation = SubtitleGenerationRequest(publication.advance(), source, engine.language)
+    fun bind(source: SubtitleMediaSource) = bind(source, null)
+    fun bind(source: SubtitleMediaSource, targetOptions: SubtitleTargetOptions?) {
+        val operation = SubtitleGenerationRequest(publication.advance(), source, engine.language, targetOptions)
         publication.publish(operation.token) {
             attachment.bind(operation.source)
             activeRequest = null
@@ -35,8 +36,10 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
         scope.launch(Dispatchers.IO) {
             try {
                 val identity = SubtitleInputs.capture(app, operation.source)
-                val config = SubtitleInputs.config(app, operation.sourceLanguage)
-                val task = store.find(identity, config)
+                val config = SubtitleInputs.config(app, operation.sourceLanguage, operation.targetOptions)
+                val task = store.find(identity, config) ?: if (config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
+                    config.targetLanguage == "en" && config.outputMode == SubtitleOutputMode.TRANSLATED && config.style == "natural" &&
+                    !config.localRefinement && config.customStyle.isEmpty()) store.find(identity, SubtitleInputs.config(app, operation.sourceLanguage)) else null
                 if (task == null) {
                     withContext(Dispatchers.Main.immediate) {
                         publication.publish(operation.token) { if (scope.isActive) mutable.value = FullSubtitleState() }
@@ -50,9 +53,9 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
         }
     }
 
-    fun generate(source: SubtitleMediaSource, attachToPlayer: Boolean = true, force: Boolean = false) {
+    fun generate(source: SubtitleMediaSource, attachToPlayer: Boolean = true, force: Boolean = false, targetOptions: SubtitleTargetOptions? = null) {
         // Detach caller-owned headers and capture language before any coroutine is dispatched.
-        val operation = SubtitleGenerationRequest(publication.advance(), source, engine.language)
+        val operation = SubtitleGenerationRequest(publication.advance(), source, engine.language, targetOptions)
         publication.publish(operation.token) {
             attachment.bind(operation.source)
             activeRequest = operation
@@ -67,7 +70,7 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
         launchCommand {
             try {
                 val identity = SubtitleInputs.capture(app, operation.source)
-                val config = SubtitleInputs.config(app, operation.sourceLanguage)
+                val config = SubtitleInputs.config(app, operation.sourceLanguage, operation.targetOptions)
                 val previous = store.find(identity, config)
                 var task = SubtitleGenerationJobs.start(app, identity, config, force || previous?.status == SubtitleGenerationStatus.CANCELLED)
                 operation.receipt = task
@@ -104,7 +107,7 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
         }
     }
     fun applyToPlayer() = publication.capture { _ ->
-        mutable.value.cues.takeIf { it.isNotEmpty() }?.let(engine::applyGeneratedCues)
+        mutable.value.cues.takeIf { it.isNotEmpty() }?.let { engine.applyGeneratedCues(it, mutable.value.outputMode) }
         Unit
     }
 
@@ -159,10 +162,11 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                     val cues = task.cues
                     val running = task.status in setOf(SubtitleGenerationStatus.QUEUED, SubtitleGenerationStatus.RUNNING)
                     val stage = when {
-                        task.validationPending -> "Checking saved video and speech windows…"
-                        task.status == SubtitleGenerationStatus.COMPLETED -> "Generated English subtitles ready"
+                        task.validationPending || task.pcmValidationRequired -> "Checking saved video and speech windows…"
+                        task.status == SubtitleGenerationStatus.COMPLETED -> "${targetName(task.config.targetLanguage)} subtitles ready"
                         task.status == SubtitleGenerationStatus.QUEUED -> "Queued for background subtitle generation"
-                        task.status == SubtitleGenerationStatus.RUNNING -> "${task.windows.size} audio windows saved"
+                        task.status == SubtitleGenerationStatus.RUNNING -> if (task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
+                            "${task.sourceCueCount} original speech cues • ${task.translatedCueCount} translated" else "${task.windows.size} audio windows saved"
                         task.status == SubtitleGenerationStatus.PAUSED -> "Subtitle generation paused"
                         task.status == SubtitleGenerationStatus.CANCELLED -> "Subtitle generation cancelled"
                         task.status == SubtitleGenerationStatus.PARTIAL -> "Generation stopped • completed windows retained"
@@ -173,7 +177,8 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                         stage = stage, cues = cues, srt = SubtitleFormats.srt(cues), outputFile = task.srtPath?.let(::File),
                         cached = task.status == SubtitleGenerationStatus.COMPLETED, error = task.error, taskId = task.id, generation = task.generation,
                         status = task.status, completedWindows = task.windows.size, vtt = SubtitleFormats.vtt(cues), vttFile = task.vttPath?.let(::File),
-                        sourceCacheKey = task.source.source.cacheKey)
+                        sourceCacheKey = task.source.source.cacheKey, targetLanguage = task.config.targetLanguage,
+                        outputMode = task.config.outputMode, sourceCues = task.sourceCues, pendingTargetCues = task.pendingTargetCues, pipeline = task.config.pipeline)
                     currentCoroutineContext().ensureActive()
                     // Formatting and journal work can take time. Recheck only at the
                     // final Main publication, including observer changes and attachment.
@@ -183,9 +188,9 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                             selected = task
                             activeRequest?.takeIf { it.token == token }?.receipt = task
                             mutable.value = display
-                            if (attach && task.status == SubtitleGenerationStatus.COMPLETED && !task.validationPending && attachment.shouldAttach(task.generation)) {
+                            if (attach && task.status == SubtitleGenerationStatus.COMPLETED && !task.validationPending && !task.pcmValidationRequired && attachment.shouldAttach(task.generation)) {
                                 attachment.attached(task.generation)
-                                engine.applyGeneratedCues(cues)
+                                engine.applyGeneratedCues(cues, task.config.outputMode)
                             }
                         }
                     }
@@ -194,6 +199,7 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
         }
     }
     companion object {
+        internal fun targetName(language: String): String = when (language) { "hi" -> "Hindi"; "hi-latn" -> "Hinglish"; else -> "English" }
         fun toSrt(cues: List<SpeechCue>): String = cues.mapIndexed { index, cue ->
             "${index + 1}\n${timestamp(cue.startMs)} --> ${timestamp(cue.endMs)}\n${cue.text.trim()}\n"
         }.joinToString("\n")

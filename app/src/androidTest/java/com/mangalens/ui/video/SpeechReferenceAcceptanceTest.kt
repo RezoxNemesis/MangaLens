@@ -22,7 +22,7 @@ import java.util.Locale
 /** Actual decoded audio and JNI inference; this reference does not replace provider acceptance. */
 @RunWith(AndroidJUnit4::class)
 class SpeechReferenceAcceptanceTest {
-    @Test fun realReferenceAudioMeetsWordAccuracyAndProducesTimedExports() = runBlocking {
+    @Test fun realReferenceAudioMeetsWordAccuracyAndProducesTimedExports(): Unit = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val arguments = InstrumentationRegistry.getArguments()
         val audio = File(requireNotNull(arguments.getString("reference_audio_path")) { "Stage the pinned JFK reference audio" })

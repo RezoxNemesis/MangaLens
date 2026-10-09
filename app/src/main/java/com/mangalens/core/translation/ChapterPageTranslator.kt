@@ -11,6 +11,7 @@ import android.graphics.RectF
 import com.mangalens.core.reader.ReaderPromoPolicy
 import com.mangalens.engine.AdvancedTranslationEngine
 import com.mangalens.engine.LocalSourceLanguage
+import com.mangalens.engine.OcrSourceQuality
 import com.mangalens.engine.TranslationRegion
 import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.orez.OrezTranslationEntity
@@ -45,6 +46,9 @@ internal class ChapterPageTranslator(
     private val config = task.config
     private val style = config.style()
     private val memoryScope = "chapter:" + task.chapterId
+    private val memoryStyleKey = style.memoryKey + (config.refinementRequest?.let {
+        ":refinement:" + TranslationRefinementPolicy.hash(TranslationRefinementRequestCodec.identity(it)).take(20)
+    } ?: "")
 
     suspend fun translate(page: ChapterTranslationPage, chapterContext: String): ChapterTranslationPage {
         checkActive()
@@ -86,14 +90,30 @@ internal class ChapterPageTranslator(
                 }
                 try {
                     require(region.source.length in 1..ChapterTranslationStore.MAX_TEXT_CHARS) { "OCR region is too large to translate safely." }
+                    if (OcrSourceQuality.needsPixelRetry(region.source)) throw TranslationQualityException()
                     val localizedDraft = recall(region.source) ?: run {
+                        // Edit pinned Hindi before romanization so the exact validated
+                        // intermediate remains evidence for the final Roman lettering.
+                        val draftTarget = if (HindiRomanization.isTarget(config.targetLanguage) &&
+                            (config.localRefinement || style.id in setOf("formal", "custom"))) "hi" else config.targetLanguage
                         val draft = withTimeoutOrNull(90_000L) {
-                            translator.translateDraft(region.source, config.targetLanguage, sourceHint(region))
+                            translator.translateDraft(region.source, draftTarget, sourceHint(region))
                         } ?: error("On-device translation model could not finish. Check its download and resume.")
                         checkActive()
-                        val refined = refiner.refine(region.source, draft.text, config.targetLanguage, style,
-                            chapterContext = chapterContext, enabledOverride = config.localRefinement)
-                        TranslationQualityPolicy.chooseDraft(region.source, draft, refined, config.targetLanguage)
+                        val refined = if (config.localRefinement) {
+                            val request = config.refinementRequest
+                                ?: error("This older task has no captured refinement model. Start a new translation explicitly.")
+                            check(request.enabled && request.pinnedModel != null) { "This task captured no available refinement model. Install a verified pack, then start a new translation explicitly." }
+                            val result = refiner.refineCaptured(region.source, draft.text, draftTarget, request, chapterContext)
+                            check(TranslationRefinementPolicy.matches(result, region.source, draft.text, draftTarget, request, chapterContext)) {
+                                "The captured local refinement model could not finish (${result.status.name.lowercase()}). Retry this task; its model stays pinned."
+                            }
+                            if (style.id !in setOf("natural", "faithful") && !TranslationQualityPolicy.isUsable(region.source, result.text, draftTarget))
+                                throw TranslationQualityException()
+                            result.text
+                        } else ""
+                        val selected = TranslationQualityPolicy.chooseDraft(region.source, draft, refined, draftTarget, style)
+                        if (draftTarget != config.targetLanguage) HinglishTranslationOutput.fromHindiDraft(region.source, selected.text, style) else selected
                     }
                     val localized = localizedDraft.text
                     require(localized.length in 1..ChapterTranslationStore.MAX_TEXT_CHARS) { "Translated lettering is too large to save safely." }
@@ -257,19 +277,20 @@ internal class ChapterPageTranslator(
     }
 
     internal suspend fun recall(source: String): TranslationDraft? = try {
-        OrezRoomDatabase.get(context).datasets().exactTranslationScoped(source.trim(), config.targetLanguage, style.memoryKey, memoryScope)
+        if (config.localRefinement && config.refinementRequest?.pinnedModel == null) null
+        else OrezRoomDatabase.get(context).datasets().exactTranslationScoped(source.trim(), config.targetLanguage, memoryStyleKey, memoryScope)
             ?.let { TranslationMemoryCodec.decode(source, it, config.targetLanguage) }
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { null }
 
     internal suspend fun remember(source: String, translated: TranslationDraft) {
         try {
-            val identity = listOf(source.trim(), config.targetLanguage, style.memoryKey, memoryScope).joinToString("|")
+            val identity = listOf(source.trim(), config.targetLanguage, memoryStyleKey, memoryScope).joinToString("|")
             val key = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
             OrezRoomDatabase.get(context).datasets().upsertTranslation(OrezTranslationEntity(key = key, source = source.trim(),
                 target = TranslationMemoryCodec.encode(source, translated, config.targetLanguage),
-                targetLanguage = config.targetLanguage, style = style.memoryKey, scope = memoryScope))
+                targetLanguage = config.targetLanguage, style = memoryStyleKey, scope = memoryScope))
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { /* Optional scoped memory never invalidates a verified page. */ }
     }

@@ -59,6 +59,8 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
             .setEnableDecoderFallback(true)
     )
         .setMediaSourceFactory(mediaSourceFactory)
+        .setSeekBackIncrementMs(PLAYBACK_SEEK_INCREMENT_MS)
+        .setSeekForwardIncrementMs(PLAYBACK_SEEK_INCREMENT_MS)
         .build()
 
     init {
@@ -72,12 +74,15 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     private var uri: Uri? = null
     private var httpRequestKey: String? = null
+    internal var sourceRevision: Long = 0L
+        private set
 
     fun open(value: Uri) {
-        if (uri == value && player.mediaItemCount > 0) return
+        if (httpRequestKey == null && uri == value && player.mediaItemCount > 0) return
         savePosition()
         uri = value
         httpRequestKey = null
+        sourceRevision++
         player.setMediaItem(MediaItem.fromUri(value), positions.getLong(positionKey(value), 0L))
         player.prepare()
         player.playWhenReady = true
@@ -88,8 +93,10 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         referer: String? = null,
         headers: Map<String, String> = emptyMap(),
         audioUrl: String? = null,
-        audioHeaders: Map<String, String> = emptyMap()
-    ) {
+        audioHeaders: Map<String, String> = emptyMap(),
+        refreshFromRevision: Long? = null
+    ): Boolean {
+        if (refreshFromRevision != null && refreshFromRevision != sourceRevision) return false
         val requestKey = buildString {
             append(value).append('\n')
             append(referer.orEmpty()).append('\n')
@@ -101,10 +108,7 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
                 append("audio-").append(name.lowercase()).append('=').append(headerValue).append('\n')
             }
         }
-        if (httpRequestKey == requestKey && player.mediaItemCount > 0) return
-        savePosition()
-        uri = Uri.parse(value)
-        httpRequestKey = requestKey
+        if (httpRequestKey == requestKey && player.mediaItemCount > 0) return true
 
         // Each media source owns a request-context snapshot. This matters for signed/CDN media:
         // redirects and segment requests keep the source-page Referer/Cookie instead of inheriting
@@ -122,9 +126,24 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             videoSource
         }
-        player.setMediaSource(source, positions.getLong(positionKey(Uri.parse(value)), 0L))
+        // Capture after building the source and on the player's thread. A resolver-start
+        // snapshot could already be stale because playback or a user seek continued.
+        if (refreshFromRevision != null && refreshFromRevision != sourceRevision) return false
+        savePosition()
+        val savedPosition = positions.getLong(positionKey(Uri.parse(value)), 0L)
+        val start = playbackReplacementStart(
+            sourceRevision, refreshFromRevision,
+            if (refreshFromRevision != null) playbackContinuationSnapshot(player) else null,
+            savedPosition
+        )
+        if (start == PlaybackReplacementStart.Superseded) return false
+        uri = Uri.parse(value)
+        httpRequestKey = requestKey
+        sourceRevision++
+        applyPlaybackReplacementStart(player, source, start)
         player.prepare()
         player.playWhenReady = true
+        return true
     }
 
     fun bind(view: PlayerView) {

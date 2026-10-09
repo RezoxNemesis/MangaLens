@@ -104,15 +104,15 @@ object OrezTaskRecovery {
             captured.steps.any { step -> step.call.name == "generate_subtitles" && OrezDurablePlanRules.requestId(id, step.index) == owner }
         } } ?: return true
         if (plan.pendingControl == null) return true
-        val sourceId = try {
+        val expected = try {
             val step = plan.steps.first { it.call.name == "generate_subtitles" && OrezDurablePlanRules.requestId(plan.id, it.index) == owner }
-            OrezSubtitlePlanScope.expected(plan, step).sourceId
+            OrezSubtitlePlanScope.expected(plan, step)
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (invalidScope: Exception) {
             store.noteControlFailure(plan, invalidScope.message ?: "Subtitle stop scope changed. Retry the task control.")
             return true
         }
-        val receipt = try { OrezSubtitleNativeEvidence.metadataReceipt(task, sourceId) }
+        val receipt = try { OrezSubtitleNativeEvidence.metadataReceipt(task, expected.sourceId, expected.descriptor) }
         catch (invalidScope: Exception) {
             store.noteControlFailure(plan, invalidScope.message ?: "Native subtitle stop identity is unavailable.")
             return true
@@ -122,8 +122,8 @@ object OrezTaskRecovery {
                 // Direct generation-fenced store mutation avoids cancelling this worker's own WM operation.
                 val stopped = if (control == OrezPendingControl.CANCEL) nativeStore.cancel(captured.taskId, captured.generation)
                     else nativeStore.pause(captured.taskId, captured.generation)
-                stopped?.let { OrezSubtitleNativeEvidence.metadataReceipt(it, sourceId) }
-            }, current = { id -> nativeStore.get(id)?.let { OrezSubtitleNativeEvidence.metadataReceipt(it, sourceId) } })
+                stopped?.let { OrezSubtitleNativeEvidence.metadataReceipt(it, expected.sourceId, expected.descriptor) }
+            }, current = { id -> nativeStore.get(id)?.let { OrezSubtitleNativeEvidence.metadataReceipt(it, expected.sourceId, expected.descriptor) } })
     }
 }
 

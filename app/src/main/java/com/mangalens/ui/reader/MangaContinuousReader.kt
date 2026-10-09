@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import com.mangalens.core.reader.ChapterPage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filterNotNull
 
 @OptIn(kotlinx.coroutines.FlowPreview::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -98,8 +99,6 @@ fun MangaContinuousReader(
     var textScale by remember { mutableFloatStateOf(prefs.getFloat("text_scale", 1f)) }
     var controls by remember { mutableStateOf(false) }
     var styleMenu by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    var positionRestored by rememberSaveable(chapterId) { mutableStateOf(false) }
     var originalVisible by rememberSaveable(chapterId) { mutableStateOf(false) }
     var hudVisible by remember { mutableStateOf(true) }
     var headerHeight by remember { mutableStateOf(76.dp) }
@@ -112,22 +111,31 @@ fun MangaContinuousReader(
     var languageMenu by remember { mutableStateOf(false) }
     var hidePromos by rememberSaveable(chapterId) { mutableStateOf(prefs.getBoolean("hide_promos", true)) }
     var revealedPromoPages by remember(chapterId) { mutableStateOf(emptySet<Int>()) }
-    val currentPages by rememberUpdatedState(pages)
-    val currentPositionCallback by rememberUpdatedState(onPositionChanged)
+    val currentPages by key(chapterId) { rememberUpdatedState(pages) }
+    val currentPositionCallback by key(chapterId) { rememberUpdatedState(onPositionChanged) }
     val listState = rememberLazyListState()
     val modeKey = "mode_" + title.substringBefore("Chapter", title).trim().ifBlank { chapterId }
-    var readingMode by rememberSaveable(chapterId) { mutableStateOf(prefs.getString(modeKey, prefs.getString("default_mode", "vertical")) ?: "vertical") }
-    var activePage by rememberSaveable(chapterId) { mutableIntStateOf(initialPosition.coerceAtLeast(0)) }
-    var activeOffset by rememberSaveable(chapterId) { mutableIntStateOf(initialOffset.coerceAtLeast(0)) }
-    val pagerState = rememberPagerState(initialPage = activePage.coerceIn(0, pages.lastIndex.coerceAtLeast(0))) { pages.size }
-    val currentMode by rememberUpdatedState(readingMode)
+    var positionState by rememberSaveable(chapterId, stateSaver = listSaver<ReaderPositionState, Any>(
+        save = { listOf(it.mode, it.page, it.offset) },
+        restore = { ReaderPositionState.initial(it[0] as String, it[1] as Int, it[2] as Int) }
+    )) {
+        mutableStateOf(ReaderPositionState.initial(
+            prefs.getString(modeKey, prefs.getString("default_mode", "vertical")) ?: "vertical",
+            initialPosition, initialOffset))
+    }
+    val readingMode = positionState.mode
+    val activePage = positionState.page
+    val positionRestored = !positionState.restoring
+    // Each direction gets a fresh layout, seeded by the accepted logical page.
+    val pagerState = key(chapterId, readingMode) {
+        rememberPagerState(initialPage = activePage.coerceIn(0, pages.lastIndex.coerceAtLeast(0))) { pages.size }
+    }
+    val currentViewport by key(chapterId) { rememberUpdatedState({
+        if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        else pagerState.settledPage to 0
+    }) }
     fun goToPage(position: Int) {
-        if (pages.isEmpty()) return
-        scope.launch {
-            val target = position.coerceIn(0, pages.lastIndex)
-            if (readingMode == "vertical") listState.animateScrollToItem(target)
-            else pagerState.animateScrollToPage(target)
-        }
+        positionState = positionState.navigate(position, pages.size)
     }
     val transformState = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 4f)
@@ -138,27 +146,40 @@ fun MangaContinuousReader(
         hudVisible = true
     }
 
-    LaunchedEffect(chapterId, readingMode, pages.isNotEmpty()) {
+    LaunchedEffect(chapterId, readingMode, positionState.request, pages.isNotEmpty()) {
         if (pages.isEmpty()) return@LaunchedEffect
-        val position = activePage.coerceIn(0, pages.lastIndex)
-        if (readingMode == "vertical") listState.scrollToItem(position, activeOffset)
-        else pagerState.scrollToPage(position)
-        activePage = position
-        // reverseLayout is rebuilt when LTR/RTL changes. Do not let its transient
-        // pager index overwrite the logical page before the restored page settles.
-        delay(350L)
-        positionRestored = true
+        val captured = positionState
+        val target = captured.page.coerceIn(0, pages.lastIndex)
+        try {
+            if (captured.mode == "vertical") {
+                if (captured.animate) listState.animateScrollToItem(target, captured.offset)
+                else listState.scrollToItem(target, captured.offset)
+            } else {
+                if (captured.animate) pagerState.animateScrollToPage(target)
+                else pagerState.scrollToPage(target)
+            }
+        } finally {
+            // A user gesture may cancel animation. A newer command may cancel this effect.
+            // Only the matching request can accept the actual viewport in either case.
+            val physical = if (captured.mode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
+            val offset = if (captured.mode == "vertical") listState.firstVisibleItemScrollOffset else 0
+            positionState = positionState.restored(captured, physical, offset, currentPages.size)
+        }
     }
-    LaunchedEffect(chapterId, readingMode, positionRestored) {
+    LaunchedEffect(chapterId, readingMode, positionState.request, positionRestored) {
         if (!positionRestored) return@LaunchedEffect
+        val captured = positionState
         snapshotFlow {
             if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
             else pagerState.settledPage to 0
-        }.debounce(300).collect { (position, offset) ->
-            if (currentPages.isNotEmpty()) {
-                activePage = position.coerceIn(0, currentPages.lastIndex)
-                activeOffset = offset
-                currentPositionCallback(chapterId, activePage, offset)
+        }.collect { (position, offset) ->
+            positionState = positionState.observed(captured.request, captured.mode, position, offset, currentPages.size)
+        }
+    }
+    LaunchedEffect(chapterId) {
+        snapshotFlow { positionState.checkpoint() }.filterNotNull().debounce(300).collect { checkpoint ->
+            if (positionState.acceptsCheckpoint(checkpoint) && currentPages.isNotEmpty()) {
+                currentPositionCallback(chapterId, checkpoint.page, checkpoint.offset)
             }
         }
     }
@@ -167,9 +188,13 @@ fun MangaContinuousReader(
         if (readingMode != "vertical" && zoomPage != pagerState.settledPage) { scale = 1f; panX = 0f; panY = 0f; zoomPage = pagerState.settledPage }
     }
     DisposableEffect(chapterId) { onDispose {
-        if (positionRestored && currentPages.isNotEmpty()) {
-            val position = if (currentMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
-            currentPositionCallback(chapterId, position, if (currentMode == "vertical") listState.firstVisibleItemScrollOffset else 0)
+        if (currentPages.isNotEmpty()) {
+            // An accepted command is saved even if route disposal interrupts its animation.
+            val position = positionState
+            val (physical, offset) = currentViewport()
+            currentPositionCallback(chapterId,
+                if (position.restoring) position.page.coerceIn(0, currentPages.lastIndex) else physical,
+                if (position.restoring) position.offset else offset)
         }
     } }
     LaunchedEffect(autoScroll, speed) {
@@ -256,7 +281,7 @@ fun MangaContinuousReader(
                                 if (scale > 1f || tap.x in size.width * .25f..size.width * .75f) hudVisible = !hudVisible
                                 else {
                                     val next = (tap.x > size.width / 2) != (readingMode == "rtl")
-                                    goToPage(position + if (next) 1 else -1)
+                                    goToPage(positionState.page + if (next) 1 else -1)
                                 }
                             }, onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
                                 onLongPress = { onLongPressPage(page) })
@@ -363,9 +388,9 @@ fun MangaContinuousReader(
             ) {
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton({ goToPage(activePage - 1) }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
+                        TextButton({ goToPage(positionState.page - 1) }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
                         Text("${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelMedium)
-                        TextButton({ goToPage(activePage + 1) }, enabled = pages.isNotEmpty() && activePage < pages.lastIndex) { Text("Next ›") }
+                        TextButton({ goToPage(positionState.page + 1) }, enabled = pages.isNotEmpty() && activePage < pages.lastIndex) { Text("Next ›") }
                     }
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(pages, key = { it.index }) { page ->
@@ -377,20 +402,14 @@ fun MangaContinuousReader(
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL").forEach { (mode, label) ->
                                 androidx.compose.material3.FilterChip(selected = readingMode == mode, onClick = {
-                                    // activePage is the stable logical page across pager direction changes.
-                                    // reverseLayout can transiently report a different settledPage while RTL/LTR
-                                    // is being recomposed, which used to jump back a page when returning vertical.
-                                    if (readingMode == "vertical") {
-                                        activePage = listState.firstVisibleItemIndex
-                                        activeOffset = listState.firstVisibleItemScrollOffset
-                                    } else {
-                                        activeOffset = 0
+                                    if (mode != positionState.mode) {
+                                        val physical = if (readingMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
+                                        val offset = if (readingMode == "vertical") listState.firstVisibleItemScrollOffset else 0
+                                        positionState = positionState.switchMode(mode, physical, offset, pages.size)
+                                        autoScroll = false
+                                        scale = 1f; panX = 0f; panY = 0f
+                                        prefs.edit().putString(modeKey, mode).putString("default_mode", mode).apply()
                                     }
-                                    positionRestored = false
-                                    autoScroll = false
-                                    scale = 1f; panX = 0f; panY = 0f
-                                    readingMode = mode
-                                    prefs.edit().putString(modeKey, mode).putString("default_mode", mode).apply()
                                 }, label = { Text(label) })
                             }
                         }

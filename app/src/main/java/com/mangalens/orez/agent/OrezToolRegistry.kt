@@ -57,7 +57,7 @@ class OrezToolRegistry {
         require(!descriptor.requiresUrl || url.isNotBlank()) { "This tool requires a URL" }
         require(url.isBlank() || (url.length <= 8192 && UrlEngineRouter.isSafeWebUrl(url))) { "Invalid or unsafe URL" }
         call.arguments["targetLanguage"]?.let {
-            if (call.name == "generate_subtitles") require(it == "en") { "This native speech provider generates English subtitles only." }
+            if (call.name == "generate_subtitles") require(it in setOf("en", "hi", "hi-latn")) { "This native subtitle provider supports English, Hindi and Hinglish." }
             require(descriptor.capability == OrezCapability.TRANSLATION && it in setOf("hi", "hi-latn", "en", "ja", "ko", "zh", "fr", "es", "de")) {
                 "Unsupported translation target"
             }

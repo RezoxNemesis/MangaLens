@@ -151,6 +151,15 @@ fun AdBlockedWebScreen(
     val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
     val latestSiteAdBlockEnabled by rememberUpdatedState(siteAdBlockEnabled)
 
+    fun observeBrowser(
+        action: String, view: WebView? = webView, callbackUrl: String? = null,
+        targetUrl: String? = null, detail: String = ""
+    ) {
+        if (!WebNavigationDiagnostics.enabled) return
+        WebNavigationDiagnostics.observe(action, pageLoad, currentUrl, view?.url,
+            callbackUrl, targetUrl, detail, view?.let(System::identityHashCode))
+    }
+
     fun beginNavigation(target: String) {
         pageLoad = pageLoad.start(target)
         currentUrl = target
@@ -161,20 +170,28 @@ fun AdBlockedWebScreen(
         totalTranslatable = 0
         translationStatus = null
         hudVisible = true
+        observeBrowser("begin_navigation", targetUrl = target)
     }
 
     fun loadPage(target: String) {
         val view = webView ?: return
         beginNavigation(target)
+        observeBrowser("load_url_command", view, targetUrl = target)
         view.loadUrl(target)
+        observeBrowser("load_url_dispatched", view, targetUrl = target)
     }
 
     fun reloadPage() {
         val view = webView ?: return
-        val target = view.url?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl) ?: currentUrl
-        if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(target)) return
-        beginNavigation(target)
-        if (view.url?.let { WebPageLoadState.sameDocument(it, target) } == true) view.reload() else view.loadUrl(target)
+        val plan = planWebReload(pageLoad, view.url, currentUrl,
+            com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl) ?: return
+        observeBrowser("reload_requested", view, targetUrl = plan.url,
+            detail = if (plan.reloadCurrent) "reload" else "load_url")
+        beginNavigation(plan.url)
+        observeBrowser("reload_command", view, targetUrl = plan.url,
+            detail = if (plan.reloadCurrent) "reload" else "load_url")
+        if (plan.reloadCurrent) view.reload() else view.loadUrl(plan.url)
+        observeBrowser("reload_dispatched", view, targetUrl = plan.url)
     }
 
     fun navigateHistory(delta: Int) {
@@ -185,7 +202,9 @@ fun AdBlockedWebScreen(
         val target = history.getItemAtIndex(index).url
         if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(target)) return
         beginNavigation(target)
+        observeBrowser("history_command", view, targetUrl = target, detail = delta.toString())
         view.goBackOrForward(delta)
+        observeBrowser("history_dispatched", view, targetUrl = target, detail = delta.toString())
     }
 
     fun callbackTicket(view: WebView?, callbackUrl: String?): WebNavigationTicket? {
@@ -294,6 +313,7 @@ fun AdBlockedWebScreen(
         }
     }
     DisposableEffect(translator) { onDispose {
+        observeBrowser("dispose")
         webView?.apply { stopLoading(); webChromeClient = null; webViewClient = android.webkit.WebViewClient(); destroy() }
         webView = null
         translator.close()
@@ -444,12 +464,14 @@ fun AdBlockedWebScreen(
                 WebView(ctx).apply {
                     com.mangalens.core.web.SafeWebView.configure(this)
                     settings.domStorageEnabled = true
+                    observeBrowser("webview_created", this)
                     webChromeClient = object : WebChromeClient() {
                         override fun onProgressChanged(view: WebView?, progress: Int) {
                             val ticket = callbackTicket(view, view?.url) ?: return
                             pageLoad = pageLoad.progressed(ticket, view?.url, progress)
                         }
                         override fun onReceivedTitle(view: WebView?, title: String?) {
+                            observeBrowser("received_title", view)
                             if (callbackTicket(view, view?.url) != null) pageTitle = title.orEmpty()
                         }
 
@@ -473,6 +495,7 @@ fun AdBlockedWebScreen(
                     webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && latestSiteAdBlockEnabled }) {
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val blocked = super.shouldOverrideUrlLoading(view, request)
+                            observeBrowser("override_navigation", view, callbackUrl = request?.url?.toString(), detail = "blocked=$blocked")
                             if (!blocked && request?.isForMainFrame == true) {
                                 val target = request.url.toString()
                                 if (!pageLoad.pageReady || !WebPageLoadState.sameDocument(currentUrl, target)) beginNavigation(target)
@@ -516,6 +539,7 @@ fun AdBlockedWebScreen(
                         }
 
                         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
+                            observeBrowser("page_started", view, callbackUrl = pageUrl)
                             val target = pageUrl?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl) ?: return
                             val visibleUrl = view?.url
                             if (visibleUrl != null && !WebPageLoadState.sameDocument(visibleUrl, target)) return
@@ -526,6 +550,8 @@ fun AdBlockedWebScreen(
                             currentUrl = target
                         }
                         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                            observeBrowser("received_error", view, callbackUrl = request?.url?.toString(),
+                                detail = "main_frame=${request?.isForMainFrame};code=${error?.errorCode}")
                             if (request?.isForMainFrame != true) return
                             val ticket = callbackTicket(view, request.url.toString()) ?: return
                             pageLoad = pageLoad.failed(ticket, request.url.toString(), true, "Page could not load. Check your connection and retry.")
@@ -534,8 +560,11 @@ fun AdBlockedWebScreen(
                             canGoBack = view?.canGoBack() == true
                             canGoForward = view?.canGoForward() == true
                             hudVisible = true
+                            observeBrowser("error_applied", view, callbackUrl = request.url.toString())
                         }
                         override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, response: android.webkit.WebResourceResponse?) {
+                            observeBrowser("received_http_error", view, callbackUrl = request?.url?.toString(),
+                                detail = "main_frame=${request?.isForMainFrame};status=${response?.statusCode}")
                             if (request?.isForMainFrame != true) return
                             val ticket = callbackTicket(view, request.url.toString()) ?: return
                             pageLoad = pageLoad.failed(ticket, request.url.toString(), true, "Website returned HTTP ${response?.statusCode ?: "error"}. Retry or open the source.")
@@ -544,6 +573,7 @@ fun AdBlockedWebScreen(
                             hudVisible = true
                         }
                         override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler?, error: android.net.http.SslError?) {
+                            observeBrowser("received_ssl_error", view, callbackUrl = error?.url)
                             handler?.cancel()
                             val failedUrl = error?.url ?: view?.url
                             val ticket = callbackTicket(view, failedUrl) ?: return
@@ -553,15 +583,21 @@ fun AdBlockedWebScreen(
                             hudVisible = true
                         }
                         override fun onPageFinished(view: WebView?, pageUrl: String?) {
+                            observeBrowser("page_finished", view, callbackUrl = pageUrl)
                             val ticket = callbackTicket(view, pageUrl) ?: return
                             pageLoad = pageLoad.finished(ticket, pageUrl)
                             currentUrl = pageUrl ?: currentUrl
                             canGoBack = view?.canGoBack() == true
                             canGoForward = view?.canGoForward() == true
+                            observeBrowser("finish_applied", view, callbackUrl = pageUrl)
                             if (pageLoad.readyFor(ticket)) {
                                 super.onPageFinished(view, pageUrl)
                                 pageUrl?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)?.let(onPageChanged)
                             }
+                        }
+                        override fun onPageCommitVisible(view: WebView?, url: String?) {
+                            super.onPageCommitVisible(view, url)
+                            observeBrowser("page_commit_visible", view, callbackUrl = url)
                         }
                     }
                     webView = this

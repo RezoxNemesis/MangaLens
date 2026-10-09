@@ -34,6 +34,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -209,7 +210,6 @@ class ReaderRestorationSmokeTest {
             val paged = capture("rounded-paged-alignment")
             assertMarkedLettering(paged, image, top, Color.GREEN)
             assertMarkedLettering(paged, image, lower, Color.MAGENTA)
-            device.click(device.displayWidth / 2, device.displayHeight / 2)
             toggleOriginal("Show original page")
             waitFor("Paged original did not use source geometry") {
                 val bounds = device.findObject(By.desc("Page 1"))?.visibleBounds ?: return@waitFor false
@@ -304,26 +304,20 @@ class ReaderRestorationSmokeTest {
         try {
             val pixels = IntArray(bitmap.width * bitmap.height)
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-            val mark = Rect(bitmap.width, bitmap.height, 0, 0)
-            pixels.forEachIndexed { index, pixel ->
-                if (kotlin.math.abs(Color.red(pixel) - Color.red(color)) < 15 &&
-                    kotlin.math.abs(Color.green(pixel) - Color.green(color)) < 15 && kotlin.math.abs(Color.blue(pixel) - Color.blue(color)) < 15) {
-                    val x = index % bitmap.width
-                    val y = index / bitmap.width
-                    mark.left = minOf(mark.left, x); mark.right = maxOf(mark.right, x + 1)
-                    mark.top = minOf(mark.top, y); mark.bottom = maxOf(mark.bottom, y + 1)
-                }
-            }
-            assertFalse("Cleaned PNG's marked lettering rectangle was not visible", mark.isEmpty)
-            val scale = image.width() / 200f
-            val expected = Rect((image.left + source.left * scale).toInt(), (image.top + source.top * scale).toInt(),
-                (image.left + source.right * scale).toInt(), (image.top + source.bottom * scale).toInt())
+            val measured = ReaderMarkerPixels.bounds(pixels, bitmap.width, bitmap.height, color)
+            assertNotNull("Cleaned PNG's complete marked lettering rectangle was not visible", measured)
+            val mark = requireNotNull(measured)
+            val scale = image.width() / 200.0
+            val expected = ReaderMarkerBounds(image.left + source.left * scale, image.top + source.top * scale,
+                image.left + source.right * scale, image.top + source.bottom * scale)
             for ((actual, target) in listOf(mark.left to expected.left, mark.top to expected.top, mark.right to expected.right, mark.bottom to expected.bottom)) {
                 assertTrue("Cleaned artwork and saved lettering coordinates diverged: actual=$mark expected=$expected",
-                    kotlin.math.abs(actual - target) <= 2)
+                    kotlin.math.abs(actual - target) <= 2.0)
             }
             var ink = 0
-            for (y in mark.top until mark.bottom) for (x in mark.left until mark.right) {
+            val inkBounds = Rect(kotlin.math.floor(mark.left).toInt(), kotlin.math.floor(mark.top).toInt(),
+                kotlin.math.ceil(mark.right).toInt(), kotlin.math.ceil(mark.bottom).toInt())
+            for (y in inkBounds.top until inkBounds.bottom) for (x in inkBounds.left until inkBounds.right) {
                 val pixel = pixels[y * bitmap.width + x]
                 if (Color.red(pixel) < 40 && Color.green(pixel) < 40 && Color.blue(pixel) < 40) ink++
             }
@@ -342,7 +336,10 @@ class ReaderRestorationSmokeTest {
 
     private fun CoreScreenSmokeSupport.toggleOriginal(description: String) {
         if (device.findObject(By.desc(description)) == null) {
-            if (device.findObject(By.text("Reader tools")) == null) device.click(device.displayWidth / 2, device.displayHeight / 2)
+            if (device.findObject(By.text("Reader tools")) == null) {
+                device.click(device.displayWidth / 2, device.displayHeight / 2)
+                node(By.text("Reader tools"))
+            }
             // A paused-task header remains visible after the compact dock times out.
             tap(By.text("Reader tools"))
             tap(By.text("Reader tools"))

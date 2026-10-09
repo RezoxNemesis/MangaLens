@@ -25,7 +25,7 @@ import java.util.UUID
 /** Real Android/Coil decodes. No public provider, GPU-limit, or literary-quality claim. */
 @RunWith(AndroidJUnit4::class)
 class MangaImageDecodeTest {
-    @Test fun tallGifUsesBoundedSoftwareFallbackInsteadOfAnUnsupportedRegionRequest() = runBlocking {
+    @Test fun tallGifUsesBoundedSoftwareFallbackInsteadOfAnUnsupportedRegionRequest(): Unit = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val file = File(context.cacheDir, "tall-gif-${UUID.randomUUID()}.gif")
@@ -63,7 +63,7 @@ class MangaImageDecodeTest {
         }
     }
 
-    @Test fun longStaticPageDecodesOnlyTheRequestedOriginalCoordinateRegionAsSoftware() = runBlocking {
+    @Test fun longStaticPageDecodesOnlyTheRequestedOriginalCoordinateRegionAsSoftware(): Unit = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val file = File(context.cacheDir, "tall-page-${UUID.randomUUID()}.png")
         val original = Bitmap.createBitmap(720, 8940, Bitmap.Config.ARGB_8888)

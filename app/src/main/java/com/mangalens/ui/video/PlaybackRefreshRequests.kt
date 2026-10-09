@@ -22,9 +22,11 @@ internal class PlaybackRefreshRequests {
         current: PlaybackStreamIdentity,
         refreshed: PlaybackStreamIdentity,
         apply: () -> Unit,
-        restartUnchanged: () -> Unit
+        restartUnchanged: () -> Unit,
+        beforeApply: () -> Boolean = { true }
     ): Boolean {
         if (!isCurrent(request)) return false
+        if (!beforeApply() || !isCurrent(request)) return false
         apply()
         // A changed identity is reopened by the Compose source effect. An unchanged identity
         // also needs prepare/play, since openHttp deliberately ignores duplicate requests.

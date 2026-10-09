@@ -2,10 +2,8 @@ package com.mangalens
 
 import android.net.Uri
 import android.app.Activity
-import android.app.Application
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultRegistry
@@ -81,15 +79,14 @@ class SubtitleGenerationDurabilityTest {
     @Test fun srtAndVttDocumentRequestsKeepAcceptedBytesAcrossActualActivityRecreation() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
-        val app = context.applicationContext as Application
         val source = SubtitleMediaSource("content://fixture/export-" + UUID.randomUUID())
         val accepted = FullSubtitleState(taskId = "a".repeat(32), generation = "b".repeat(32), sourceCacheKey = source.cacheKey,
             cues = listOf(SpeechCue(0, 1000, "Accepted original speech.")), srt = "1\n00:00:00,000 --> 00:00:01,000\nAccepted original speech.\n",
             vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nAccepted original speech.\n")
         val displayed = mutableStateOf(accepted)
-        val callbacks = object : Application.ActivityLifecycleCallbacks {
-            override fun onActivityCreated(activity: Activity, state: Bundle?) {
-                if (activity is MainActivity) activity.setContent {
+        // MainActivity's own setContent runs after super.onCreate; lifecycle
+        // onActivityCreated content is overwritten before this fixture can click.
+        fun installExportComponent(activity: MainActivity) = activity.setContent {
                     MaterialTheme {
                         val export = rememberSubtitleExportActions(displayed.value, source)
                         Column {
@@ -98,14 +95,6 @@ class SubtitleGenerationDurabilityTest {
                             export.status?.let { Text(it) }
                         }
                     }
-                }
-            }
-            override fun onActivityStarted(activity: Activity) { }
-            override fun onActivityResumed(activity: Activity) { }
-            override fun onActivityPaused(activity: Activity) { }
-            override fun onActivityStopped(activity: Activity) { }
-            override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) { }
-            override fun onActivityDestroyed(activity: Activity) { }
         }
         // Hold the real ActivityResultRegistry launch without opening another app.
         // A controlled private destination is returned after ActivityScenario.recreate.
@@ -113,9 +102,9 @@ class SubtitleGenerationDurabilityTest {
         val monitor = instrumentation.addMonitor(filter, null, true)
         val device = UiDevice.getInstance(instrumentation)
         val destinations = ArrayList<File>()
-        app.registerActivityLifecycleCallbacks(callbacks)
         try {
             ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+                scenario.onActivity(::installExportComponent)
                 for (format in listOf("SRT", "VTT")) {
                     scenario.onActivity { displayed.value = accepted }
                     val button = device.wait(Until.findObject(By.text("Export $format")), 15_000) ?: error("Missing export button")
@@ -125,6 +114,7 @@ class SubtitleGenerationDurabilityTest {
                     scenario.onActivity { activity -> requestCode = launchedDocumentRequest(activity.activityResultRegistry) }
                     displayed.value = FullSubtitleState(taskId = "c".repeat(32), generation = "d".repeat(32), sourceCacheKey = "content://fixture/new-video")
                     scenario.recreate()
+                    scenario.onActivity(::installExportComponent)
                     assertNotNull(device.wait(Until.findObject(By.text("Retry $format")), 15_000))
                     val file = File(context.filesDir, "subtitle-export-test-" + UUID.randomUUID() + "." + format.lowercase()).apply { destinations += this }
                     scenario.onActivity { activity ->
@@ -138,7 +128,6 @@ class SubtitleGenerationDurabilityTest {
                 }
             }
         } finally {
-            app.unregisterActivityLifecycleCallbacks(callbacks)
             instrumentation.removeMonitor(monitor)
             destinations.forEach { it.delete() }
         }
@@ -151,15 +140,27 @@ class SubtitleGenerationDurabilityTest {
     }
 
     @Test fun actualOnlineAudioDecodeScopesEveryRedirectedHeadAndRangeConnection() = runBlocking {
-        val sampleCount = 16_000 * 12
+        // Exceed the 512 KiB range cache, making a distinct tail fetch necessary.
+        val sampleCount = 16_000 * 20
         val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
         header.put("RIFF".toByteArray()).putInt(36 + sampleCount * 2).put("WAVEfmt ".toByteArray()).putInt(16)
             .putShort(1).putShort(1).putInt(16_000).putInt(32_000).putShort(2).putShort(16)
             .put("data".toByteArray()).putInt(sampleCount * 2)
-        val audio = ByteArray(44 + sampleCount * 2).apply { header.array().copyInto(this) }
+        val audio = ByteArray(44 + sampleCount * 2).apply {
+            header.array().copyInto(this)
+            // Actual PCM activity in the last 600 ms proves final-range decoding.
+            for (sample in sampleCount - 9600 until sampleCount) {
+                val value = if (sample % 2 == 0) 6000 else -6000
+                this[44 + sample * 2] = value.toByte()
+                this[45 + sample * 2] = (value shr 8).toByte()
+            }
+        }
         okhttp3.mockwebserver.MockWebServer().use { origin -> okhttp3.mockwebserver.MockWebServer().use { target ->
             val targetUrl = target.url("/audio").newBuilder().host("127.0.0.1").build().toString()
             val leaked = java.util.concurrent.atomic.AtomicBoolean(false)
+            val ranges = java.util.concurrent.CopyOnWriteArrayList<LongRange>()
+            val sawHead = java.util.concurrent.atomic.AtomicBoolean(false)
+            val etag = "\"fixture-audio-v1\""
             origin.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
                 override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
                     okhttp3.mockwebserver.MockResponse().setResponseCode(302).setHeader("Location", targetUrl)
@@ -167,24 +168,40 @@ class SubtitleGenerationDurabilityTest {
             target.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
                 override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): okhttp3.mockwebserver.MockResponse {
                     if (listOf("Cookie", "Authorization", "Referer").any { request.getHeader(it) != null }) leaked.set(true)
-                    if (request.method == "HEAD") return okhttp3.mockwebserver.MockResponse().setHeader("Content-Length", audio.size)
+                    if (request.method == "HEAD") {
+                        sawHead.set(true)
+                        return okhttp3.mockwebserver.MockResponse().setHeader("Content-Length", audio.size).setHeader("ETag", etag)
+                    }
                     val match = Regex("bytes=(\\d+)-(\\d+)").matchEntire(request.getHeader("Range").orEmpty())!!
                     val start = match.groupValues[1].toInt(); val end = minOf(match.groupValues[2].toLong(), audio.lastIndex.toLong()).toInt()
+                    ranges += start.toLong()..end.toLong()
                     if (start > audio.lastIndex) return okhttp3.mockwebserver.MockResponse().setResponseCode(416).setHeader("Content-Range", "bytes */${audio.size}")
-                    return okhttp3.mockwebserver.MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes $start-$end/${audio.size}")
+                    return okhttp3.mockwebserver.MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes $start-$end/${audio.size}").setHeader("ETag", etag)
                         .setBody(okio.Buffer().write(audio, start, end - start + 1))
                 }
             }
-            val starts = ArrayList<Long>(); var end = 0L
-            SubtitleAudioDecoder(context).decode(SubtitleMediaSource(origin.url("/private").toString(), mapOf("Cookie" to "session=original",
-                "Authorization" to "private-token", "Referer" to "https://private.invalid/account?secret=1"))) { samples, start, _, _ ->
-                assertTrue(samples.size <= 16_000 * 8); assertFalse(SpeechWindowPolicy.hasActivity(samples))
+            val source = SubtitleMediaSource(origin.url("/private").toString(), mapOf("Cookie" to "session=original",
+                "Authorization" to "private-token", "Referer" to "https://private.invalid/account?secret=1"))
+            SubtitleNetworkSource(source).use { assertEquals(audio.size.toLong(), it.size()) }
+            val identity = SubtitleInputs.capture(context, source)
+            assertTrue(identity.verifiable)
+            assertEquals(etag, identity.strongEtag)
+            assertEquals(targetUrl, identity.networkUrl)
+            val starts = ArrayList<Long>(); var end = 0L; var activeTail = false
+            SubtitleAudioDecoder(context).decode(source, identity.strongEtag, identity.networkSize, identity.networkUrl) { samples, start, _, _ ->
+                assertTrue(samples.size <= 16_000 * 8)
+                if (start < 14_000L) assertFalse(SpeechWindowPolicy.hasActivity(samples))
+                else activeTail = SpeechWindowPolicy.hasActivity(samples)
                 starts += start; end = start + samples.size * 1000L / 16_000
             }
-            assertEquals(listOf(0L, 7000L), starts)
-            assertTrue(end in 11_950L..12_050L); assertFalse(leaked.get())
+            assertEquals(listOf(0L, 7000L, 14000L), starts)
+            assertTrue(end in 19_950L..20_050L)
+            assertTrue("Decoded tail lacks its final PCM activity", activeTail)
+            assertTrue("Scoped HEAD did not reach the final resource", sawHead.get())
+            assertTrue("No GET byte proof was captured", ranges.any { it.first == 0L && it.last == 0L })
+            assertTrue("Decoder did not fetch a distinct final range", ranges.any { it.first > 0L && it.last == audio.lastIndex.toLong() })
+            assertFalse(leaked.get())
             assertEquals("session=original", origin.takeRequest().getHeader("Cookie"))
-            assertTrue(target.requestCount >= 2)
         } }
     }
 }

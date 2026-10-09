@@ -41,12 +41,18 @@ class HomeCustomizationSmokeTest {
             capture("default-home")
             tap(By.desc("Customize Home").pkg(context.packageName))
             node(By.desc("Show Quick actions on Home")).click()
-            waitFor("Quick-action checkbox did not become unchecked") { !node(By.desc("Show Quick actions on Home")).isChecked }
+            waitFor("Quick-action checkbox did not become unchecked") { device.findObject(By.desc("Show Quick actions on Home"))?.isChecked == false }
+            node(By.text("Save"))
+            capture("editor-before-reorder")
             val beforeMove = node(By.desc("Move Recent Manga up")).visibleBounds.centerY()
             node(By.desc("Move Recent Manga up")).click()
-            waitFor("Recent Manga did not move in the actual editor") { node(By.desc("Move Recent Manga up")).visibleBounds.centerY() < beforeMove }
+            waitFor("Recent Manga did not move in the actual editor") {
+                device.findObject(By.desc("Move Recent Manga up"))?.visibleBounds?.let { !it.isEmpty && it.centerY() < beforeMove } == true
+            }
             node(By.desc("Move Recent Manga up")).click()
-            waitFor("Recent Manga did not reach the first editor slot") { !node(By.desc("Move Recent Manga up")).isEnabled }
+            waitFor("Recent Manga did not reach the first editor slot") {
+                device.findObject(By.desc("Move Recent Manga up"))?.let { !it.visibleBounds.isEmpty && !it.isEnabled } == true
+            }
             tap(By.text("Save"))
             waitFor("Home layout did not persist the actual hide/reorder controls") {
                 val layout = HomeLayoutPolicy.decode(prefs.getString("layout_v1", null))
@@ -107,7 +113,7 @@ class HomeCustomizationSmokeTest {
             node(By.text("Your Home sections are hidden"))
             tap(By.desc("Customize Home").pkg(context.packageName))
             node(By.desc("Show Bookmarks on Home")).click()
-            waitFor("Bookmark checkbox did not become checked") { node(By.desc("Show Bookmarks on Home")).isChecked }
+            waitFor("Bookmark checkbox did not become checked") { device.findObject(By.desc("Show Bookmarks on Home"))?.isChecked == true }
             tap(By.text("Save"))
             node(By.desc("Home section: Bookmarks").pkg(context.packageName))
             node(By.text("Your bookmarks"))
@@ -117,6 +123,7 @@ class HomeCustomizationSmokeTest {
             val beforeCancel = prefs.getString("layout_v1", null)
             tap(By.desc("Customize Home").pkg(context.packageName))
             node(By.desc("Show Bookmarks on Home")).click()
+            waitFor("Cancel fixture did not actually change the bookmark checkbox") { device.findObject(By.desc("Show Bookmarks on Home"))?.isChecked == false }
             tap(By.text("Cancel"))
             assertEquals("Cancel persisted an unsaved edit", beforeCancel, prefs.getString("layout_v1", null))
             recreateActivity()

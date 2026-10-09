@@ -12,8 +12,14 @@ import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.orez.agent.*
 import com.mangalens.orez.agent.OrezSubtitleTools.Companion.outputs
 import com.mangalens.ui.video.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
@@ -46,13 +52,38 @@ class OrezNativeSubtitleWorkflowTest {
         }
     }
 
+    private suspend fun ensurePinnedWhisper(): String {
+        // This class must run on a fresh install without relying on another test's model import.
+        val path = requireNotNull(InstrumentationRegistry.getArguments().getString("whisper_model_path")) {
+            "Stage the pinned multilingual Whisper fixture and pass whisper_model_path."
+        }
+        val fixture = File(path)
+        assertTrue("Pinned Whisper fixture is missing: $path", fixture.isFile)
+        assertEquals("Whisper fixture size differs from the pinned reference", MODEL_BYTES, fixture.length())
+        assertEquals("Whisper fixture checksum differs from the pinned reference", MODEL_SHA,
+            SubtitleGenerationStore.fileHash(fixture))
+        if (SubtitleInputs.config(context, options.sourceLanguage).modelSha256 != MODEL_SHA) {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val engine = VideoSpeechEngine(context, scope)
+            try {
+                withTimeout(90_000) { engine.importModel(Uri.fromFile(fixture)) }
+                assertTrue(engine.state.value.status, engine.state.value.ready)
+            } finally {
+                // Release the setup handle before the independent native WorkManager generator loads it.
+                try { withContext(NonCancellable) { engine.close() } }
+                finally { scope.cancel() }
+            }
+        }
+        assertEquals("Installed worker model differs from the verified fixture", MODEL_SHA,
+            SubtitleInputs.config(context, options.sourceLanguage).modelSha256)
+        return MODEL_SHA
+    }
+
     @Test fun capturedPlayableSourceRunsNativeWorkerAndReopensWithRealVerifiedSrtAndVtt() = runBlocking {
         val (file, selection) = fixture()
         val plan = proposed(selection)
         try {
-            val capturedModel = requireNotNull(SubtitleInputs.config(context, options.sourceLanguage).modelSha256) {
-                "Install/import the pinned multilingual Whisper model before this actual speech-worker test."
-            }
+            val capturedModel = ensurePinnedWhisper()
             var store = journal()
             assertTrue(store.checkpoint(plan))
             fun executor() = OrezTaskExecutor(store, OrezSubtitleTools.forPlan(store, plan, OrezNativeSubtitleHost(context)))
@@ -166,5 +197,7 @@ class OrezNativeSubtitleWorkflowTest {
 
     companion object {
         private const val AUDIO_SHA = "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
+        private const val MODEL_SHA = "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"
+        private const val MODEL_BYTES = 77_691_713L
     }
 }

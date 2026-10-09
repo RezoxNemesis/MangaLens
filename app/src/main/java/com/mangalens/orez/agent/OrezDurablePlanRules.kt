@@ -10,8 +10,8 @@ object OrezDurablePlanRules {
 
     fun supports(plan: OrezTaskPlan) = plan.steps.isNotEmpty() && plan.steps.all { it.call.name in supportedTools }
     fun requiresNetwork(plan: OrezTaskPlan) = plan.steps.any { it.call.name == "enqueue_download" } ||
-        (plan.steps.any { it.call.name in mediaTools } && plan.authorization?.selectedMedia?.uri?.let {
-            it.startsWith("https://", true) || it.startsWith("http://", true)
+        (plan.steps.any { it.call.name in mediaTools } && plan.authorization?.selectedMedia?.let { media ->
+            listOfNotNull(media.uri, media.audio?.uri).any { it.startsWith("https://", true) || it.startsWith("http://", true) }
         } == true)
     fun outputKind(tool: String) = when (tool) {
         "enqueue_download" -> OrezOutputKind.DOWNLOAD_RECEIPT
@@ -104,21 +104,11 @@ object OrezDurablePlanRules {
     }
 
     private fun validateSubtitleOptions(options: OrezSubtitleOptions) {
-        require(options == options.normalized() && options.targetLanguage == "en" && options.style == "whisper-english") {
-            "This native speech provider generates English subtitles only."
-        }
-        require((options.sourceLanguage == "auto" || options.sourceLanguage.matches(Regex("[a-z]{2,3}"))) &&
-            options.windowSeconds == 8 && options.overlapSeconds == 1 && options.threads in 1..4) { "Invalid captured speech configuration." }
+        OrezSubtitleContract.validate(options)
     }
 
     private fun validateSelection(source: OrezMediaSelection) {
-        require(source.uri.length in 1..16_000 && source.cacheKey.length in 1..16_000 && source.label.length <= 250 &&
-            listOf(source.uri, source.cacheKey, source.label).none { it.any(Char::isISOControl) } &&
-            runCatching { java.net.URI(source.uri).scheme?.lowercase() in setOf("http", "https", "content", "file", "android.resource") }.getOrDefault(false)) {
-            "The explicit playable source is invalid."
-        }
-        require(source.headers.size <= 32 && source.headers.all { (key, value) -> key.length in 1..128 && value.length <= 8192 &&
-            key.none(Char::isISOControl) && value.none(Char::isISOControl) }) { "Selected source headers exceed the captured scope limit." }
+        source.validateCapturedSource()
     }
 
     private fun validateOptions(options: OrezTranslationOptions) {
@@ -140,7 +130,7 @@ object OrezDurablePlanRules {
     }
 
     fun validateReceipt(plan: OrezTaskPlan, resolved: OrezPlanStep, outputs: Map<String, String>, completed: Boolean) {
-        require(outputs.size <= 20 && outputs.all { it.key.length <= 80 && it.value.length <= 8192 }) { "Tool receipt exceeds its safe limit." }
+        require(outputs.size <= 32 && outputs.all { it.key.length <= 80 && it.value.length <= 8192 }) { "Tool receipt exceeds its safe limit." }
         val id = requestId(plan.id, resolved.index)
         if (resolved.call.name == "enqueue_download") {
             if (completed) {
@@ -195,6 +185,15 @@ object OrezDurablePlanRules {
             outputs["ownerRequestId"] == id && outputs["subtitleTaskId"]?.matches(Regex("[a-f0-9]{32}")) == true &&
             outputs["generation"]?.matches(Regex("[a-f0-9]{32}")) == true && outputs["targetLanguage"] == scope.targetLanguage &&
             outputs["sourceLanguage"] == scope.sourceLanguage) { "Subtitle receipt exceeds captured native source/configuration/owner scope." }
+        val fullEvidence = setOf("configFingerprint", "pipeline", "outputMode", "translationPolicy", "audioComplete", "sourceCueCount", "pendingTargetCues")
+        val oldLegacy = fullEvidence.none { it in outputs } && OrezSubtitleContract.isLegacy(scope) &&
+            plan.authorization.selectedMedia?.hasExtendedScope() != true
+        if (!oldLegacy) {
+            require(outputs.keys.containsAll(fullEvidence) && outputs["configFingerprint"] == scope.nativeConfig(resolved.call.arguments.getValue("speechModelSha256")).fingerprint() &&
+                outputs["pipeline"] == scope.pipeline.name && outputs["outputMode"] == scope.outputMode.name && outputs["translationPolicy"] == scope.translationPolicy &&
+                outputs["audioComplete"] in setOf("true", "false") && outputs["sourceCueCount"]?.toIntOrNull()?.let { it in 0..30_000 } == true &&
+                outputs["pendingTargetCues"]?.toIntOrNull()?.let { it in 0..30_000 } == true) { "Subtitle receipt omitted or changed captured output policy evidence." }
+        }
         if (completed) {
             val duration = outputs["durationMs"]?.toLongOrNull()
             val processed = outputs["processedMs"]?.toLongOrNull()
@@ -208,6 +207,11 @@ object OrezDurablePlanRules {
                 outputs["destination"] == "subtitle-track:${outputs["subtitleTaskId"]}") {
                 "Subtitle completion requires a full verified native track and saved SRT/VTT receipts."
             }
+            require(OrezSubtitleContract.isLegacy(scope) || outputs["audioComplete"] == "true" &&
+                outputs["sourceCueCount"]?.toIntOrNull()?.let { it in 1..30_000 } == true && outputs["pendingTargetCues"] == "0") {
+                "Subtitle completion requires finished original speech and every requested target cue."
+            }
+            plan.authorization.selectedMedia?.takeIf { it.sourceId == sourceId }?.verifySubtitleTail(duration!!, processed!!)
         }
     }
 

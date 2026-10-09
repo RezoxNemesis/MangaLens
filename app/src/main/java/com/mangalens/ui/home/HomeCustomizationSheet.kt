@@ -1,8 +1,8 @@
 package com.mangalens.ui.home
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
@@ -24,24 +24,32 @@ internal fun HomeCustomizationSheet(initial: HomeLayout, preferences: HomeLayout
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    ModalBottomSheet(onDismissRequest = { if (!saving) onDismiss() }) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val screenHeight = LocalConfiguration.current.screenHeightDp
+    ModalBottomSheet(sheetState = sheetState, onDismissRequest = { if (!saving) onDismiss() }) {
+        Column(Modifier.fillMaxWidth().heightIn(max = screenHeight.dp).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Customize Home", style = MaterialTheme.typography.titleLarge)
             Text("Choose sections and their order. Sections with content appear when available.", style = MaterialTheme.typography.bodySmall)
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = minOf(400, LocalConfiguration.current.screenHeightDp / 2).dp)) {
-                itemsIndexed(draft.order, key = { _, module -> module.id }) { index, module ->
+            // There are only nine real sections. Keep their keyed controls composed
+            // while reordering, and reserve space for the always-visible save footer.
+            Column(Modifier.fillMaxWidth().weight(1f, fill = false)
+                .heightIn(max = minOf(400, screenHeight / 2).dp).verticalScroll(rememberScrollState())) {
+                draft.order.forEachIndexed { index, module -> key(module.id) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(module !in draft.hidden, { visible -> draft = HomeLayoutPolicy.setVisible(draft, module, visible) },
                             enabled = !saving, modifier = Modifier.semantics { contentDescription = "Show ${module.label} on Home" })
                         Text(module.label, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        IconButton({ draft = HomeLayoutPolicy.move(draft, module, -1) }, enabled = !saving && index > 0) {
-                            Icon(Icons.Outlined.KeyboardArrowUp, "Move ${module.label} up")
+                        IconButton({ draft = HomeLayoutPolicy.move(draft, module, -1) }, enabled = !saving && index > 0,
+                            modifier = Modifier.semantics { contentDescription = "Move ${module.label} up" }) {
+                            Icon(Icons.Outlined.KeyboardArrowUp, null)
                         }
-                        IconButton({ draft = HomeLayoutPolicy.move(draft, module, 1) }, enabled = !saving && index < draft.order.lastIndex) {
-                            Icon(Icons.Outlined.KeyboardArrowDown, "Move ${module.label} down")
+                        IconButton({ draft = HomeLayoutPolicy.move(draft, module, 1) }, enabled = !saving && index < draft.order.lastIndex,
+                            modifier = Modifier.semantics { contentDescription = "Move ${module.label} down" }) {
+                            Icon(Icons.Outlined.KeyboardArrowDown, null)
                         }
                     }
-                }
+                } }
             }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {

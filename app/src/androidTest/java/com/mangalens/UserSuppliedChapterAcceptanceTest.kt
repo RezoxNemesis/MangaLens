@@ -139,19 +139,34 @@ class UserSuppliedChapterAcceptanceTest {
 
     private fun CoreScreenSmokeSupport.showReader(chapter: SavedChapter, overlays: Map<Int, List<TranslationOverlay>>,
         backgrounds: Map<Int, String>, target: String, inspect: CoreScreenSmokeSupport.() -> Unit) {
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val readerPrefs = context.getSharedPreferences("mangalens_reader", android.content.Context.MODE_PRIVATE)
+        val modeKey = "mode_" + chapter.title.substringBefore("Chapter", chapter.title).trim().ifBlank { chapter.id }
+        val hadMode = readerPrefs.contains(modeKey)
+        val oldMode = readerPrefs.getString(modeKey, null)
+        assertTrue(readerPrefs.edit().putString(modeKey, "vertical").commit())
+        var scenario: ActivityScenario<MainActivity>? = null
         try {
-            scenario.onActivity { activity -> activity.setContent { MangaLensTheme(themeMode = ThemeMode.DARK) {
+            val opened = ActivityScenario.launch(MainActivity::class.java).also { scenario = it }
+            val deadline = android.os.SystemClock.uptimeMillis() + 45_000
+            opened.onActivity { activity -> activity.setContent { MangaLensTheme(themeMode = ThemeMode.DARK) {
                 MangaContinuousReader(chapter.title, chapter.pages, chapterId = chapter.id,
                     translated = backgrounds.isNotEmpty(), overlays = overlays, translatedBackgrounds = backgrounds,
                     targetLanguage = target, onTranslate = {}, onDownload = {}, onMenu = {}, onLongPressPage = {})
             } } }
-            node(By.descContains("Page ${chapter.pages.first().index}"), 45_000)
+            val first = chapter.pages.first()
+            val model = backgrounds[first.index] ?: requireNotNull(first.localPath)
+            val masks = overlays[first.index].orEmpty().mapNotNull { overlay -> overlay.lettering?.let {
+                android.graphics.Rect(it.left, it.top, it.right, it.bottom)
+            } }
+            ReaderSourceFrameOracle.awaitVisibleSource(this, "Page ${first.index}", File(model), masks, deadline)
             inspect()
         } catch (failure: Throwable) {
             recordFailure(failure)
             throw failure
-        } finally { scenario.close() }
+        } finally {
+            scenario?.close()
+            assertTrue(readerPrefs.edit().apply { if (hadMode) putString(modeKey, oldMode) else remove(modeKey) }.commit())
+        }
     }
 
     private fun CoreScreenSmokeSupport.report(name: String, record: JSONObject) {

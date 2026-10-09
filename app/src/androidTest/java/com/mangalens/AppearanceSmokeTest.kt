@@ -3,8 +3,10 @@ package com.mangalens
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Direction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,7 +57,9 @@ class AppearanceSmokeTest {
                 assertEquals("AMOLED did not render a black app background", Color.BLACK, bitmap.getPixel(1, bitmap.height / 2))
             } finally { bitmap.recycle() }
             recreateActivity()
-            node(By.text("Settings"))
+            // Settings restores its real LazyColumn position; the header can be
+            // above the viewport while the selected appearance controls remain.
+            scrollUpToSettingsHeader()
             assertEquals("Recreation lost density", "BALANCED", appearance.getString("density", null))
             assertEquals("Recreation lost accent", "CYAN", appearance.getString("accent", null))
             assertTrue("Recreation lost reduced motion", appearance.getBoolean("reduced_motion", false))
@@ -82,5 +86,20 @@ class AppearanceSmokeTest {
             restoreAppearance()
             restoreSettings()
         }
+    }
+
+    private fun CoreScreenSmokeSupport.scrollUpToSettingsHeader() {
+        val header = By.text("Settings").pkg(context.packageName)
+        val deadline = SystemClock.uptimeMillis() + 15_000 // Existing node deadline.
+        var moves = 0
+        while (moves < 12 && SystemClock.uptimeMillis() < deadline) {
+            device.findObject(header)?.takeIf { !it.visibleBounds.isEmpty }?.let { return }
+            val container = device.findObjects(By.scrollable(true).pkg(context.packageName))
+                .maxByOrNull { it.visibleBounds.width().toLong() * it.visibleBounds.height() }
+                ?: throw AssertionError("Settings had no app scroll container after recreation")
+            container.scroll(Direction.UP, .45f)
+            moves++
+        }
+        node(header, (deadline - SystemClock.uptimeMillis()).coerceAtLeast(0))
     }
 }

@@ -17,6 +17,7 @@ import androidx.test.uiautomator.Until
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
 import java.io.File
+import java.util.UUID
 import kotlin.math.abs
 
 /** Only generated QA data is exported; preferences are restored by each owning test. */
@@ -24,7 +25,15 @@ internal class CoreScreenSmokeSupport(private val name: String) {
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     val context: Context = instrumentation.targetContext
     val device: UiDevice = UiDevice.getInstance(instrumentation)
-    private val evidence = File(context.getExternalFilesDir(null), "qa/core-smoke/$name").apply { mkdirs() }
+    private val runId = UUID.randomUUID().toString()
+    private val evidence = File(context.getExternalFilesDir(null), "qa/core-smoke/$name").apply {
+        if (exists() && listFiles()?.isNotEmpty() == true) {
+            val previous = File(context.getExternalFilesDir(null), "qa/core-smoke-history/$name/$runId")
+            previous.parentFile?.mkdirs()
+            check(renameTo(previous)) { "Could not preserve previous QA evidence for $name" }
+        }
+        check(mkdirs() || isDirectory) { "Could not create QA evidence for $name" }
+    }
     private var failureRecorded = false
 
     fun launchHome() {
@@ -143,7 +152,15 @@ internal class CoreScreenSmokeSupport(private val name: String) {
         val file = File(evidence, "$label.png")
         assertTrue("Screenshot could not be captured: $label", device.takeScreenshot(file))
         device.dumpWindowHierarchy(File(evidence, "$label.xml"))
+        if (label != "failure") assertNoBlockingSystemDialog()
         return file
+    }
+
+    fun assertNoBlockingSystemDialog() {
+        val blocking = device.findObjects(By.pkg("android")).firstOrNull {
+            isBlockingSmokeDialog(it.applicationPackage, it.text.orEmpty())
+        }
+        assertTrue("Android failure dialog covered the test: ${blocking?.text}", blocking == null)
     }
 
     fun finishActivity() {
@@ -159,9 +176,13 @@ internal class CoreScreenSmokeSupport(private val name: String) {
             put("test", name); put("status", status); put("source_sha", BuildConfig.SOURCE_SHA)
             put("version", BuildConfig.VERSION_NAME); put("channel", BuildConfig.BUILD_CHANNEL)
             put("api", android.os.Build.VERSION.SDK_INT); put("abi", android.os.Build.SUPPORTED_ABIS.first())
+            put("run_id", runId)
         }.toString(2))
         // Preserve generated evidence before any Gradle target uninstall.
-        device.executeShellCommand("mkdir -p /sdcard/Download/mangalens-qa/core-smoke/$name")
+        val publicEvidence = "/sdcard/Download/mangalens-qa/core-smoke/$name"
+        val previousPublic = "/sdcard/Download/mangalens-qa/core-smoke-history/$name/$runId"
+        device.executeShellCommand("if [ -d $publicEvidence ]; then mkdir -p /sdcard/Download/mangalens-qa/core-smoke-history/$name; mv $publicEvidence $previousPublic; fi")
+        device.executeShellCommand("mkdir -p $publicEvidence")
         device.executeShellCommand("cp -R ${evidence.absolutePath}/. /sdcard/Download/mangalens-qa/core-smoke/$name/")
     }
 }
@@ -176,6 +197,7 @@ internal inline fun coreScreenSmoke(name: String, block: CoreScreenSmokeSupport.
     var status = "failed"
     try {
         support.block()
+        support.assertNoBlockingSystemDialog()
         status = "passed"
     } catch (failure: Throwable) {
         runCatching { support.recordFailure(failure) }
@@ -187,6 +209,10 @@ internal inline fun coreScreenSmoke(name: String, block: CoreScreenSmokeSupport.
         } finally { configurator.setWaitForIdleTimeout(previousIdleTimeout) }
     }
 }
+
+internal fun isBlockingSmokeDialog(packageName: String?, text: String): Boolean =
+    packageName == "android" && listOf("isn't responding", "is not responding", "keeps stopping", "has stopped")
+        .any { text.contains(it, ignoreCase = true) }
 
 internal fun restorePreferencesAfter(prefs: SharedPreferences, vararg keys: String): () -> Unit {
     val before = keys.associateWith { prefs.all[it] }

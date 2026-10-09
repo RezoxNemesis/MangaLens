@@ -46,6 +46,10 @@ fi
 test -s "$APP_APK"
 test -s "$TEST_APK"
 mkdir -p "$DIAGNOSTICS"
+if [[ -d app/build/tmp/kotlin-classes/debugAndroidTest ]]; then
+  python3 scripts/android/audit-junit-methods.py app/build/tmp/kotlin-classes/debugAndroidTest \
+    > "$DIAGNOSTICS/junit-method-signatures.json"
+fi
 
 SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 test -n "$SDK_ROOT"

@@ -1,5 +1,6 @@
 package com.mangalens.core.translation
 
+import com.mangalens.engine.OcrSourceQuality
 import java.util.Locale
 
 class TranslationQualityException : IllegalArgumentException(
@@ -19,14 +20,16 @@ object TranslationQualityPolicy {
         draft: String,
         refined: String,
         targetLanguage: String,
-        hindiDraft: String? = null
-    ): String = chooseDraft(source, TranslationDraft(draft, hindiDraft), refined, targetLanguage).text
+        hindiDraft: String? = null,
+        style: TranslationStyleProfile? = null
+    ): String = chooseDraft(source, TranslationDraft(draft, hindiDraft), refined, targetLanguage, style).text
 
     fun chooseDraft(
         source: String,
         draft: TranslationDraft,
         refined: String,
-        targetLanguage: String
+        targetLanguage: String,
+        style: TranslationStyleProfile? = null
     ): TranslationDraft {
         val cleanDraft = clean(draft.text)
         val cleanRefined = clean(refined)
@@ -39,12 +42,11 @@ object TranslationQualityPolicy {
             draftUsable -> cleanDraft
             else -> throw TranslationQualityException()
         }
-        val registerAware = harmonizeRegister(source, selected, targetLanguage)
+        val registerAware = harmonizeRegister(source, selected, targetLanguage, style)
         val result = restoreTerminalPunctuation(source, registerAware)
         val retainedProof = draft.hindiDraft?.takeIf {
-            draftUsable && result == restoreTerminalPunctuation(source, harmonizeRegister(source, cleanDraft, targetLanguage)) &&
-                isUsable(source, result, targetLanguage, it)
-        }
+            draftUsable && result == restoreTerminalPunctuation(source, harmonizeRegister(source, cleanDraft, targetLanguage, style))
+        }?.let { hindiDraftForRomanOutput(source, it, style) }?.takeIf { isUsable(source, result, targetLanguage, it) }
         return TranslationDraft(result, retainedProof)
     }
 
@@ -53,10 +55,15 @@ object TranslationQualityPolicy {
         isAcceptable(source, "", clean(candidate), targetLanguage, hindiDraft = hindiDraft)
 
     /** Preserve known Latin names/genre terms in the Hindi intermediate, never English clauses. */
-    internal fun hindiDraftForRomanOutput(source: String, draft: String): String {
+    internal fun hindiDraftForRomanOutput(source: String, draft: String, style: TranslationStyleProfile? = null): String {
+        val candidate = checkedHindiEvidence(source, draft)
+        return restoreTerminalPunctuation(source, harmonizeRegister(source, candidate, "hi", style))
+    }
+
+    private fun checkedHindiEvidence(source: String, draft: String): String {
         val candidate = clean(draft)
         if (!isAcceptable(source, "", candidate, "hi", HindiRomanization.retainedLatinWords(source))) throw TranslationQualityException()
-        return restoreTerminalPunctuation(source, harmonizeRegister(source, candidate, "hi"))
+        return restoreTerminalPunctuation(source, candidate)
     }
 
     private fun languageTag(value: String): String =
@@ -75,15 +82,15 @@ object TranslationQualityPolicy {
         retainedLatin: Set<String> = emptySet(),
         hindiDraft: String? = null
     ): Boolean {
-        if (candidate.isBlank()) return false
+        if (candidate.isBlank() || OcrSourceQuality.needsPixelRetry(source) ||
+            !TranslationMeaningPolicy.isCompatible(source, candidate, targetLanguage)) return false
         val verifiedHindiRendering = if (hindiDraft == null) false else {
             if (!HindiRomanization.isTarget(targetLanguage) || hindiDraft.length !in 1..MAX_HINDI_DRAFT_CHARS ||
                 source.length !in 1..MAX_HINDI_DRAFT_CHARS || candidate.length !in 1..MAX_HINDI_DRAFT_CHARS ||
                 hindiDraft.none { it in '\u0900'..'\u097f' && it.isLetter() }) return false
-            val checkedHindi = try { hindiDraftForRomanOutput(source, hindiDraft) }
+            val checkedHindi = try { checkedHindiEvidence(source, hindiDraft) }
                 catch (_: TranslationQualityException) { return false }
-            val exactRendering = restoreTerminalPunctuation(source,
-                harmonizeRegister(source, clean(HindiRomanization.render(checkedHindi, source)), targetLanguage))
+            val exactRendering = restoreTerminalPunctuation(source, clean(HindiRomanization.render(checkedHindi, source)))
             if (candidate != exactRendering) return false
             true
         }
@@ -96,7 +103,8 @@ object TranslationQualityPolicy {
         val normalizedSource = normalize(source)
         val normalizedDraft = normalize(draft)
         val normalizedCandidate = normalize(candidate)
-        val protectedWords = if (HindiRomanization.isTarget(targetLanguage)) HindiRomanization.retainedLatinWords(source) else retainedLatin
+        val allowedLatin = retainedLatin + TranslationMeaningPolicy.protectedLatinNameWords(source)
+        val protectedWords = if (HindiRomanization.isTarget(targetLanguage)) HindiRomanization.retainedLatinWords(source) + allowedLatin else allowedLatin
         val candidateLatinWords = HindiRomanization.words(candidate)
         val retainedIdentity = normalizedCandidate == normalizedSource && candidateLatinWords.size in 1..2 &&
             candidateLatinWords.all { it in protectedWords }
@@ -117,9 +125,9 @@ object TranslationQualityPolicy {
 
         // A standalone established name/genre term can remain Latin in the Hindi
         // intermediate. This exception never admits an unprotected English clause.
-        if (retainedLatin.isNotEmpty() && retainedIdentity && candidate.filter(Char::isLetter).all { it.code in 0x0041..0x024F }) return true
-        val scriptCandidate = if (retainedLatin.isEmpty()) candidate else Regex("[A-Za-z]+").replace(candidate) {
-            if (it.value.lowercase(Locale.ROOT) in retainedLatin) "" else it.value
+        if (allowedLatin.isNotEmpty() && retainedIdentity && candidate.filter(Char::isLetter).all { it.code in 0x0041..0x024F }) return true
+        val scriptCandidate = if (allowedLatin.isEmpty()) candidate else Regex("[A-Za-z]+").replace(candidate) {
+            if (it.value.lowercase(Locale.ROOT) in allowedLatin) "" else it.value
         }
         if (!targetScriptLooksPlausible(scriptCandidate, targetLanguage)) return false
         if (HindiRomanization.isTarget(targetLanguage)) {
@@ -157,7 +165,7 @@ object TranslationQualityPolicy {
             // clause such as "BEATEN UP". Reject copied multiword spans, while permitting
             // a single name/honorific. Explicit glossary support belongs in the caller.
             val sourceWords = latinWords(source)
-            val copiedPhrases = sourceWords.zipWithNext().filterNot { (first, second) -> first in retainedLatin && second in retainedLatin }.toSet()
+            val copiedPhrases = sourceWords.zipWithNext().filterNot { (first, second) -> first in allowedLatin && second in allowedLatin }.toSet()
             val candidateRuns = Regex("[A-Za-z]{2,}(?:[\\s'-]+[A-Za-z]{2,})+").findAll(candidate)
             if (candidateRuns.any { run -> latinWords(run.value).zipWithNext().any { it in copiedPhrases } }) return false
             val sourceLetters = source.filter(Char::isLetter)
@@ -210,8 +218,11 @@ object TranslationQualityPolicy {
      * hierarchy that is absent from the source. Keep explicit honorific/formal cues untouched,
      * otherwise normalize only a small, high-confidence set of second-person forms.
      */
-    private fun harmonizeRegister(source: String, translation: String, targetLanguage: String): String {
+    private fun harmonizeRegister(source: String, translation: String, targetLanguage: String, style: TranslationStyleProfile? = null): String {
         if (languageTag(targetLanguage) != "hi") return translation
+        // An explicit formal/custom instruction owns the register. Default natural
+        // dialogue still uses the source-aware normalization below.
+        if (style?.id in setOf("formal", "custom")) return translation
         val sourceLower = source.lowercase(Locale.ROOT)
         val addressesSomeone = Regex("""\b(you|your|you're|you've|you'll|don't|do not|can you|will you)\b""").containsMatchIn(sourceLower)
         if (!addressesSomeone) return translation
