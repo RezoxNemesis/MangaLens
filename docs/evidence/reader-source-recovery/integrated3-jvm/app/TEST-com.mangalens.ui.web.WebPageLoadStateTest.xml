@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.web.WebPageLoadStateTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:34" hostname="53f09df5485f" time="0.0">
+  <properties/>
+  <testcase name="failureAfterCompletionStillDisablesDocumentActionsAndProgressCannotReviveIt" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="idleAndNullCallbacksCannotClaimAReadyPage" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="callbackUrlMustBelongToTheActiveDocumentEvenWhenTheEpochMatches" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="stoppedRequestDoesNotLeaveAnInfiniteLoadingIndicatorAndCanBeRetried" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="navigatingElsewhereImmediatelyInvalidatesReadyStateAndOldTranslationTicket" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="completionAfterMainFrameFailureCannotMakeThePageReadyOrEraseItsError" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="fragmentsAndImplicitRootSlashReferToTheSameLoadedDocument" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="sameUrlRetryClearsFailureAndRejectsThePreviousNavigationEpoch" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="subresourceFailureDoesNotDisableSuccessfulMainFrameOrAbortLoading" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <testcase name="aHundredPercentProgressDoesNotRunTranslationBeforeMainFrameCompletion" classname="com.mangalens.ui.web.WebPageLoadStateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

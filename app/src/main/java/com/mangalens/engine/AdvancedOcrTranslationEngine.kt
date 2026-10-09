@@ -39,9 +39,15 @@ class AdvancedOcrTranslationEngine {
         val out=mutableListOf<OcrTextBlock>()
         for(block in ordered){
             val previous=out.lastOrNull()
-            if(previous!=null&&kotlin.math.abs(block.bounds.top-previous.bounds.top)<previous.bounds.height()*.65f&&block.bounds.left-previous.bounds.right<previous.bounds.height()*2.5f){
-                previous.bounds.right=block.bounds.right
-                previous.bounds.bottom=maxOf(previous.bounds.bottom,block.bounds.bottom)
+            val height = previous?.bounds?.height()?.coerceAtLeast(1f) ?: 1f
+            val gap = if (previous != null) block.bounds.left - previous.bounds.right else Float.MAX_VALUE
+            if(previous!=null && kotlin.math.abs(block.bounds.top-previous.bounds.top)<height*.65f &&
+                block.bounds.left >= previous.bounds.left && gap >= -height*.25f && gap < height*2.5f){
+                out[out.lastIndex] = previous.copy(
+                    text = previous.text.trimEnd() + " " + block.text.trimStart(),
+                    bounds = RectF(previous.bounds).apply { union(block.bounds) },
+                    confidence = minOf(previous.confidence, block.confidence)
+                )
             }else out+=OcrTextBlock(block.text,RectF(block.bounds),block.confidence,block.index)
         }
         return out
@@ -58,3 +64,4 @@ class AdvancedOcrTranslationEngine {
     }
     private fun confidenceAdjustment(t:String)=when{t.length<2->.55f;t.count(Char::isLetter)<t.length*.35->.75f;else->1f}
 }
+

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.reader.ChapterLibraryTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:12:46" hostname="53f09df5485f" time="0.241">
+  <properties/>
+  <testcase name="maliciousOrSymlinkPageCannotBePersistedAsAnotherManagedPage" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.024"/>
+  <testcase name="fiveRequiredStatusesRetainLegacyNames" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.0"/>
+  <testcase name="futureAndOversizedBackupJournalsRemainUntouchedAndNeverLoaded" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.128"/>
+  <testcase name="escapedPagePathKeepsItsPositionAndNeverExposesOutsideFile" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.028"/>
+  <testcase name="legacyJournalsHaveUnknownHistoryAndEmptyUserMetadata" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.007"/>
+  <testcase name="deletedChapterCannotBeRecreatedByLateMetadataSave" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.007"/>
+  <testcase name="deletionRetainsSharedOriginalAndDoesNotDeleteUnknownFiles" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.01"/>
+  <testcase name="metadataNormalizationIsBoundedAndRejectsBeforeReplacingSavedBytes" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.007"/>
+  <testcase name="backupOnlyJournalIsRecoveredWithoutPromotingUncommittedOrUnknownFiles" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.002"/>
+  <testcase name="newStatusesAndVisitHistorySurviveColdReadWithoutMetadataCountingAsReading" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.013"/>
+  <testcase name="savedMetadataAndDistinctHistoryRoundTripWithoutMovingPosition" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.003"/>
+  <testcase name="failedReplacementLeavesPreviouslySavedRecordAndSources" classname="com.mangalens.core.reader.ChapterLibraryTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

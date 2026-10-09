@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "version": "7.1.1",
+  "sourceSha256": "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1",
+  "license": "LGPL-2.1-or-later",
+  "buildRecipeSha256": "65372a01a494e388d3704170d59ab7e07055a7b32f67fc75a174453f56a9ad56",
+  "abis": [
+    {
+      "abi": "arm64-v8a",
+      "buildReceiptSha256": "d00490b93437b98c928bb391efaf09aeef9867825af595dd1fe27062d03bba93",
+      "binaries": {
+        "libmangalens_ffmpeg.so": {
+          "bytes": 3233952,
+          "sha256": "f35369b3f60da68b0059b1cd52b940d397929d90a2bff95f1d6e914b0884ba61",
+          "systemNeeded": [
+            "libm.so",
+            "libc.so"
+          ]
+        },
+        "libmangalens_ffprobe.so": {
+          "bytes": 3187312,
+          "sha256": "b284709ed09dbe659b9fa21d0678bb293d656414bf2154c8ecc41cc15f6f6385",
+          "systemNeeded": [
+            "libm.so",
+            "libc.so"
+          ]
+        }
+      }
+    },
+    {
+      "abi": "x86_64",
+      "buildReceiptSha256": "3e3be3899c4a794fa186a1cd372484e4bcf949be389329de66b319942a4b0506",
+      "binaries": {
+        "libmangalens_ffmpeg.so": {
+          "bytes": 3601248,
+          "sha256": "0de2069afbe91efb6c9b5466192ad42d2cc7aff519aa66417b321b2d95359560",
+          "systemNeeded": [
+            "libm.so",
+            "libc.so"
+          ]
+        },
+        "libmangalens_ffprobe.so": {
+          "bytes": 3537848,
+          "sha256": "22001e7c44574f4b1e63c80458fbf4ad36a360fd448d1d439a3ca0934e62ba1c",
+          "systemNeeded": [
+            "libm.so",
+            "libc.so"
+          ]
+        }
+      }
+    }
+  ]
+}

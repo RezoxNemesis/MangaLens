@@ -127,7 +127,7 @@ class MangaLensDownloadService : DownloadService(
             }
         }
 
-        private suspend fun persistState(dao: DownloadDao, download: Download, message: String?) {
+        private suspend fun persistState(context: Context, dao: DownloadDao, download: Download, message: String?) {
             val state = when (download.state) {
                 Download.STATE_COMPLETED -> DownloadState.COMPLETED
                 Download.STATE_FAILED -> DownloadState.FAILED
@@ -136,7 +136,10 @@ class MangaLensDownloadService : DownloadService(
                 else -> DownloadState.QUEUED
             }
             val total = if (state == DownloadState.COMPLETED && download.contentLength < 0) download.bytesDownloaded else download.contentLength
-            dao.adaptiveStateIfActive(download.request.id, download.bytesDownloaded, total, state, message)
+            if (dao.adaptiveStateIfActive(download.request.id, download.bytesDownloaded, total, state, message) > 0 &&
+                state in setOf(DownloadState.COMPLETED, DownloadState.FAILED)) {
+                MediaDownloadManager.notifyCommittedState(context, download.request.id)
+            }
         }
 
         @Synchronized
@@ -197,7 +200,7 @@ class MangaLensDownloadService : DownloadService(
                             while (cursor.moveToNext()) {
                                 val download = cursor.download
                                 if (download.state == Download.STATE_COMPLETED || download.state == Download.STATE_STOPPED) {
-                                    persistState(dao, download, null)
+                                    persistState(app, dao, download, null)
                                 } else if (download.state == Download.STATE_DOWNLOADING || download.state == Download.STATE_QUEUED) {
                                     dao.adaptiveProgressIfActive(download.request.id, download.bytesDownloaded, download.contentLength)
                                 }
@@ -212,7 +215,7 @@ class MangaLensDownloadService : DownloadService(
                 ) {
                     // Enter the fair mutex in listener order before dispatching suspended Room work.
                     callbackScope.launch(start = CoroutineStart.UNDISPATCHED) { callbackMutex.withLock {
-                        persistState(dao, download, finalException?.message)
+                        persistState(app, dao, download, finalException?.message)
                     } }
                 }
             })

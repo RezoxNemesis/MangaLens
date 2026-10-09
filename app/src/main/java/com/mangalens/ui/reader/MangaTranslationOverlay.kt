@@ -1,21 +1,15 @@
 package com.mangalens.ui.reader
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import android.graphics.Rect
+import android.text.Layout
+import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.mangalens.core.translation.MangaLettering
 import com.mangalens.core.translation.OcrRegion
+import com.mangalens.core.translation.SavedMangaLettering
 
 data class TranslationOverlay(
     val region: OcrRegion,
@@ -26,8 +20,12 @@ data class TranslationOverlay(
     val maxWidthPx: Float = 320f,
     val imageWidthPx: Int = 0,
     val imageHeightPx: Int = 0,
-    val patch: com.mangalens.core.translation.MangaLettering.Patch? = null
+    val patch: MangaLettering.Patch? = null,
+    val lettering: SavedMangaLettering? = null
 )
+
+/** Cached typesetting metadata contains no page or patch Bitmap. */
+private data class LetteringDescription(val bounds: Rect, val style: MangaLettering.Style, val text: String, val saved: Boolean)
 
 @Composable
 fun MangaTranslationOverlay(
@@ -35,21 +33,39 @@ fun MangaTranslationOverlay(
     textScale: Float = 1f,
     modifier: Modifier = Modifier
 ) {
-    val layouts = remember(overlays, textScale) {
-        overlays.map { overlay -> overlay.patch?.let { patch ->
-            com.mangalens.core.translation.MangaLettering.layout(overlay.translatedText, patch.style,
-                patch.bounds.width(), patch.bounds.height(), textScale)
+    val descriptions = remember(overlays) {
+        overlays.map { overlay ->
+            val saved = overlay.lettering
+            if (saved != null) {
+                val bounds = Rect(saved.left, saved.top, saved.right, saved.bottom)
+                if (bounds.isEmpty || bounds.left < 0 || bounds.top < 0 || bounds.right > overlay.imageWidthPx ||
+                    bounds.bottom > overlay.imageHeightPx || !saved.size.isFinite() || saved.size <= 0f) null
+                else LetteringDescription(bounds, MangaLettering.Style(saved.family, saved.face, saved.color, saved.size,
+                    runCatching { Layout.Alignment.valueOf(saved.alignment) }.getOrDefault(Layout.Alignment.ALIGN_CENTER)), saved.translated, true)
+            } else overlay.patch?.let { patch ->
+                LetteringDescription(Rect(patch.bounds), patch.style, overlay.translatedText, false)
+            }
+        }
+    }
+    val layouts = remember(descriptions, textScale) {
+        descriptions.map { description -> description?.let {
+            MangaLettering.layout(it.text, it.style, it.bounds.width(), it.bounds.height(), textScale)
         } }
     }
-    androidx.compose.foundation.Canvas(modifier) {
+    Canvas(modifier) {
         overlays.forEachIndexed { index, overlay ->
-            val patch = overlay.patch ?: return@forEachIndexed
+            val description = descriptions[index] ?: return@forEachIndexed
             val scale = size.width / overlay.imageWidthPx.coerceAtLeast(1)
             drawContext.canvas.nativeCanvas.apply {
-                save()
-                scale(scale, scale)
-                com.mangalens.core.translation.MangaLettering.draw(this, patch, overlay.translatedText, textScale, layouts[index])
-                restore()
+                val checkpoint = save()
+                try {
+                    scale(scale, scale)
+                    if (description.saved) {
+                        MangaLettering.drawText(this, description.bounds, description.style, description.text, textScale, layouts[index])
+                    } else overlay.patch?.let { patch ->
+                        MangaLettering.draw(this, patch, description.text, textScale, layouts[index])
+                    }
+                } finally { restoreToCount(checkpoint) }
             }
         }
     }

@@ -1,0 +1,10 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/ResourceGovernor.kt",
+    "sha256": "73cefb040fccadd0580bad200d883284b3a834600e89a0535e05c6d6d01f95b2"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/ResourceGovernorTest.kt",
+    "sha256": "0333f97086fcf6320e251374756dde0f310b89c30cec8bd74b57610fb3b9240e"
+  }
+]

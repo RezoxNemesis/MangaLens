@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezOwnedChapterLookupTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.073">
+  <properties/>
+  <testcase name="changedCapturedPinOrStyleIsRejectedBeforeRefreshingOwnCorruptOutput" classname="com.mangalens.orez.agent.OrezOwnedChapterLookupTest" time="0.032"/>
+  <testcase name="staleGenerationAndForeignOwnerAreRejectedBeforeAnyInspection" classname="com.mangalens.orez.agent.OrezOwnedChapterLookupTest" time="0.007"/>
+  <testcase name="heldOwnedScopeLookupCannotRepairReplacementOwnersCorruptSurface" classname="com.mangalens.orez.agent.OrezOwnedChapterLookupTest" time="0.009"/>
+  <testcase name="currentOwnedCorruptSurfaceIsActuallyValidatedAndCannotClaimCompletion" classname="com.mangalens.orez.agent.OrezOwnedChapterLookupTest" time="0.009"/>
+  <testcase name="coldReopenPreservesFullRequestAndValidatesOnlyTheCapturedGeneration" classname="com.mangalens.orez.agent.OrezOwnedChapterLookupTest" time="0.007"/>
+  <testcase name="actualNativeFullRequestReceiptReopensTypedPlanAndRejectsChangedPinProvenance" classname="com.mangalens.orez.agent.OrezOwnedChapterLookupTest" time="0.009"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

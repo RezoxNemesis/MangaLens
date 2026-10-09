@@ -10,12 +10,35 @@ set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+# Android's x86_64 ABI guarantees SSE4.2. Keep optional AVX/FMA/F16C disabled
+# instead of depending on the build host's CPU when producing portable APKs.
+if(ANDROID_ABI STREQUAL "x86_64")
+    set(GGML_SSE42 ON CACHE BOOL "" FORCE)
+endif()
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
 set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
 include(FetchContent)
 FetchContent_Declare(whisper_cpp GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git GIT_TAG a8d002cfd879315632a579e73f0148d06959de36)
 FetchContent_MakeAvailable(whisper_cpp)
+execute_process(COMMAND ${CMAKE_COMMAND} "-DWHISPER_SOURCE_DIR=${whisper_cpp_SOURCE_DIR}"
+    -P "${CMAKE_CURRENT_LIST_DIR}/patch_auto_detection.cmake"
+    RESULT_VARIABLE WHISPER_AUTO_PATCH_RESULT)
+if(NOT WHISPER_AUTO_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Unable to prepare the pinned cancellable Whisper automatic detection source")
+endif()
+execute_process(COMMAND ${CMAKE_COMMAND} "-DWHISPER_SOURCE_DIR=${whisper_cpp_SOURCE_DIR}"
+    -P "${CMAKE_CURRENT_LIST_DIR}/patch_encoder_reuse.cmake"
+    RESULT_VARIABLE WHISPER_REUSE_PATCH_RESULT)
+if(NOT WHISPER_REUSE_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Unable to prepare the pinned single first-encoder Whisper source")
+endif()
+execute_process(COMMAND ${CMAKE_COMMAND} "-DWHISPER_SOURCE_DIR=${whisper_cpp_SOURCE_DIR}"
+    -P "${CMAKE_CURRENT_LIST_DIR}/patch_f16_loop_unroll.cmake"
+    RESULT_VARIABLE WHISPER_VEC_PATCH_RESULT)
+if(NOT WHISPER_VEC_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Unable to prepare the pinned portable Whisper FP16 vector source")
+endif()
 add_library(mangalens_whisper SHARED whisper_jni.cpp)
 target_include_directories(mangalens_whisper PRIVATE ${whisper_cpp_SOURCE_DIR}/include)
 target_link_libraries(mangalens_whisper PRIVATE whisper log)

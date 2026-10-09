@@ -4,65 +4,38 @@ import android.content.Context
 import com.mangalens.orez.OrezLocalModelService
 import com.mangalens.orez.OrezModelManager
 
-internal fun buildTranslationRefinementPrompt(
-    source: String,
-    translated: String,
-    targetLanguage: String,
-    style: TranslationStyleProfile,
-    chapterContext: String,
-    glossary: Map<String, String>
-): String {
-    val glossaryText = glossary.entries
-        .take(20)
-        .joinToString("\n") { "${it.key} => ${it.value}" }
-        .ifBlank { "(none)" }
-
-    val contextText = chapterContext
-        .replace(Regex("\\s+"), " ")
-        .trim()
-        .take(4500)
-        .ifBlank { "(no earlier dialogue context)" }
-
-    return """
-        You are the final manga/manhwa localization editor inside MangaLens.
-        Produce ONLY the final translation. Never explain your work.
-
-        TARGET LANGUAGE: $targetLanguage
-        STYLE: ${style.name}
-        STYLE RULE: ${style.instruction}
-        PRESERVE NAMES: ${style.preserveNames}
-        PRESERVE HONORIFICS: ${style.preserveHonorifics}
-        NATURAL DIALOGUE: ${style.naturalDialogue}
-
-        Rules:
-        - Preserve meaning, intent, emotion, relationship and scene implications.
-        - Keep character voice consistent with the chapter context.
-        - Never invent plot facts, names or actions.
-        - Do not translate a proper name unless the glossary explicitly maps it.
-        - Preserve established honorifics when appropriate. Never invent politeness, respect, titles, honorifics or social distance that is absent from the source.
-        - For English→Hindi, neutral informal dialogue normally maps to natural तुम-register; use आप only when the source/context is explicitly respectful, and hostile dialogue may use तू-register when warranted.
-        - Fix literal or robotic machine-translation phrasing.
-        - Keep short dialogue short; do not add explanations.
-        - Preserve emphasis, laughter, hesitation, shouting and rhetorical tone.
-        - If the source contains an obvious OCR error, infer the most plausible reading from context without inventing new content.
-        - Return only the localized dialogue.
-
-        CHAPTER CONTEXT:
-        $contextText
-
-        GLOSSARY:
-        $glossaryText
-
-        SOURCE:
-        $source
-
-        DRAFT:
-        $translated
-    """.trimIndent()
-}
-
 class TranslationOrezRefiner(private val context: Context) {
     private val model = OrezLocalModelService(OrezModelManager(context))
+
+    suspend fun captureRequest(enabled: Boolean, style: TranslationStyleProfile = TranslationStyleProfile.NATURAL): TranslationRefinementRequest =
+        TranslationRefinementRequest(enabled, style, if (enabled) model.captureModelPin() else null)
+
+    /** Captured jobs never read ambient enable/style/model settings or choose a replacement model. */
+    suspend fun refineCaptured(
+        source: String,
+        translated: String,
+        targetLanguage: String,
+        request: TranslationRefinementRequest,
+        chapterContext: String = "",
+        glossary: Map<String, String> = emptyMap()
+    ): TranslationRefinementResult {
+        if (!request.enabled) return TranslationRefinementResult(translated, status = TranslationRefinementStatus.DISABLED)
+        if (request.pinnedModel == null || !TranslationRefinementPolicy.validInputs(source, translated, targetLanguage,
+                request.style, chapterContext, glossary))
+            return TranslationRefinementResult(translated, status = TranslationRefinementStatus.UNAVAILABLE)
+        val capturedGlossary = glossary.toMap()
+        val prompt = TranslationRefinementPolicy.prompt(source, translated, targetLanguage, request.style, chapterContext, capturedGlossary)
+        val attempt = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+            model.answerWithReceipt(prompt, emptyList(), pinnedModel = request.pinnedModel) to Unit
+        } ?: return TranslationRefinementResult(translated, status = TranslationRefinementStatus.TIMED_OUT)
+        val answer = attempt.first ?: return TranslationRefinementResult(translated, status = TranslationRefinementStatus.UNAVAILABLE)
+        val text = answer.text.replace(Regex("\\s+"), " ").trim()
+        val result = TranslationRefinementResult(text,
+            TranslationRefinementReceipt(answer.model, TranslationRefinementPolicy.hash(prompt), TranslationRefinementPolicy.hash(text)),
+            TranslationRefinementStatus.GENERATED)
+        return result.takeIf { TranslationRefinementPolicy.matches(it, source, translated, targetLanguage, request, chapterContext, capturedGlossary) }
+            ?: TranslationRefinementResult(translated, status = TranslationRefinementStatus.UNAVAILABLE)
+    }
 
     suspend fun refine(
         source: String,
@@ -70,13 +43,15 @@ class TranslationOrezRefiner(private val context: Context) {
         targetLanguage: String,
         style: TranslationStyleProfile = TranslationStyleProfile.NATURAL,
         chapterContext: String = "",
-        glossary: Map<String, String> = emptyMap()
+        glossary: Map<String, String> = emptyMap(),
+        enabledOverride: Boolean? = null
     ): String {
         if (source.isBlank() || translated.isBlank()) return translated
-        // A 650 MB generative model per bubble stalls chapters on ordinary phones.
+        // Generative editing can add latency across a whole chapter.
         // The fast on-device draft is the default; editing is an explicit quality option.
-        if (!context.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
-                .getBoolean("local_refinement", false)) return translated
+        val enabled = enabledOverride ?: context.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
+            .getBoolean("local_refinement", false)
+        if (!enabled) return translated
 
         val prompt = buildTranslationRefinementPrompt(
             source = source,

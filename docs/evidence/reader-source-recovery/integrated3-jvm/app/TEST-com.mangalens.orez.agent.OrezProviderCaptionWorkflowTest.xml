@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezProviderCaptionWorkflowTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.052">
+  <properties/>
+  <testcase name="realProviderProcessorExportsCompleteOrezExecutorAndRetainSourceStyleAndSceneAcrossReopen" classname="com.mangalens.orez.agent.OrezProviderCaptionWorkflowTest" time="0.05"/>
+  <testcase name="ordinaryEnglishRequestPrioritisesCapturedProviderInventoryBeforeAsr" classname="com.mangalens.orez.agent.OrezProviderCaptionWorkflowTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

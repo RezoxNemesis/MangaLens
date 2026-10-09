@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.compute.NativeComputeAdmissionTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:13" hostname="53f09df5485f" time="0.446">
+  <properties/>
+  <testcase name="theConfiguredQueueCannotExceedTheSixtyFourWaiterSafetyLimit" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.001"/>
+  <testcase name="oldBackgroundWaiterGetsAProgressTurnBeforeNewInteractiveButNeverBeforeLive" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.033"/>
+  <testcase name="cancelledWaiterDoesNoWorkAndDoesNotReleaseTheActiveNativeLease" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.115"/>
+  <testcase name="waitingLiveRunsBeforeEarlierOfflineAtTheCompletedWindowBoundary" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.014"/>
+  <testcase name="theSixtyFifthQueuedInvocationIsRejectedWithoutDroppingAnyAcceptedWaiter" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.052"/>
+  <testcase name="criticalPressureRejectsComputeWithoutEffectButCleanupStillSerializesUntilNativeReturn" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.11"/>
+  <testcase name="staleClosedLeaseCannotReleaseTheReplacementInvocation" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.104"/>
+  <testcase name="delayedBackgroundDoesNotBlockLiveAndEventuallyGetsItsLease" classname="com.mangalens.core.compute.NativeComputeAdmissionTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

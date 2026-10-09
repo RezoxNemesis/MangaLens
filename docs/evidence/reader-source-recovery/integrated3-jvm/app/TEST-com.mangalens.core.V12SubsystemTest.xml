@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.V12SubsystemTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:12" hostname="53f09df5485f" time="0.199">
+  <properties/>
+  <testcase name="relativeChapterResolvesAgainstActivePage" classname="com.mangalens.core.V12SubsystemTest" time="0.12"/>
+  <testcase name="routerHandlesHinglishTranslationTypos" classname="com.mangalens.core.V12SubsystemTest" time="0.064"/>
+  <testcase name="ocrPipelineRepairsHinglishWithoutAndroidGraphics" classname="com.mangalens.core.V12SubsystemTest" time="0.015"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.052">
+  <properties/>
+  <testcase name="explicitRemovalOfEmptyCorrectionStillFencesOldEditorAndSearchCitation" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.008"/>
+  <testcase name="failedRemovalCommitKeepsAcceptedTextAndClock" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.006"/>
+  <testcase name="legacyBaselineHasClockZeroUntilFirstExplicitControl" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.007"/>
+  <testcase name="exhaustedClockCannotWrapOrChangeTheCurrentJournal" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.005"/>
+  <testcase name="removalReindexAndFreshEditKeepMonotonicVersionAcrossColdStores" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.008"/>
+  <testcase name="codecRejectsNegativeClockAndDisagreementWithVisibleHistory" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.002"/>
+  <testcase name="legacyRetainedCorrectionDerivesClockThenMigratesOnAcceptedMutation" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.008"/>
+  <testcase name="staleOnlySourceChangedOutputAndWrongPinnedOriginNeverWriteGlossary" classname="com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

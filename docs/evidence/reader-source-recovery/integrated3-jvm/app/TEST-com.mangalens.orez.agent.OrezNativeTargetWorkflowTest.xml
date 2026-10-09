@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.409">
+  <properties/>
+  <testcase name="actualHindiAndHinglishDualExportsCompleteTheirTypedPlanAndReopenFullScope" classname="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" time="0.205"/>
+  <testcase name="partialTargetsRetainOriginalSpeechAndCannotPublishCompletion" classname="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" time="0.03"/>
+  <testcase name="sameSlotReaderReplacementCannotBeStoppedOrOverwrittenByTheOlderTargetPlan" classname="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" time="0.037"/>
+  <testcase name="headlessPauseAndCancelRecoverNativeResumeCommitGapWithExactPairAndTargetEvidence" classname="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" time="0.055"/>
+  <testcase name="exactCapturedRefinementProfileAndHindiProofSurviveActualNativeAndOrezJournals" classname="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" time="0.046"/>
+  <testcase name="reopenedOriginalSpeechRepairsAndResumesWithoutInspectingAnUnavailableInstalledWhisperModel" classname="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" time="0.022"/>
+  <testcase name="changedFullTargetConfigOrPairNeverGetsOldOwnedStopRights" classname="com.mangalens.orez.agent.OrezNativeTargetWorkflowTest" time="0.013"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

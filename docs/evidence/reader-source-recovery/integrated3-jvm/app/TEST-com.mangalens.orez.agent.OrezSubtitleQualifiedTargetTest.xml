@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.04">
+  <properties/>
+  <testcase name="explicitUnsupportedUnknownDestinationRemainsVisibleAheadOfKnownCueDescription" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.002"/>
+  <testcase name="sourceLanguageInCapturedDecodeSettingsNeverOverridesAnExplicitDestination" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.0"/>
+  <testcase name="explicitEnglishDestinationPrecedesARomanHindiQualifiedCueDescription" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <testcase name="explicitEnglishDestinationPrecedesAHindiQualifiedCueDescription" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.018"/>
+  <testcase name="requestedHindiDualOutputDoesNotSilentlyRemainEnglish" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <testcase name="explicitUnsupportedKnownDestinationDoesNotFallBackToTheHindiCueDescription" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.0"/>
+  <testcase name="importedTextWithTheExactRequestStillCannotAuthorizeNativeSubtitleWork" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <testcase name="explicitHinglishDestinationPrecedesEnglishOriginalCueDescription" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <testcase name="sourceLabelDoesNotSupplyATargetWhenTheUserLeavesItsSettingsUnchanged" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <testcase name="actualAndroidRequestCapturesHinglishRatherThanDefaultEnglishBeforeDispatch" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <testcase name="actualOptionsMapperAndColdNativeJournalRetainTargetModeAndOwnedIdentity" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.003"/>
+  <testcase name="explicitRomanHindiAliasesStillSelectTheirScriptBeforeADualOrBilingualQualifier" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.009"/>
+  <testcase name="unsupportedExplicitQualifiedLanguageRemainsVisibleInsteadOfChangingToEnglish" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <testcase name="ownDownloadChainCarriesTheSameQualifiedTargetWithoutChangingItsSourceAuthority" classname="com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

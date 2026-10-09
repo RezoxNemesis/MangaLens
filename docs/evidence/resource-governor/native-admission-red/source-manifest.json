@@ -1,0 +1,10 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputeAdmission.kt",
+    "sha256": "9e49a44e5ca6dd36e571487585be9447191cf05020fdfe3ec7e9b6a2766e34ea"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/NativeComputeAdmissionTest.kt",
+    "sha256": "1a25a5754e89684b27ae6435c23421560aa85ab101782a0be3363d69c6a6fe02"
+  }
+]

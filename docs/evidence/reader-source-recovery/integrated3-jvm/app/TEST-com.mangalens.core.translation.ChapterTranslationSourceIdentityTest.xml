@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:15" hostname="53f09df5485f" time="0.009">
+  <properties/>
+  <testcase name="aManagedSymlinkCannotBorrowAnOutsideSource" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.005"/>
+  <testcase name="ordinaryManagedPathStillMatches" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.001"/>
+  <testcase name="retargetingAnAliasCannotReuseAStaleIdentity" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.0"/>
+  <testcase name="missingPrivateSourceIsNotARestorableSurface" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.001"/>
+  <testcase name="blankAndAbsentSourcesNeverMatch" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.0"/>
+  <testcase name="identicalBytesInAnotherPrivateFileCannotBorrowASurface" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.001"/>
+  <testcase name="androidStyleDirectoryAliasMatchesTheSameCanonicalPrivateSource" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.001"/>
+  <testcase name="unchangedBasenameOutsideManagedStorageIsRejected" classname="com.mangalens.core.translation.ChapterTranslationSourceIdentityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

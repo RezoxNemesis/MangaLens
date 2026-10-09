@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezSubtitleToolsTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.06">
+  <properties/>
+  <testcase name="runningReplayUsesNoReplacementAndRecordedGenerationCannotAdoptAnother" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.009"/>
+  <testcase name="pausedAndCancelledNativeStatesNeverClaimCompletion" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.002"/>
+  <testcase name="nativeOwnerSourceModelAndSettingsCannotBeSubstituted" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.003"/>
+  <testcase name="changedSourceOrUnverifiedRemoteSourceCannotDispatchNativeWork" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.002"/>
+  <testcase name="onlyThisPlansTypedPublishedDownloadCanSupplyTheSource" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.003"/>
+  <testcase name="aStoppedEpochCannotStartNativeWorkAndOsInterruptionKeepsOwnedWorkAlive" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.003"/>
+  <testcase name="completedNativeResultRequiresFullActualExportAndSourceEvidence" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.004"/>
+  <testcase name="explicitInspectionProducesOnlyOpaqueVerifiedSourceAndModelEvidence" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.001"/>
+  <testcase name="boundWorkflowReloadsItsJustCompletedDownloadBeforeResolvingSubtitleDependency" classname="com.mangalens.orez.agent.OrezSubtitleToolsTest" time="0.033"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,58 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/AndroidResourceSignalMonitor.kt",
+    "sha256": "9acb6ffcf0d0a53e15664e9c0e83b9300d6fb41bef1802db1b751e6aabb9df8c"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputeAdmission.kt",
+    "sha256": "1465d902a5f9ecc560cd7320224f30dfb5504f3bf274868d84bbb1085b9e9902"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputeMemoryRelease.kt",
+    "sha256": "d44f133af435bb4742c8d7d9cdf0300c2f1508a7e6c92b78e8fe2726f47069f9"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputePrecondition.kt",
+    "sha256": "2b330c72b6167b5a87921128a58716c562ef94e2f317a396b0eb0479139fd2b2"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/ResourceGovernor.kt",
+    "sha256": "bcba704f99ac289946c9b604dff941cc2325cdb3c04e438430f50e50e8461c6d"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/events/AppEvent.kt",
+    "sha256": "69f074793438184ba50edf57f0b999b479b46d13b37b5cecb7f3cbbc55ccaae1"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/events/AppEventBus.kt",
+    "sha256": "428ef9678ba612401e94f0e0f53cf6f4969a28a4d9f7a6ef9a9a25c473f9a91c"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/events/CommittedEventWaiter.kt",
+    "sha256": "40afc981a32f96e50a87beb7044d47f2b42fa89731a1452c93b9bf523cef4e74"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/NativeLiveSpeechBudget.kt",
+    "sha256": "ce49ec844c3d3e1c258e97f65cc37ea74afe7d3a6b7d61d06fe366916b58c0c4"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/NativeLiveSpeechHandles.kt",
+    "sha256": "19651da9ec9b946637a8122cde3d9f20fc1a2155ef9ecc8b76bf7dc2ae7f71de"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/NativeComputeAdmissionTest.kt",
+    "sha256": "3eafdc89b9a51fb79451124ff8d845a4f4a682f68bd5a78437966121e152cec9"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/NativeComputeMemoryReleaseTest.kt",
+    "sha256": "0a95f728d416dcc0d538c934d7c580c3bc12d32e4b0762ad92a6185ea69f45c9"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/ResourceGovernorTest.kt",
+    "sha256": "9d5e3d35a1eea9dacf18a8a9078ffdbc810a099bfcf049dbb8e4a506d76b9368"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/ui/video/NativeLiveSpeechBudgetTest.kt",
+    "sha256": "d6927796c6d6ece10d0d97530713dbdd76af7e8442fb452083e8c937da25718a"
+  }
+]

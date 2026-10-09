@@ -1,0 +1,10 @@
+--- a/ggml/src/ggml-cpu/vec.cpp
++++ b/ggml/src/ggml-cpu/vec.cpp
+@@ -208,2 +208,7 @@
+     for (int i = 0; i < np; i += GGML_F16_STEP) {
++#if defined(__clang__) && defined(__x86_64__) && defined(__SSE3__) && !defined(__AVX__)
++        // Promote the eight fixed SSE accumulators instead of indexing them on the stack.
++        // Preserve the existing products, accumulation and reduction order exactly.
++        #pragma clang loop unroll(full)
++#endif
+         for (int j = 0; j < GGML_F16_ARR; j++) {

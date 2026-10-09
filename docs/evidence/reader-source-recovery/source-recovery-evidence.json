@@ -1,0 +1,206 @@
+{
+  "base_sha": "08ca908c35e0a3593c84b683ed967fed1a069715",
+  "status": "Final Reader/source candidate main production and matching Android test APK compiled; actual JVM 1,469/lint 0 errors. Both sealed build3 app/test installs succeeded within original 600-second bounds; focused Reader source/mode/restoration instrumentation is next, no runtime acceptance pass yet.",
+  "source_files": [
+    {
+      "path": "app/src/main/java/com/mangalens/core/reader/ChapterPage.kt",
+      "sha256": "e207d7a6997b6b2fc2a53749c1e7cc69e79b84fb73f18460657c378b68c999b0"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/core/reader/ChapterDocumentSource.kt",
+      "sha256": "ad01163679d573caaa73fcab2c8896601ff3c18dbf4e010b95fe55ef67afc50b"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/core/reader/ProgressiveChapterRepository.kt",
+      "sha256": "366d989d2cfdc5eae2dada2af122104af0d1549d3bf9a6487a93dafce3006633"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/core/reader/DocumentImporter.kt",
+      "sha256": "c7ede6cbad9103ca40ce5c7d78365524cd934bb4041c28c3494182115b53efb8"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/core/reader/ChapterLibrary.kt",
+      "sha256": "b222c4e4662066f29106b7116be5af443eb8df3f7d615d4ac6db3cc76be7fc2e"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/core/imports/SafeChapterArchive.kt",
+      "sha256": "df2465b1c70b8e6eb7ebcd16e8237e8b50eac3308bd43d85b4cc0222fc2e6403"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/ui/reader/ReaderMangaImage.kt",
+      "sha256": "e02a0714a875276ac930afbfaba8901aefb069154dc4b3997467d8442174e273"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/ui/reader/MangaContinuousReader.kt",
+      "sha256": "9a65487edc63188eaecca29eb71643758553f7bb1b69615a0925f693bbe70270"
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ChapterSourceRecoveryTest.kt",
+      "sha256": "e575ee2d95d80fb2be4827654a2d468a886c11e3ae9e05cd0da5b47467a7998d"
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/DocumentSourceRecoveryTest.kt",
+      "sha256": "045394f9ecda1020f01cb81008973704ce72934f5a6bc29d587d009fa18f044b"
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ReaderSourceRecoveryTest.kt",
+      "sha256": "c27693fdb526079ee73fdb356936e8ce83c8f81d570965b65543e3804290373b"
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ReaderSourceCacheReloadTest.kt",
+      "sha256": "dc001e0da08da17be93a2f9a1875ff4427f5d96a142d7acac1d1a3ed0161f5c9"
+    },
+    {
+      "path": "app/src/test/java/com/mangalens/core/reader/ChapterDocumentSourceTest.kt",
+      "sha256": "a86720457d7f2a359de803308da2d2c10d93da910b79d8e263bc0b5dc8b53924"
+    },
+    {
+      "path": "app/src/test/java/com/mangalens/core/reader/ChapterDocumentManifestTest.kt",
+      "sha256": "3afdcf41e8416da08fa0ddc1196ff26d26ea55febadeb5a860ceb8f8f99c8508"
+    },
+    {
+      "path": "app/src/test/java/com/mangalens/core/imports/SafeChapterArchiveProvenanceTest.kt",
+      "sha256": "fca64ff65c63da7b0cff149c82b9e131de88fc8b923dc4126c307b7d2194954a"
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ReaderDocumentPagesTest.kt",
+      "sha256": "60674da9e1f57e3f71bee952d3b48e4a3ee1f2e59e5e4cf6b988e978ddb0d1fe"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/ui/MangaLensViewModel.kt",
+      "sha256": "51be2125a1a6bbe8d1e8b8851e400c248abad0781751990fb2769a8b9ba195f4",
+      "ownership": "shared feature file; source-retry/ingestion hunks only owned by this slice"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/ui/MangaLensNavGraph.kt",
+      "sha256": "eeeca20320c4933e60f6cdc348760a62563712827b19bf57db9a2097e6497218",
+      "ownership": "shared feature file; source-retry/ingestion hunks only owned by this slice"
+    },
+    {
+      "path": "app/src/main/java/com/mangalens/MainActivity.kt",
+      "sha256": "d314c2eb2cdb83bebc92c5c898b03528d7f70444c8392be3cbf9ebb841a9a2dd",
+      "ownership": "shared feature file; source-retry/ingestion hunks only owned by this slice"
+    }
+  ],
+  "evidence": [
+    {
+      "name": "cache_skip_red",
+      "path": "docs/evidence/reader-source-recovery/cache_skip_red.log",
+      "sha256": "0d505119e7bebf4e8dc578b6a01b5d97311b99a736ae794f3f497168e9ee49a2",
+      "scope": "Exact HEAD source; actual cache/HTTP skipped. Android validation stubs intentionally throw, 0 actual bounds calls.",
+      "workspace_path": "/workspace/mission/reader/cache-red-harness/red.log"
+    },
+    {
+      "name": "document_lifecycle_red",
+      "path": "docs/evidence/reader-source-recovery/document_lifecycle_red.log",
+      "sha256": "d41960ac782e3cc474d1bfc752468ff42eee8779ed026c529289f3e129fad676",
+      "scope": "Exact HEAD DocumentImporter/SafeChapterArchive; actual original ZIP+extraction lifecycle. No Bitmap/PDF/UI claim.",
+      "workspace_path": "/workspace/mission/reader/document-source-red-harness/red.log"
+    },
+    {
+      "name": "archive_unit_green",
+      "path": "docs/evidence/reader-source-recovery/archive_unit_green.log",
+      "sha256": "65033f09384c0b4866ab281e2973b31adba20e0f611ebbcc83358ce9faeac8e7",
+      "scope": "Existing4+new5 pure-JVM actual ZIP/filesystem tests pass. Source later whitespace formatting only.",
+      "workspace_path": "/workspace/mission/reader/archive-harness/green.log"
+    },
+    {
+      "name": "document_lifecycle_green",
+      "path": "docs/evidence/reader-source-recovery/document_lifecycle_green.log",
+      "sha256": "3bead6fa665d414c4b825998dc0865b224379ec2c065d99b3706fd279588380c",
+      "scope": "Real ZIP provenance/selected-entry regeneration and changed-document SHA rejection. PDF/Bitmap APIs throw. No positive SAF grant claim.",
+      "workspace_path": "/workspace/mission/reader/document-source-green-harness/green.log"
+    },
+    {
+      "name": "document_model_manifest_green",
+      "path": "docs/evidence/reader-source-recovery/document_model_manifest_green.log",
+      "sha256": "46943c5fe7859056f2ac6fa3ba552f9b50c80ba78651f2b0ec71805169ca8375",
+      "scope": "New7+existing12 real JSON/private File IO tests pass. Android AtomicFile stub throws if used; no atomic Android evidence yet.",
+      "workspace_path": "/workspace/mission/reader/document-model-harness/green.log"
+    },
+    {
+      "name": "integrated2_actual_gradle_unit_xml",
+      "path": "docs/evidence/reader-source-recovery/integrated2-unit-xml",
+      "source_identity": "docs/evidence/reader-source-recovery/integrated2-unit-xml/integrated-source-build-2.json",
+      "scope": "Actual root Gradle build2: source+manifest/library19, archive9, unchanged position17/HUD4/store40 pass with0 failures/errors/skips; Android acquisition/Coil pixel/PDF/device still pending.",
+      "workspace_path": "/workspace/mission/reader/integrated2-unit-xml",
+      "workspace_source_identity": "/workspace/mission/reader/integrated2-unit-xml/integrated-source-build-2.json"
+    },
+    {
+      "name": "http_header_stall_red",
+      "path": "docs/evidence/reader-source-recovery/http_header_stall_red.log",
+      "sha256": "15a1fab41e46b2b76d06c9e0c9f1a52eda37579ac08139f48ff6b620dcdab25a",
+      "source_identity": "docs/evidence/reader-source-recovery/http_header_stall_red-source-manifest.json",
+      "scope": "Actual MockWebServer+OkHttp stalled headers/coroutine cancellation; every Android decoder/document/rename stub throws if reached. RED exceeded2500ms; GREEN18ms. No native pixel/UI claim.",
+      "workspace_path": "/workspace/mission/reader/header-cancellation-harness/red/result.log",
+      "workspace_source_identity": "/workspace/mission/reader/header-cancellation-harness/red/manifest.json",
+      "source_identity_sha256": "bc058bd4d0ef8df6256108bca1fee5e82063d9f4e2f77048c795748b7f5bb4fa"
+    },
+    {
+      "name": "http_header_stall_green",
+      "path": "docs/evidence/reader-source-recovery/http_header_stall_green.log",
+      "sha256": "a62d1e6cf6d9b1a342b3db3415e870f29ba7979bc9befc12448182c4186ce457",
+      "source_identity": "docs/evidence/reader-source-recovery/http_header_stall_green-source-manifest.json",
+      "scope": "Actual MockWebServer+OkHttp stalled headers/coroutine cancellation; every Android decoder/document/rename stub throws if reached. RED exceeded2500ms; GREEN18ms. No native pixel/UI claim.",
+      "workspace_path": "/workspace/mission/reader/header-cancellation-harness/green/result.log",
+      "workspace_source_identity": "/workspace/mission/reader/header-cancellation-harness/green/manifest.json",
+      "source_identity_sha256": "036db80f278e29ccc07c1c6f8ec3159220478908faa035301f4652ef4a2d62a6"
+    },
+    {
+      "name": "http_header_stall_final_guard_source_green",
+      "path": "docs/evidence/reader-source-recovery/http_header_stall_final_guard_source_green.log",
+      "sha256": "c6db3d66cf33db5e800084b26250e9d373720ef022a7abaa0d258a8f978ca250",
+      "source_identity": "docs/evidence/reader-source-recovery/http_header_stall_final_guard_source_green-source-manifest.json",
+      "scope": "Exact final guarded repository standalone compilation and actual HTTP header-stall cancellation:20ms, CancellationException, zero pages/partials. Android raster/document/rename stubs throw if reached; native guard promotion test pending root.",
+      "workspace_path": "/workspace/mission/reader/header-cancellation-harness/final/result.log",
+      "workspace_source_identity": "/workspace/mission/reader/header-cancellation-harness/final/manifest.json",
+      "source_identity_sha256": "e14de73a8b2aaa7f24dc64c04a65d4d4e7d062ca7778c158c551d583f2b8e3ad"
+    },
+    {
+      "name": "integrated3_actual_gradle_jvm_and_lint",
+      "path": "docs/evidence/reader-source-recovery/integrated3-jvm-summary.json",
+      "sha256": "7d693cb48a3319c305cb6e5027733aa467c55384b54fefc9bec3130d1b42af30",
+      "scope": "Actual Gradle app 1,453 executed + Orez 16 valid UP-TO-DATE = 1,469 JVM tests, zero failures/errors/skips; lint 0 errors/77 warnings; main production compiled. Original aggregate build failed on two unrelated Android test API uses; corrected Android-test APK rerun exited 0/BUILD SUCCESSFUL in 1m54s. Both sealed build3 app/test installs succeeded within original 600-second bounds. Focused Reader native instrumentation is next; no runtime acceptance pass yet."
+    }
+  ],
+  "android_test_selectors": [
+    "com.mangalens.ChapterSourceRecoveryTest",
+    "com.mangalens.DocumentSourceRecoveryTest",
+    "com.mangalens.ReaderSourceRecoveryTest",
+    "com.mangalens.ReaderDocumentPagesTest",
+    "com.mangalens.ReaderSourceCacheReloadTest",
+    "com.mangalens.MangaImageDecodeTest",
+    "com.mangalens.ReaderModesTest",
+    "com.mangalens.ReaderRestorationSmokeTest"
+  ],
+  "reader_mode": "Only inert composition/measurement diagnostics added. No behavioral pager repair, oracle unchanged.",
+  "reader_fingerprint": "Current actual local byte SHA computed in cancellable IO before Coil lookup; original pages40MiB, accepted cleaned surfaces retain64MiB budget. Runtime SHA:incarnation intentionally omitted from durable manifests/receipts.",
+  "source_validation": "Actual software BitmapFactory sample capped at512 x 512 before cache reuse/promotion, 40MiB and100M original bounds retained. It verifies sampled decodability, without claiming arbitrary partialJPEG completeness. Explicit repair acquires verified replacement even when bytes are identical, then changes only ephemeral incarnation.",
+  "reader_raster_failure": "Visible Coil errors are scoped to model+incarnation; original failure offers selected-page retry, cleaned failure falls back to original and suppresses painted lettering while keeping saved output bytes intact. Multi-page documents share sourceURI, so surfaces/lazy rows key by index.",
+  "current_page_promotion_guard": "Exact captured current page is validated under one publication lock immediately before atomic managed-cache rename. Restore/clear use the same lock; IO and native decode do not hold it. Actual held-body Android regression is prepared, not yet executed.",
+  "captured_utc": "2026-10-09T20:12:36.884393+00:00",
+  "android_test_method_counts": {
+    "com.mangalens.ChapterSourceRecoveryTest": 13,
+    "com.mangalens.DocumentSourceRecoveryTest": 4,
+    "com.mangalens.ReaderSourceRecoveryTest": 2,
+    "com.mangalens.ReaderDocumentPagesTest": 1,
+    "com.mangalens.ReaderSourceCacheReloadTest": 1,
+    "com.mangalens.MangaImageDecodeTest": 2
+  },
+  "reader_oracle_identity": {
+    "path": "docs/evidence/reader-source-recovery/unchanged-reader-oracle-identity.json",
+    "sha256": "e471f41709f5e7ab9d63288ea2abacb1823f969e2363a3ae3610a1ed71b633e0",
+    "byte_identical_oracles": 6,
+    "scope": "ReaderModes, ReaderRestoration, ReaderSourceFrameOracle, MangaImageDecode, ReaderPositionState and ReaderHudLayout source byte-identical to HEAD; not runtime evidence."
+  },
+  "device_acceptance": {
+    "status": "UNVERIFIED; zero accepted Reader/native source/runtime passes",
+    "device": "TCG Google API26 x86_64 software emulator",
+    "root_report": "Sealed integrated2 app eventually installed after original 600-second runner bound; ActivityManager launch timeout and System UI ANR prevent accepted runtime. This does not establish an accepted-mode Reader failure. No behavioral mode patch applied.",
+    "initial_runner_outcome": "/workspace/mission/evidence/integrated-2-api26-google/runner-outcome.json",
+    "late_installed_package": "/workspace/mission/evidence/integrated-2-api26-google/installed-package.txt",
+    "late_launch": "/workspace/mission/evidence/integrated-2-api26-google/late-launch.txt",
+    "source_manifest": "/workspace/mission/evidence/integrated-2-apks/manifest.json",
+    "note": "Initial integrated2 runner outcome records early failed install/zero tests; late integrated2 installed/launch observations are separate. Both later sealed build3 app/test APK installs now succeeded within the original 600-second bounds. Focused Reader source/mode/restoration instrumentation is next; no accepted runtime pass yet."
+  }
+}

@@ -1,0 +1,7 @@
+MangaLens original-copy and site-extractor components
+
+The app-owned original-stream copy/probe executables are FFmpeg 7.1.1, built from the unchanged official source under LGPL-2.1-or-later. The exact profile disables GPL, nonfree, version3, networking, encoders, decoders and external codecs. It dynamically requires Android libc and libm only. Fixed two-ABI SHA-256 and build-recipe/receipt pins ship in mangalens-ffmpeg-7.1.1-pins.json; the unchanged LGPL 2.1 text ships alongside this notice.
+
+Corresponding source, exact completed recipe, generated configurations, toolchain identity, build log, binary hashes and ELF receipts are distributed in the app source repository at third_party/ffmpeg/mangalens-ffmpeg-7.1.1-corresponding-source.tar.gz. Archive SHA-256: a324a0cfc51ecac7154d1fa96bc119c5501c7990249dd43886dce54ad4968476. Official FFmpeg source tar SHA-256: 733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1. Source: https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
+
+The io.github.junkfood02.youtubedl-android library/common 0.18.1 site-extractor wrapper is retained with its upstream GPL-3.0 text. Upstream release: https://github.com/yausername/youtubedl-android/tree/d725d5c9a18c3a99a13ee0308bf78275dc310760 . Its Python/QuickJS and other bundled component obligations are separate from the owned FFmpeg source offer. Their complete native build correspondence remains under verification; this notice does not claim that unrelated bundle is complete.

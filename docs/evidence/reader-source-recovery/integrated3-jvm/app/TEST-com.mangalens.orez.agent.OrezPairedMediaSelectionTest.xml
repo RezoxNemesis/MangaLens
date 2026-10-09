@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.021">
+  <properties/>
+  <testcase name="legacySingleStreamSourceIdentityKeepsExactPriorLengthFramedSpelling" classname="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" time="0.001"/>
+  <testcase name="aPromptAudioOrPageUriCannotReplaceTheSelectedVideoAuthority" classname="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" time="0.0"/>
+  <testcase name="toolArgumentsAndModelCatalogExposeNoPrivateStreamHeadersOrAudioDescriptor" classname="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" time="0.008"/>
+  <testcase name="bothHeaderMapsAreSnapshottedBeforeTheAcceptedRequestCanSuspend" classname="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" time="0.002"/>
+  <testcase name="pairedSelectionAndItsIndependentHeadersSurviveJournalReopen" classname="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" time="0.003"/>
+  <testcase name="fullPairAndResolutionAndDurationArePartOfTheCapturedSourceIdentity" classname="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" time="0.001"/>
+  <testcase name="crossResolutionMissingDurationUnsafeAudioAndBadHeadersAreRejectedBeforeNativeDispatch" classname="com.mangalens.orez.agent.OrezPairedMediaSelectionTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

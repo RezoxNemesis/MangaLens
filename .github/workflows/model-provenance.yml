@@ -4,6 +4,8 @@ on:
     paths:
       - '.github/workflows/model-provenance.yml'
       - 'app/src/main/java/com/mangalens/orez/OrezModelManager.kt'
+      - 'app/src/main/java/com/mangalens/orez/OrezModelCatalog.kt'
+      - 'orez-evals/verify_model_catalog.py'
 permissions:
   contents: read
 jobs:
@@ -12,6 +14,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Verify all Lite and Core catalog pins
+        run: python3 orez-evals/verify_model_catalog.py
       - name: Read publisher metadata and compare the application's pin
         shell: bash
         run: |

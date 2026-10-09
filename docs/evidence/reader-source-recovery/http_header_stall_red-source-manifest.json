@@ -1,0 +1,13 @@
+{
+  "/workspace/mission/reader/header-cancellation-harness/red/BitmapFactory.kt": "8dd1d4c0eb5604ec6c5b431ae76b42747b640a20ee8fc2160b94258e291e9ec0",
+  "/workspace/mission/reader/header-cancellation-harness/red/Context.kt": "5577a3bf840f9e990758d8c2a7f8714b073c177a1bab054f2e738b2c36663f48",
+  "/workspace/mission/reader/header-cancellation-harness/red/HeaderCancellation.kt": "3cab066e96d7d7dab10c69f5b6ef5dfcf067b25859f875329ff952175ab776bc",
+  "/workspace/mission/reader/header-cancellation-harness/red/CookieManager.kt": "2428026b8758661d50c7bc34002fefe5259bf4b436b188f365c4a8569eeda85d",
+  "/workspace/mission/reader/header-cancellation-harness/red/Uri.kt": "9e6b1ebbeeabcc92f894b2a0ae36bbdbae17a108fd54c88e486e2dd81fe7600b",
+  "/workspace/mission/reader/header-cancellation-harness/red/Os.kt": "9292d59688a7f6be3c79ce33b29485fef25997fdfdb7eb7eb770b54c56cc21e0",
+  "/workspace/mission/reader/header-cancellation-harness/red/DocumentImporter.kt": "9be4c263a4c12745b9ec122808fe0fca5f516482b63748569794e3097b45c73d",
+  "/workspace/mission/reader/header-cancellation-harness/red/ChapterPage.kt": "e207d7a6997b6b2fc2a53749c1e7cc69e79b84fb73f18460657c378b68c999b0",
+  "/workspace/mission/reader/header-cancellation-harness/red/ProgressiveChapterRepository.kt": "b7d2d36759153af3959f10eb7960567447c251418bc3f7a7a440ae98651a5836",
+  "/workspace/mission/reader/header-cancellation-harness/red/BoundedTransfer.kt": "e95da1f7da6e491ef2d0f8d95b5c323659623336a99b30a02d38b76a5b1f5045",
+  "/workspace/mission/reader/header-cancellation-harness/red/ChapterDocumentSource.kt": "ad01163679d573caaa73fcab2c8896601ff3c18dbf4e010b95fe55ef67afc50b"
+}

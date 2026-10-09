@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.web.WebReloadRequestTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:34" hostname="53f09df5485f" time="0.008">
+  <properties/>
+  <testcase name="retryUsesItsTicketEvenWhenAnOldCallbackChangedTheDisplayUrl" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.001"/>
+  <testcase name="sameDocumentRetryPreservesNativeReloadAndItsHistoryEntry" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.0"/>
+  <testcase name="unsupportedRetryCannotEscapeItsSafetyCheckByChoosingAnOlderSafePage" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.001"/>
+  <testcase name="anInternalErrorDocumentDoesNotReplaceTheIntendedHttpRequest" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.0"/>
+  <testcase name="aThrowingDiagnosticObserverCannotAbortBrowserCallbackControlFlow" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.005"/>
+  <testcase name="retryKeepsTheFailedRequestWhenWebViewExposesThePreviousCommittedDocument" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.001"/>
+  <testcase name="ordinaryRefreshFollowsTheActualVisibleDocument" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.0"/>
+  <testcase name="retryKeepsTheStoppedRequestRatherThanReloadingThePreviousPage" classname="com.mangalens.ui.web.WebReloadRequestTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

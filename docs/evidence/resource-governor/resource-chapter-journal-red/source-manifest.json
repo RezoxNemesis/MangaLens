@@ -1,0 +1,10 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/translation/ChapterTranslationStore.kt",
+    "sha256": "6960d0a8895dabe8040940e0ce3149008c1735308f32130443dd6a6da4a62a76"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/translation/ChapterTranslationStoreTest.kt",
+    "sha256": "f226b15463ba8ba36ad7260d4c1fa5982e19f0190b05277e7ca006db0a366fe7"
+  }
+]

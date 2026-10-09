@@ -1,0 +1,99 @@
+package com.mangalens.orez.agent
+
+import com.mangalens.orez.OrezTaskDao
+import com.mangalens.orez.OrezTaskEntity
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class OrezTaskStoreTest {
+    @Test fun completedStepEvidenceSurvivesJournalRoundTrip() = runTest {
+        val store = OrezTaskStore(FakeTaskDao())
+        val plan = OrezAgentPlanner().plan("Download https://example.com/a.mp4 and https://example.com/b.mp4", OrezAgentContext())!!
+        val checkpoint = plan.copy(status = OrezTaskStatus.WAITING, steps = plan.steps.map {
+            if (it.index == 0) it.copy(status = OrezStepStatus.COMPLETED,
+                outputs = mapOf("downloadId" to "orez-${plan.id}", "destination" to "content://media/123")) else it
+        })
+        assertTrue(store.checkpoint(checkpoint))
+        assertEquals(checkpoint, store.load(plan.id))
+        assertTrue(store.checkpoint(checkpoint, OrezTaskStatus.CANCELLED))
+        assertTrue(!store.checkpoint(checkpoint, OrezTaskStatus.RUNNING))
+    }
+
+    @Test
+    fun checkpointPersistsStructuredPlanInsteadOfFreeFormChat() = runTest {
+        val dao = FakeTaskDao()
+        val store = OrezTaskStore(dao)
+        val plan = OrezTaskPlan(
+            id = "task-test",
+            objective = "Open my library",
+            steps = listOf(
+                OrezPlanStep(
+                    index = 0,
+                    call = OrezToolCall(
+                        name = "open_library",
+                        capability = OrezCapability.LIBRARY,
+                        risk = OrezToolRisk.READ_ONLY,
+                        summary = "Open MangaLens Library"
+                    )
+                )
+            )
+        )
+
+        store.checkpoint(plan, OrezTaskStatus.RUNNING)
+
+        val saved = dao.saved
+        assertNotNull(saved)
+        assertEquals("task-test", saved!!.id)
+        assertEquals("RUNNING", saved.status)
+
+        val json = JSONObject(saved.planJson)
+        assertEquals(1, json.getInt("schema"))
+        assertEquals("Open my library", json.getString("objective"))
+        assertEquals("open_library", json.getJSONArray("steps").getJSONObject(0).getString("tool"))
+        assertEquals(plan.copy(status = OrezTaskStatus.RUNNING), store.load(plan.id))
+    }
+
+    @Test fun dispatchDoesNotPretendLongRunningWorkCompleted() = runTest {
+        val dao = FakeTaskDao()
+        val store = OrezTaskStore(dao)
+        val plan = OrezAgentPlanner().plan("Translate this whole chapter to Hindi", OrezAgentContext(hasActiveChapter = true))!!
+        val dispatched = plan.copy(status = OrezTaskStatus.DISPATCHED,
+            steps = plan.steps.map { it.copy(status = OrezStepStatus.DISPATCHED) })
+        store.checkpoint(dispatched)
+        assertEquals(dispatched, store.load(plan.id))
+        assertEquals("hi", store.load(plan.id)!!.steps.first().call.arguments["targetLanguage"])
+    }
+
+    @Test fun lateWorkerCannotResurrectDismissedTask() = runTest {
+        val store = OrezTaskStore(FakeTaskDao())
+        val plan = OrezAgentPlanner().plan("Open library", OrezAgentContext())!!
+        store.checkpoint(plan, OrezTaskStatus.CANCELLED)
+        store.checkpoint(plan, OrezTaskStatus.COMPLETED)
+        assertEquals(OrezTaskStatus.CANCELLED, store.load(plan.id)!!.status)
+    }
+
+    private class FakeTaskDao : OrezTaskDao {
+        var saved: OrezTaskEntity? = null
+
+        override fun observeActive(): Flow<List<OrezTaskEntity>> =
+            flowOf(saved?.let(::listOf) ?: emptyList())
+
+        override suspend fun get(id: String): OrezTaskEntity? =
+            saved?.takeIf { it.id == id }
+
+        override suspend fun upsert(task: OrezTaskEntity) {
+            saved = task
+        }
+
+        override suspend fun pruneFinished(before: Long) {
+            if (saved?.updatedAt?.let { it < before } == true) saved = null
+        }
+    }
+}
+

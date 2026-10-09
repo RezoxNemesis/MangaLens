@@ -1,34 +1,40 @@
 package com.mangalens.orez
 
 import android.content.Context
+import com.mangalens.download.AndroidNativeExtractorNetworking
+import com.mangalens.download.MediaProcessGuard
+import com.mangalens.download.MediaResolutionRunner
+import com.mangalens.download.NativeOwnedExtractorTools
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.UUID
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 data class OrezVideoResult(val title: String, val url: String, val thumbnail: String?, val creator: String, val durationSeconds: Int?, val uploadDate: String?, val description: String)
 
 class OrezVideoSearch(private val context: Context) {
-    suspend fun search(query: String): List<OrezVideoResult> = runInterruptible(Dispatchers.IO) {
-        YoutubeDL.init(context.applicationContext)
+    suspend fun search(query: String): List<OrezVideoResult> = MediaResolutionRunner.run(25_000L) { session ->
+        session.checkActive()
         val recent = Regex("(?i)latest|recent|today|newest").containsMatchIn(query)
         val request = YoutubeDLRequest((if (recent) "ytsearchdate5:" else "ytsearch5:") + query.take(500)).apply {
             addOption("--ignore-config"); addOption("--flat-playlist"); addOption("--dump-single-json")
+            addOption("--no-plugin-dirs"); addOption("--no-remote-components"); addOption("--no-geo-bypass")
             addOption("--skip-download"); addOption("--socket-timeout", "10"); addOption("--retries", "0")
         }
+        val source = "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query.take(500), "UTF-8")
+        NativeOwnedExtractorTools.configure(context, request, session)
+        AndroidNativeExtractorNetworking.configure(context, request, source, session::checkActive)
         val id = "orez-video-${UUID.randomUUID()}"
-        val timeout = timer.schedule({ YoutubeDL.destroyProcessById(id) }, 25, TimeUnit.SECONDS)
-        try { OrezVideoResultCodec.parseSearch(YoutubeDL.execute(request, processId = id, callback = null).out) }
-        finally { timeout.cancel(false); YoutubeDL.destroyProcessById(id) }
+        val guard = MediaProcessGuard(session, id, session.remainingMillis(), YoutubeDL::destroyProcessById)
+        try {
+            session.checkActive()
+            OrezVideoResultCodec.parseSearch(YoutubeDL.execute(request, processId = id, callback = null).out)
+        } finally { guard.close() }
     }
     companion object {
-        private val timer = Executors.newSingleThreadScheduledExecutor { Thread(it, "orez-video-timeout").apply { isDaemon = true } }
-        fun isDiscovery(query: String) = Regex("(?i)youtube|recap\\s+videos?|find.*videos?|search.*videos?|watch.*videos?|video\\s+results?|adult\\s+videos?").containsMatchIn(query)
+        fun isDiscovery(query: String) = OrezDiscoveryPolicy.isVideoQuery(query)
     }
 }
 
@@ -60,3 +66,4 @@ object OrezVideoResultCodec {
             row.optString("upload_date").takeIf { it.matches(Regex("[0-9]{8}")) }, row.optString("description").take(300))
     }
 }
+

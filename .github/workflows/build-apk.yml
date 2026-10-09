@@ -4,7 +4,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "engineering/mangalens-production", "engineering/mangalens-2.2-runtime-recovery"]
   workflow_dispatch:
 
 concurrency:
@@ -15,6 +15,7 @@ permissions:
   contents: write
 
 env:
+  MANGALENS_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RELEASE_TAG: orez-corpus-${{ github.run_id }}
 
 jobs:
@@ -280,7 +281,7 @@ jobs:
   build-and-validate-apk:
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Confirm runner allocation and workflow context
         run: |
@@ -335,7 +336,7 @@ jobs:
       - name: Run lint
         run: gradle --no-daemon lintDebug --stacktrace
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest --stacktrace
+        run: gradle --no-daemon assembleDebug assembleSelfTest assembleDebugAndroidTest --stacktrace
       - name: Verify APK
         run: |
           set -euo pipefail
@@ -348,6 +349,10 @@ jobs:
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
           python .github/scripts/verify-debug-apks.py
+          python .github/scripts/verify-debug-apks.py --variant selfTest
+          for SELF_APK in app/build/outputs/apk/selfTest/app-*-selfTest.apk; do
+            sha256sum "$SELF_APK" | tee "$SELF_APK.sha256"
+          done
       - name: Detect Android emulator acceleration
         id: emulator_accel
         shell: bash
@@ -357,15 +362,18 @@ jobs:
             sudo chmod 666 /dev/kvm
             if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
               echo "available=true" >> "$GITHUB_OUTPUT"
+              echo "MANGALENS_EMULATOR_ACCELERATION=kvm" >> "$GITHUB_ENV"
             else
               echo "available=false" >> "$GITHUB_OUTPUT"
+              echo "MANGALENS_EMULATOR_ACCELERATION=software" >> "$GITHUB_ENV"
               echo "::warning::KVM is not usable; falling back to software emulation."
             fi
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "MANGALENS_EMULATOR_ACCELERATION=software" >> "$GITHUB_ENV"
             echo "::warning::No /dev/kvm on this runner; falling back to software emulation."
           fi
-      - name: Launch MangaLens in Android emulator
+      - name: Run full acceptance in target-SDK Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -379,8 +387,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
-            bash .github/scripts/mangalens-startup-smoke.sh
-            bash .github/scripts/mangalens-device-regression.sh
+            bash scripts/android/run-acceptance.sh --suite full --require-model --self-test-apk app/build/outputs/apk/selfTest/app-x86_64-selfTest.apk --evidence-dir app/build/diagnostics/api-35
       - name: Upload MangaLens startup diagnostics
         if: always()
         continue-on-error: true
@@ -390,6 +397,7 @@ jobs:
           path: |
             app/build/diagnostics/**
             app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**
             app/build/reports/tests/**
             app/build/test-results/**
             app/build/reports/lint-results*
@@ -405,9 +413,11 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-*-debug.apk
             app/build/outputs/apk/debug/app-*-debug.apk.sha256
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk.sha256
           retention-days: 7
       - name: Publish main APK release if artifact storage is unavailable
-        if: steps.upload_main_apk.outcome == 'failure'
+        if: success() && steps.upload_main_apk.outcome == 'failure'
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
@@ -421,13 +431,23 @@ jobs:
           files: |
             app/build/outputs/apk/debug/app-*-debug.apk
             app/build/outputs/apk/debug/app-*-debug.apk.sha256
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk.sha256
 
   pull-request-validation:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+      - name: Verify exact pull request source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$MANGALENS_GIT_SHA"
+      - name: Validate device acceptance failure detection
+        run: python3 -m unittest discover -s scripts/android -p 'test_*.py'
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -444,10 +464,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
           test -n "$SDKMANAGER"
-          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          dirname "$SDKMANAGER" >> "$GITHUB_PATH"
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.13113456" "cmake;3.31.6"
@@ -458,7 +480,7 @@ jobs:
       - name: Build, test, lint, and assemble debug APK
         run: |
           bash .github/scripts/create-video-ocr-fixture.sh
-          gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace
+          gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleSelfTest assembleDebugAndroidTest --stacktrace
       - name: Verify APK and generate checksum
         shell: bash
         run: |
@@ -471,21 +493,44 @@ jobs:
             test "$(wc -c < "$ABI_APK")" -gt 1000000
             sha256sum "$ABI_APK" | tee "$ABI_APK.sha256"
           done
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          sha256sum app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk | tee app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk.sha256
           python .github/scripts/verify-debug-apks.py
-      - name: PR safety gate without emulator
+          python .github/scripts/verify-debug-apks.py --variant selfTest
+          for SELF_APK in app/build/outputs/apk/selfTest/app-*-selfTest.apk; do
+            sha256sum "$SELF_APK" | tee "$SELF_APK.sha256"
+          done
+      - name: Detect Android emulator acceleration
+        id: emulator_accel
         shell: bash
         run: |
           set -euo pipefail
-          # User explicitly requested that PR validation not launch an emulator.
-          # The preceding hard gates already ran JVM tests, lint, full APK assembly,
-          # AndroidTest compilation, archive/native-library checks and signature verification.
-          # Keep those checks blocking; skip only runtime emulator execution.
-          test -s app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-          test -s app/build/outputs/apk/debug/app-x86_64-debug.apk
-          test -s app/build/outputs/apk/debug/app-arm64-v8a-debug.apk.sha256
-          test -s app/build/outputs/apk/debug/app-x86_64-debug.apk.sha256
-          echo "PR safety gate passed; emulator runtime validation intentionally skipped."
-      - name: Upload PR startup diagnostics
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "MANGALENS_EMULATOR_ACCELERATION=kvm" >> "$GITHUB_ENV"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "MANGALENS_EMULATOR_ACCELERATION=software" >> "$GITHUB_ENV"
+            echo "::warning::KVM is unavailable; attempting bounded software emulation."
+          fi
+      - name: Run full acceptance in target-SDK Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          disk-size: 4096M
+          ram-size: 3072M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          disable-linux-hw-accel: ${{ steps.emulator_accel.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/android/run-acceptance.sh --suite full --require-model --self-test-apk app/build/outputs/apk/selfTest/app-x86_64-selfTest.apk --evidence-dir app/build/diagnostics/api-35
+      - name: Upload PR device acceptance evidence
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
@@ -494,13 +539,14 @@ jobs:
           path: |
             app/build/diagnostics/**
             app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**
             app/build/reports/tests/**
             app/build/test-results/**
             app/build/reports/lint-results*
           if-no-files-found: warn
           retention-days: 7
       - name: Upload pull-request debug APK
-        if: always()
+        if: success()
         id: upload_pr_apk
         continue-on-error: true
         uses: actions/upload-artifact@v4
@@ -509,19 +555,111 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-*-debug.apk
             app/build/outputs/apk/debug/app-*-debug.apk.sha256
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk.sha256
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk.sha256
           retention-days: 7
       - name: Publish APK release if artifact storage is unavailable
-        if: steps.upload_pr_apk.outcome == 'failure'
+        if: success() && steps.upload_pr_apk.outcome == 'failure'
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: mangalens-pr-${{ github.event.pull_request.number }}-${{ github.run_number }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ env.MANGALENS_GIT_SHA }}
           name: MangaLens PR #${{ github.event.pull_request.number }} APK build ${{ github.run_number }}
           body: |
             Fallback APK for testing because GitHub Actions artifact upload failed.
-            Built from workflow commit ${{ github.sha }}.
+            Built and emulator-tested from pull request head ${{ env.MANGALENS_GIT_SHA }}.
           prerelease: true
           files: |
             app/build/outputs/apk/debug/app-*-debug.apk
             app/build/outputs/apk/debug/app-*-debug.apk.sha256
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk
+            app/build/outputs/apk/selfTest/app-*-selfTest.apk.sha256
+
+  pull-request-compatibility:
+    if: github.event_name == 'pull_request'
+    needs: pull-request-validation
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+      - name: Verify exact pull request source
+        run: test "$(git rev-parse HEAD)" = "$MANGALENS_GIT_SHA"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Prepare APK inspection tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "build-tools;35.0.0"
+      - name: Download the primary gate's verified APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: mangalens-pr-debug-apk
+          path: candidate-apks
+      - name: Resolve and recheck candidate APK checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_APK="$(find candidate-apks -type f -name app-x86_64-debug.apk)"
+          TEST_APK="$(find candidate-apks -type f -name app-debug-androidTest.apk)"
+          test -s "$APP_APK"
+          test -s "$TEST_APK"
+          EXPECTED_HASH="$(cut -d ' ' -f 1 "$APP_APK.sha256")"
+          test "$EXPECTED_HASH" = "$(sha256sum "$APP_APK" | cut -d ' ' -f 1)"
+          EXPECTED_TEST_HASH="$(cut -d ' ' -f 1 "$TEST_APK.sha256")"
+          test "$EXPECTED_TEST_HASH" = "$(sha256sum "$TEST_APK" | cut -d ' ' -f 1)"
+          echo "MANGALENS_ACCEPTANCE_APP_APK=$APP_APK" >> "$GITHUB_ENV"
+          echo "MANGALENS_ACCEPTANCE_TEST_APK=$TEST_APK" >> "$GITHUB_ENV"
+      - name: Detect Android emulator acceleration
+        id: emulator_accel
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "MANGALENS_EMULATOR_ACCELERATION=kvm" >> "$GITHUB_ENV"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "MANGALENS_EMULATOR_ACCELERATION=software" >> "$GITHUB_ENV"
+            echo "::warning::KVM is unavailable; attempting bounded software emulation."
+          fi
+      - name: Run retained-screen compatibility on Android 9
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          target: default
+          arch: x86_64
+          disk-size: 4096M
+          ram-size: 3072M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          disable-linux-hw-accel: ${{ steps.emulator_accel.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            bash scripts/android/run-acceptance.sh --suite core --timeout 900 \
+              --app-apk "$MANGALENS_ACCEPTANCE_APP_APK" --test-apk "$MANGALENS_ACCEPTANCE_TEST_APK" \
+              --evidence-dir app/build/diagnostics/api-28
+      - name: Upload older-API acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangalens-pr-api-28-evidence
+          path: app/build/diagnostics/**
+          if-no-files-found: warn
+          retention-days: 7

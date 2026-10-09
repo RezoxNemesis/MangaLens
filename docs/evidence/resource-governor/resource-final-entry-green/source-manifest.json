@@ -1,0 +1,34 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/ResourceGovernor.kt",
+    "sha256": "6e4c233c24a6463424bf47b17b5c7c971f0b9869779fee00c15569793cbeec3d"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputeAdmission.kt",
+    "sha256": "1465d902a5f9ecc560cd7320224f30dfb5504f3bf274868d84bbb1085b9e9902"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputePrecondition.kt",
+    "sha256": "2b330c72b6167b5a87921128a58716c562ef94e2f317a396b0eb0479139fd2b2"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/NativeLiveSpeechBudget.kt",
+    "sha256": "41424a6d2d035aa450bcc311799de0289684e99e0b4a2ca6bff43bc1faa14e40"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/LiveSpeechWindowSnapshot.kt",
+    "sha256": "21090e9645a6209827e5c833cef3bca441d1a62b51cc0a654d8ea34f55742426"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/ResourceGovernorTest.kt",
+    "sha256": "fd5d52b6a22f19e1bd83feb829b863c80f0d57322494e2d75adb9707117a185b"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/NativeComputeAdmissionTest.kt",
+    "sha256": "3eafdc89b9a51fb79451124ff8d845a4f4a682f68bd5a78437966121e152cec9"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/ui/video/NativeLiveSpeechBudgetTest.kt",
+    "sha256": "6aefc929507c23cd81fafaf74afca39f81488c79659db5a932197548a9cdffd3"
+  }
+]

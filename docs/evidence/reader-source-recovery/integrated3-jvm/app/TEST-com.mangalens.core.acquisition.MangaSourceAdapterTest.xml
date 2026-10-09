@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.acquisition.MangaSourceAdapterTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:12" hostname="53f09df5485f" time="0.305">
+  <properties/>
+  <testcase name="extractsOnlyReaderImagesAndOrdersChapters" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.212"/>
+  <testcase name="providerImagesMustMatchTheSelectedTitleChapterCaptionAndCdn" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.02"/>
+  <testcase name="oversizedHtmlIsRejected" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.038"/>
+  <testcase name="urlNormalizationKeepsEncodedPathsQueriesAndRejectsCredentials" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.005"/>
+  <testcase name="unknownImageHeavyWebPageNeedsRenderedFallback" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.002"/>
+  <testcase name="readerPathsWithSpacesAreNormalizedBeforeUrlValidation" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.003"/>
+  <testcase name="userSuppliedDemonicScansMarkupYieldsAllFifteenChapterPagesWithoutLogosOrAds" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.019"/>
+  <testcase name="mixedCasePastedHostRetainsSameSiteChapterLinks" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.001"/>
+  <testcase name="knownProviderImageClassDoesNotGrantUnrelatedPagesAReader" classname="com.mangalens.core.acquisition.MangaSourceAdapterTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

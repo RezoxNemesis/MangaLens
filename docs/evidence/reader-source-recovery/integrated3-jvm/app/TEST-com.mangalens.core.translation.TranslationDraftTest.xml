@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.TranslationDraftTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:18" hostname="53f09df5485f" time="0.041">
+  <properties/>
+  <testcase name="validatedShortNounsKeepEvidenceThroughSelectionInsteadOfInventingHindiGrammar" classname="com.mangalens.core.translation.TranslationDraftTest" time="0.014"/>
+  <testcase name="ordinaryHindiAndPlainRomanDialogueKeepTheirExistingBehavior" classname="com.mangalens.core.translation.TranslationDraftTest" time="0.0"/>
+  <testcase name="englishRefinementCannotBorrowTheHindiDraftsEvidence" classname="com.mangalens.core.translation.TranslationDraftTest" time="0.014"/>
+  <testcase name="proofMustDescribeThisExactOutputAndMustActuallyContainValidatedHindi" classname="com.mangalens.core.translation.TranslationDraftTest" time="0.001"/>
+  <testcase name="aDifferentIndependentlyPlausibleRefinementDropsTheOldEvidence" classname="com.mangalens.core.translation.TranslationDraftTest" time="0.001"/>
+  <testcase name="unchangedEnglishCannotBeMistakenForANameInTheShortNounRegression" classname="com.mangalens.core.translation.TranslationDraftTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

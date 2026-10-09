@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.engine.OcrPixelVariantPlanTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.043">
+  <properties/>
+  <testcase name="diagnosticHypothesesStayBoundedForTheOriginalCropSizesAndLargeRegions" classname="com.mangalens.engine.OcrPixelVariantPlanTest" time="0.036"/>
+  <testcase name="transformedLandmarksRoundTripToTheSameOriginalPixels" classname="com.mangalens.engine.OcrPixelVariantPlanTest" time="0.007"/>
+  <testcase name="rotationAddsMarginsRatherThanClippingTheGlyphsAtACropEdge" classname="com.mangalens.engine.OcrPixelVariantPlanTest" time="0.0"/>
+  <testcase name="deslantMovesLowerPixelsWithoutCroppingTheUpperOrLowerLetterStrokes" classname="com.mangalens.engine.OcrPixelVariantPlanTest" time="0.0"/>
+  <testcase name="corruptGeometryOrUnboundedExperimentalParametersCannotAllocateABitmap" classname="com.mangalens.engine.OcrPixelVariantPlanTest" time="0.0"/>
+  <testcase name="nativeBoxMappingRetainsItsTextCoverageAndClipsOnlyOutsideImageMargins" classname="com.mangalens.engine.OcrPixelVariantPlanTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

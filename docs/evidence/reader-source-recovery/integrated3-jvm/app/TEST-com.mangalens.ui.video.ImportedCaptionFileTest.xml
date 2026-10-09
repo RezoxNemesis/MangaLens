@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ImportedCaptionFileTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.011">
+  <properties/>
+  <testcase name="commonFontTagsAndEntitiesSupplyVisibleDialogueWithoutChangingNamesOrNumbers" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.0"/>
+  <testcase name="validOverlappingDialogueKeepsBothOriginalTimeRanges" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.001"/>
+  <testcase name="aMalformedLaterCueCannotSilentlyDisappearFromAnApparentlyCompleteImport" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.001"/>
+  <testcase name="visibleCaptionTextRemovesFormattingWithoutReplacingWordsOrNumbers" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.0"/>
+  <testcase name="malformedTimingCannotBePublishedAsACue" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.001"/>
+  <testcase name="unknownAngleDialogueAndInvalidEntitiesRemainVisibleAndAreNotInterpretedAsTags" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.001"/>
+  <testcase name="vttNotesStylesAndRegionsDoNotBecomeDialogue" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.0"/>
+  <testcase name="oversizedInputAndMalformedUtf8FailBeforeTheTrackCanBeApplied" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.003"/>
+  <testcase name="emptyDialogueAndArbitraryPlainTextDoNotCreateAPlayableTrack" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.001"/>
+  <testcase name="opaqueDocumentWithVttContentRetainsTimingAndUsesCanonicalSrt" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.0"/>
+  <testcase name="utf16BomIsDecodedFromBytesRatherThanAProviderMimeGuess" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.002"/>
+  <testcase name="actualSrtContentWorksWithoutAnExtensionAndPreservesMultilineUnicode" classname="com.mangalens.ui.video.ImportedCaptionFileTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

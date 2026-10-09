@@ -1,0 +1,11 @@
+Selected AndroidX Material Icons 1.7.6
+Copyright 2020 The Android Open Source Project
+Licensed under the Apache License, Version 2.0.
+The complete license is included in material-icons-LICENSE.txt.
+
+MangaLens includes sixteen unchanged icon vector source definitions from
+androidx.compose.material:material-icons-extended-android:1.7.6.
+Core icon definitions are provided by material-icons-core-android:1.7.6.
+Upstream: https://developer.android.com/jetpack/androidx/releases/compose-material
+Source provenance and hashes: third_party/material-icons/manifest.json
+in the MangaLens source repository.

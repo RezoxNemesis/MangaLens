@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.ReaderTranslationPresentationTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:18" hostname="53f09df5485f" time="0.266">
+  <properties/>
+  <testcase name="pinnedRealPngInspectionRejectsTruncationCorruptionAndFakeHeaderOnlyData" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.009"/>
+  <testcase name="aMissingFailedPageCannotHideItsVerifiedTranslatedNeighbourOnColdRestore" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.04"/>
+  <testcase name="everyUserTargetStyleOcrAndEnableChangeDetachesTheOldBinding" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.012"/>
+  <testcase name="readerDirectoryAliasKeepsTheReceiptWhileOutsideAndRetargetedAliasesDetach" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.015"/>
+  <testcase name="sourceProofCannotBeReplacedEvenWithTheSameTaskAndModel" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.016"/>
+  <testcase name="completedEnabledTaskBindsItsSavedFullRequestInsteadOfTheUiNullRequest" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.014"/>
+  <testcase name="explicitLegacyAndUnavailableRequestsRemainUnchangedRatherThanAdoptAPin" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.007"/>
+  <testcase name="sourceInvalidationCanDemoteOnlyUnpaintedRowsWhileOtherSourceProofStaysExact" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.037"/>
+  <testcase name="realJournalAliasRoundTripRetainsEveryPageProofUnderCanonicalFileIdentity" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.017"/>
+  <testcase name="sameTaskIdCannotBorrowAChangedGenerationOwnerPinOrStyleFlag" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.012"/>
+  <testcase name="aNewerAmbientPinTaskCannotRetargetAnAlreadyBoundReceipt" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.027"/>
+  <testcase name="coldStoreReopenUsesTheSameCapturedStylePinSourceAndRealPng" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.013"/>
+  <testcase name="customInstructionCannotAttachAResultFromAnotherCapturedRequest" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.033"/>
+  <testcase name="trustedResumeReceiptCanRotateOnlyTheSameFullCapturedScope" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.011"/>
+  <testcase name="aFullCapturedModelRequestCannotBeSilentlyTreatedAsAnUnpinnedUiChoice" classname="com.mangalens.core.translation.ReaderTranslationPresentationTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

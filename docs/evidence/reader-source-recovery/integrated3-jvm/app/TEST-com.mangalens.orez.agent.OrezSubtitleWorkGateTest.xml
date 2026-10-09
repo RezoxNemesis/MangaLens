@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.111">
+  <properties/>
+  <testcase name="missingStopAcknowledgementKeepsPendingAndDoesNotInventPausedStatus" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.007"/>
+  <testcase name="sourceOwnerModelConfigTaskAndUnprovenGenerationCannotGainHeadlessStopRights" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.034"/>
+  <testcase name="resumeCommitGapProofCanStopOnlySameOwnedG2AndPersistsItsGeneration" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.013"/>
+  <testcase name="replacementThatWinsNativeStoreLockCannotAcknowledgeOrStopNewGeneration" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.004"/>
+  <testcase name="changedExecutionEpochReloadsLatestIntentBeforeDispatchingNativeControl" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.006"/>
+  <testcase name="restoredPauseAndCancelStopExactNativeReceiptAndClearDurablePendingIntent" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.034"/>
+  <testcase name="alreadyStoppedSameGenerationCanAcknowledgeNativeStopCommitGapIdempotently" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.008"/>
+  <testcase name="nativeJournalFailureRetainsPendingIntentForAnotherBoundedRecoveryPass" classname="com.mangalens.orez.agent.OrezSubtitleWorkGateTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

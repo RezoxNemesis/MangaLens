@@ -54,6 +54,15 @@ class MediaLinkResolverTest {
         assertEquals(server.url("/play?id=1&token=secret").toString(), result.url)
     }
 
+    @Test fun extensionlessHlsContentTypesRemainPlayableAfterResolution() = fixture { server, resolver ->
+        for (mime in listOf("application/vnd.apple.mpegurl", "application/x-mpegurl")) {
+            server.enqueue(MockResponse().setHeader("Content-Type", mime).setBody("#EXTM3U\n"))
+            val result = resolver.resolve(server.url("/play?id=fixture").toString())!!
+            assertEquals(mime, result.mimeType)
+            assertTrue(com.mangalens.ui.video.isPlayableRefresh(result))
+        }
+    }
+
     @Test fun videoPageThumbnailIsNotReportedAsVideoDownload() = fixture { server, resolver ->
         server.enqueue(MockResponse().setBody("<meta property='og:image' content='/poster.jpg'>"))
         assertNull(resolver.resolve(server.url("/video/123").toString()))

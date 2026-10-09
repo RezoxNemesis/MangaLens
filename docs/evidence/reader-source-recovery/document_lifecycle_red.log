@@ -1,0 +1,15 @@
+ORIGINAL remains=true, unchanged=true
+SAVED page image URIs=[file:/workspace/mission/reader/document-source-red-harness/private-fixture/cache/chapter_imports/8468e46c-8ebf-42e2-b1b8-65d01af567b3/pages/page_1.img, file:/workspace/mission/reader/document-source-red-harness/private-fixture/cache/chapter_imports/8468e46c-8ebf-42e2-b1b8-65d01af567b3/pages/page_0.img]
+AFTER close, referenced temporary sources remain=0 / 2
+Exception in thread "main" java.lang.IllegalStateException: RED: every URI provided to persistent local pages points at an already-deleted extraction, despite intact selected document. Need explicit original document provenance/selected page regeneration. This harness proves file lifecycle and ZIP extraction only, not Bitmap/PDF/UI validation.
+	at harness.DocumentSourceRedKt$main$1.invokeSuspend(DocumentSourceRed.kt:27)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at harness.DocumentSourceRedKt.main(DocumentSourceRed.kt:10)
+	at harness.DocumentSourceRedKt.main(DocumentSourceRed.kt)

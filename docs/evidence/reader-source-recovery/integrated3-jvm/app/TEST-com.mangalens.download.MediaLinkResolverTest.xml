@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.MediaLinkResolverTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:20" hostname="53f09df5485f" time="0.82">
+  <properties/>
+  <testcase name="shortChunkedPageSupportsImagesAndAdaptiveStreams" classname="com.mangalens.download.MediaLinkResolverTest" time="0.214"/>
+  <testcase name="videoPageThumbnailIsNotReportedAsVideoDownload" classname="com.mangalens.download.MediaLinkResolverTest" time="0.052"/>
+  <testcase name="emptyOrUnsupportedPageReturnsNoInventedMedia" classname="com.mangalens.download.MediaLinkResolverTest" time="0.09"/>
+  <testcase name="openGraphVideoWorksWhenContentPrecedesProperty" classname="com.mangalens.download.MediaLinkResolverTest" time="0.034"/>
+  <testcase name="oversizedChunkedResponseIsRejectedEvenWithoutContentLength" classname="com.mangalens.download.MediaLinkResolverTest" time="0.28"/>
+  <testcase name="opaqueSignedVideoEndpointUsesContentTypeWithoutReadingWholeMedia" classname="com.mangalens.download.MediaLinkResolverTest" time="0.016"/>
+  <testcase name="extensionlessHlsContentTypesRemainPlayableAfterResolution" classname="com.mangalens.download.MediaLinkResolverTest" time="0.07"/>
+  <testcase name="ordinaryShortHtmlResolvesRelativeVideoAndTitle" classname="com.mangalens.download.MediaLinkResolverTest" time="0.022"/>
+  <testcase name="kvsDownloadAnchorResolvesPlayable4kVariant" classname="com.mangalens.download.MediaLinkResolverTest" time="0.024"/>
+  <testcase name="dedicatedExtractorFallbackIsActuallyInvoked" classname="com.mangalens.download.MediaLinkResolverTest" time="0.008"/>
+  <testcase name="bestAvailableIsTheDefaultExtractorQuality" classname="com.mangalens.download.MediaLinkResolverTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.library.LibraryQueryTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.029">
+  <properties/>
+  <testcase name="actualLocalImportShapeUsesItsOriginalPageUrisWhenChapterSourceIsEmpty" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.008"/>
+  <testcase name="combinesBookmarksStatusSourceCollectionAndActualOfflineState" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.003"/>
+  <testcase name="sourceAndCollectionFacetsUseOnlySavedFacts" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.002"/>
+  <testcase name="compatibilityWidthAndCaseDoNotDependOnDeviceLocale" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.003"/>
+  <testcase name="openingLibraryChapterPublishesItsOwnPagesAndRetainsOtherSavedHistory" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.003"/>
+  <testcase name="titlePagesAndProgressSortAreDeterministicAcrossInputOrders" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.003"/>
+  <testcase name="unknownDownloadFactsNeverPretendFullyOfflineOrIncomplete" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.001"/>
+  <testcase name="availabilityChangesWhenPrivatePageIsDeletedAndRejectsOutsideOrSymlinkFiles" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.002"/>
+  <testcase name="openingLibraryChapterClearsTheActualVideoPairBeforeAnyLaterModeChange" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.003"/>
+  <testcase name="savedDateAndLastReadSortRemainDistinctFromMetadataUpdateTime" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.0"/>
+  <testcase name="searchesRealSeriesNotesCollectionsAndSourceWithAllWords" classname="com.mangalens.ui.library.LibraryQueryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

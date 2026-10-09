@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.web.BrowserFileUploadPolicyTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:32" hostname="53f09df5485f" time="0.045">
+  <properties/>
+  <testcase name="multipleSelectionHonorsCapturedModeAndDeduplicatesActualUris" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.008"/>
+  <testcase name="acceptedResultFeedbackCannotBeRepeatedOrReviveACancelledRequest" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.001"/>
+  <testcase name="navigationOrTabReplacementReceivesNullInsteadOfOldSelectedAuthority" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.0"/>
+  <testcase name="cancellationReturnsNullOnceButKeepsTheOutstandingResultUnassignable" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.001"/>
+  <testcase name="explicitReadableMatchingDocumentIsReturnedOnceToItsOriginatingRequest" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.001"/>
+  <testcase name="legalAndroidProviderAuthorityWithAnUnderscoreIsNotTreatedAsAnHttpHost" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.0"/>
+  <testcase name="readableButWrongAcceptTypeProvidesOwnedRejectionFeedback" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.001"/>
+  <testcase name="aSecondChooserCannotStealTheFirstOutstandingPlatformResult" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.007"/>
+  <testcase name="fileUrisUnsafeAuthoritiesUnreadableAndWrongTypesReturnNull" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.001"/>
+  <testcase name="lateResultWithAnotherTokenCannotConsumeTheCurrentRequest" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.0"/>
+  <testcase name="acceptsAreNormalizedBoundedAndUnknownExtensionsRemainExplicit" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.012"/>
+  <testcase name="anOldNavigationCannotShowRejectionFeedbackOnTheReplacementPage" classname="com.mangalens.ui.web.BrowserFileUploadPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

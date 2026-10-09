@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.reader.MangaImagePolicyTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:15" hostname="53f09df5485f" time="0.009">
+  <properties/>
+  <testcase name="suppliedLongPageDecodesNativeWidthInSmallRegionsInsteadOfResizingAllItsDialogue" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.001"/>
+  <testcase name="unsupportedGifAndOtherFormatsCannotSelectTheRegionDecoder" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.0"/>
+  <testcase name="offscreenPagesDoNotDecodeAnyRegions" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.0"/>
+  <testcase name="everySuppliedChapterHeightHasContinuousBoundedRegionsAtEveryTileBoundary" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.006"/>
+  <testcase name="scrollWithinATileDoesNotInvalidateItsDecodeAndLaterTilesKeepSourceCoordinates" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.0"/>
+  <testcase name="coverUsesTheTopArtworkAndNeverReadsPastTheSourcePage" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.0"/>
+  <testcase name="hugeOrWideRegionsRespectBothSidesPixelBudgetAndRequestedViewportWidth" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.001"/>
+  <testcase name="invalidOrOverflowingDimensionsCannotPlanRegions" classname="com.mangalens.core.reader.MangaImagePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

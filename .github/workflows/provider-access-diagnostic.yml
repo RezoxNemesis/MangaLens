@@ -1,0 +1,59 @@
+name: Public provider host diagnostic
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-host-diagnostic-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  provider-host-access:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MANGALENS_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install host media inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Check host diagnostic dependencies
+        run: |
+          set -euo pipefail
+          python3 --version
+          command -v ffmpeg
+          command -v ffprobe
+          node --version
+      - name: Validate local process and quality policies
+        run: python3 -m unittest discover -s scripts -p 'test_provider_access_diagnostic.py' -v
+      - name: Attempt complete best-quality public fixture downloads
+        run: python3 scripts/provider_access_diagnostic.py --repo-root . --output-dir dist/provider-access
+      - name: Record redacted host outcome
+        if: always()
+        run: |
+          if [[ -f dist/provider-access/status.json ]]; then
+            cat dist/provider-access/status.json
+          fi
+      - name: Upload redacted public host evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: provider-host-evidence-${{ github.event.pull_request.head.sha }}
+          path: |
+            dist/provider-access/*.json
+            dist/provider-access/*.log
+          retention-days: 3
+          if-no-files-found: warn
+          include-hidden-files: false

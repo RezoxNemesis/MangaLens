@@ -1,0 +1,160 @@
+{
+  "upstream_version": "1.7.6",
+  "source_url": "https://dl.google.com/dl/android/maven2/androidx/compose/material/material-icons-extended-android/1.7.6/material-icons-extended-android-1.7.6-sources.jar",
+  "source_sha256": "9b22840d9d5ec83fca54783df66640c0e2d76bb164687d654c23bcc6c02f3a96",
+  "core_aar_sha256": "48d182051236b1dfec829b33bf4d3fd06d03c2876d532208e3f7490159d65c46",
+  "required_symbols": [
+    "automirrored/outlined/ArrowBack",
+    "automirrored/outlined/MenuBook",
+    "outlined/AddPhotoAlternate",
+    "outlined/AutoAwesome",
+    "outlined/Bookmark",
+    "outlined/ChevronRight",
+    "outlined/Close",
+    "outlined/CollectionsBookmark",
+    "outlined/FileDownload",
+    "outlined/FolderOpen",
+    "outlined/Home",
+    "outlined/KeyboardArrowDown",
+    "outlined/KeyboardArrowUp",
+    "outlined/Language",
+    "outlined/Link",
+    "outlined/MenuBook",
+    "outlined/MoreVert",
+    "outlined/PlayArrow",
+    "outlined/PlayCircle",
+    "outlined/Search",
+    "outlined/Send",
+    "outlined/Settings",
+    "outlined/SmartToy",
+    "outlined/Stop",
+    "outlined/Translate",
+    "outlined/Tune"
+  ],
+  "provided_by_core": [
+    "automirrored/outlined/ArrowBack",
+    "outlined/Close",
+    "outlined/Home",
+    "outlined/KeyboardArrowDown",
+    "outlined/KeyboardArrowUp",
+    "outlined/MoreVert",
+    "outlined/PlayArrow",
+    "outlined/Search",
+    "outlined/Send",
+    "outlined/Settings"
+  ],
+  "vendored": [
+    {
+      "symbol": "automirrored/outlined/MenuBook",
+      "source": "commonMain/androidx/compose/material/icons/automirrored/outlined/MenuBook.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/automirrored/outlined/MenuBook.kt",
+      "bytes": 4182,
+      "sha256": "1ff999f2453dc6b2c89a34c44618f60d07679ed985a7a24ec1068d69ad4682ce"
+    },
+    {
+      "symbol": "outlined/AddPhotoAlternate",
+      "source": "commonMain/androidx/compose/material/icons/outlined/AddPhotoAlternate.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/AddPhotoAlternate.kt",
+      "bytes": 2830,
+      "sha256": "4f190d87a6b9427ee1a39ef63ec7e46ba09dd8ad9527bcb099d5131e6479d47b"
+    },
+    {
+      "symbol": "outlined/AutoAwesome",
+      "source": "commonMain/androidx/compose/material/icons/outlined/AutoAwesome.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/AutoAwesome.kt",
+      "bytes": 2813,
+      "sha256": "4123ea5fba6b4e3dc1bd657c40a046bb0149d66d8583e56f3bc9516ad5587f95"
+    },
+    {
+      "symbol": "outlined/Bookmark",
+      "source": "commonMain/androidx/compose/material/icons/outlined/Bookmark.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/Bookmark.kt",
+      "bytes": 1610,
+      "sha256": "fef715cfc58854d500e9008447c6f3bda99b5fe4fa65c282cb930c1dde0b5ed5"
+    },
+    {
+      "symbol": "outlined/ChevronRight",
+      "source": "commonMain/androidx/compose/material/icons/outlined/ChevronRight.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/ChevronRight.kt",
+      "bytes": 1532,
+      "sha256": "149b0ac8b72a80835240f1b76527af307bad184667b9406e4e04e7a216ed52c9"
+    },
+    {
+      "symbol": "outlined/CollectionsBookmark",
+      "source": "commonMain/androidx/compose/material/icons/outlined/CollectionsBookmark.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/CollectionsBookmark.kt",
+      "bytes": 2859,
+      "sha256": "6ef5dcbc9b8fb86f232386a217cd11d89b41bf7aedcfbd4c0a40df8f3958bbf6"
+    },
+    {
+      "symbol": "outlined/FileDownload",
+      "source": "commonMain/androidx/compose/material/icons/outlined/FileDownload.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/FileDownload.kt",
+      "bytes": 2202,
+      "sha256": "678a05589f2d39af37a63a3befba1842de895e444b1d7131ba14eff238577069"
+    },
+    {
+      "symbol": "outlined/FolderOpen",
+      "source": "commonMain/androidx/compose/material/icons/outlined/FolderOpen.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/FolderOpen.kt",
+      "bytes": 2029,
+      "sha256": "89862d322c5967754b2d519db4650abb9561717ddc9a23c256bf22a0a944c7ed"
+    },
+    {
+      "symbol": "outlined/Language",
+      "source": "commonMain/androidx/compose/material/icons/outlined/Language.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/Language.kt",
+      "bytes": 4393,
+      "sha256": "6b6f69d23a3fe0231bb66209be8123acc8e463b04176b813481303b0f24867c2"
+    },
+    {
+      "symbol": "outlined/Link",
+      "source": "commonMain/androidx/compose/material/icons/outlined/Link.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/Link.kt",
+      "bytes": 2571,
+      "sha256": "70b449841c13553e35c26f1445bbedac8dcf479c34f81b19e7a295fc00c6a168"
+    },
+    {
+      "symbol": "outlined/MenuBook",
+      "source": "commonMain/androidx/compose/material/icons/outlined/MenuBook.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/MenuBook.kt",
+      "bytes": 4376,
+      "sha256": "c402487580feb6370d6c8f8a9aed9c457251724f56ebadb8139c5e1ed1c04540"
+    },
+    {
+      "symbol": "outlined/PlayCircle",
+      "source": "commonMain/androidx/compose/material/icons/outlined/PlayCircle.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/PlayCircle.kt",
+      "bytes": 2059,
+      "sha256": "e1fa97563ced1e273208ca15b37c9d8778ee74bf9745494bf006948055c5af61"
+    },
+    {
+      "symbol": "outlined/SmartToy",
+      "source": "commonMain/androidx/compose/material/icons/outlined/SmartToy.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/SmartToy.kt",
+      "bytes": 3346,
+      "sha256": "a78470ae05a3ab7823547398f1b86c87a9991165bd73bdf9478bf3a007662780"
+    },
+    {
+      "symbol": "outlined/Stop",
+      "source": "commonMain/androidx/compose/material/icons/outlined/Stop.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/Stop.kt",
+      "bytes": 1611,
+      "sha256": "09f842f61e9e571e9760363bc1e6efbb4ac3241defe2acc9b13f820de3dc112c"
+    },
+    {
+      "symbol": "outlined/Translate",
+      "source": "commonMain/androidx/compose/material/icons/outlined/Translate.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/Translate.kt",
+      "bytes": 2885,
+      "sha256": "9bd7a2bd16f957229134b0464a8f52ad8559dcb4220475e045113495397c4451"
+    },
+    {
+      "symbol": "outlined/Tune",
+      "source": "commonMain/androidx/compose/material/icons/outlined/Tune.kt",
+      "path": "app/src/main/java/androidx/compose/material/icons/outlined/Tune.kt",
+      "bytes": 3094,
+      "sha256": "afc2ca070356835c0a0dc1b7e9cdb7f533d4ceefb9108b4137a13733ed8c964e"
+    }
+  ]
+}

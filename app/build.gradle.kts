@@ -12,8 +12,13 @@ android {
         applicationId = "com.mangalens"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.2.0"
+        versionCode = 11
+        versionName = "2.3.0-preview.2"
+        val sourceSha = (System.getenv("MANGALENS_GIT_SHA") ?: System.getenv("GITHUB_SHA")
+            ?: runCatching { ProcessBuilder("git", "rev-parse", "HEAD").directory(rootDir).start().inputStream.bufferedReader().readText().trim() }.getOrDefault("local"))
+            .takeIf { it.matches(Regex("[a-fA-F0-9]{7,40}")) } ?: "local"
+        buildConfigField("String", "SOURCE_SHA", "\"$sourceSha\"")
+        buildConfigField("String", "BUILD_CHANNEL", "\"preview\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Ship ABI-specific APKs so phone users don't download the emulator's native libraries.
@@ -26,6 +31,13 @@ android {
         }
     }
     buildTypes {
+        create("selfTest") {
+            initWith(getByName("debug"))
+            // A fresh cloud debug key cannot update an earlier preview's signing
+            // identity. Keep self-test installs and their data separate.
+            applicationIdSuffix = ".selftest"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -36,7 +48,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     lint { disable += "UnsafeOptInUsageError" }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -57,7 +69,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
@@ -79,8 +91,10 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
     implementation("org.jsoup:jsoup:1.18.3")
+    implementation("androidx.webkit:webkit:1.12.1")
     // Bundled free, on-device yt-dlp site extractors (no external resolver service).
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    // App-owned fixed copy/probe jniLibs; exact corresponding source is in third_party/ffmpeg.
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

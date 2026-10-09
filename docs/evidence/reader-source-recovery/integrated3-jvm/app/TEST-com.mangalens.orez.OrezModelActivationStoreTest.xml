@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.OrezModelActivationStoreTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.199">
+  <properties/>
+  <testcase name="rollbackWillNotActivateCorruptedPreviousModel" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.042"/>
+  <testcase name="malformedReceiptReportsRecoveryInsteadOfCrashingStartup" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.001"/>
+  <testcase name="activationUsesImmutablePathsAndKeepsPreviousWorkingFile" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.029"/>
+  <testcase name="interruptedManifestRefreshKeepsReferencedUuidArtifactInPlace" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.014"/>
+  <testcase name="locallyComputedLegacyReceiptCannotGrandfatherUntrustedWeights" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.001"/>
+  <testcase name="verifyingReplacementDoesNotBlockReadingTheCurrentModel" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.012"/>
+  <testcase name="authenticLegacyFixtureCanBeRevalidatedWithoutTrustingAReceiptAlone" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.005"/>
+  <testcase name="damagedActiveRestoresPreviouslyVerifiedArtifactAfterRestart" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.013"/>
+  <testcase name="integrityOrCompatibilityFailureLeavesCurrentActivationUntouched" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.008"/>
+  <testcase name="interruptedCommitKeepsOldManifestAndAnUnadvertisedCandidate" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.011"/>
+  <testcase name="interruptedActivationResumesVerifiedBlobWithoutAnotherDownload" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.004"/>
+  <testcase name="freshProcessDoesNotTrustAReceiptWithoutRevalidatingItsArtifact" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.033"/>
+  <testcase name="untrustedActivationPathCannotEscapePrivateModelDirectory" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.006"/>
+  <testcase name="retryOfActiveUuidArtifactNeverMovesWorkingFileBeforeCommit" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.009"/>
+  <testcase name="mutatedLegacyWeightsBeforeFirstAdoptionCannotCreateTrustedReceipt" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.001"/>
+  <testcase name="cancellationBeforePromotionKeepsPartialAndWorkingModel" classname="com.mangalens.orez.OrezModelActivationStoreTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.SiteMediaInfoParserTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.011">
+  <properties/>
+  <testcase name="acceptsHighResolutionMp4VideoWithSeparateAacAudio" classname="com.mangalens.download.SiteMediaInfoParserTest" time="0.001"/>
+  <testcase name="sourceDurationSurvivesBothCombinedAndSeparateTrackSelection" classname="com.mangalens.download.SiteMediaInfoParserTest" time="0.005"/>
+  <testcase name="adaptiveProtocolWorksWithoutFilenameSuffix" classname="com.mangalens.download.SiteMediaInfoParserTest" time="0.0"/>
+  <testcase name="siteQualityPixelValueCanRecoverMissingHeight" classname="com.mangalens.download.SiteMediaInfoParserTest" time="0.001"/>
+  <testcase name="downloadSelectionRetainsBothTracksAndNeverPretendsVideoOnlyHasAudio" classname="com.mangalens.download.SiteMediaInfoParserTest" time="0.0"/>
+  <testcase name="combinesNativeSiteMetadataWithScopedContext" classname="com.mangalens.download.SiteMediaInfoParserTest" time="0.0"/>
+  <testcase name="rejectsProtectedSplitAudioOnlyAndUnsafeSources" classname="com.mangalens.download.SiteMediaInfoParserTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

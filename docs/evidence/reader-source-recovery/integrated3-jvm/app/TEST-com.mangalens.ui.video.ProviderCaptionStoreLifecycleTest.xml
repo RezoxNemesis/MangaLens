@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:30" hostname="53f09df5485f" time="0.048">
+  <properties/>
+  <testcase name="providerCannotEnterAsrPcmOrAudioCompletionTransitions" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.003"/>
+  <testcase name="changedDocumentDoesNotReplaceSavedOriginalsOrSuccessfulTargetCheckpoints" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.004"/>
+  <testcase name="completeProviderDocumentExportsEvenWhenTheLastDialoguePrecedesVideoEnd" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.011"/>
+  <testcase name="pauseResumeRetainsTargetsButMasksTheirPublicationUntilFreshExactDocumentProof" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.005"/>
+  <testcase name="reopeningMasksProviderExportsAndMediaValidationCannotSubstituteForCaptionRefetch" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.011"/>
+  <testcase name="cancellationAndReplacementRejectLateProviderDocumentsAndTargets" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.002"/>
+  <testcase name="failedAtomicDocumentAndTargetWritesRetainTheLastPublishedState" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.006"/>
+  <testcase name="exportFailureNeverPublishesCompletedOrDiscardsOriginalDocument" classname="com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

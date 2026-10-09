@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ProviderCaptionParserTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:29" hostname="53f09df5485f" time="0.005">
+  <properties/>
+  <testcase name="invalidEncodingOversizeAndHtmlChallengeAreUnavailableRatherThanDialogue" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.001"/>
+  <testcase name="missingJsonDurationAndAppendEventsNeverInventAnEndTime" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.001"/>
+  <testcase name="vttRetainsProviderTimingAndVisibleOriginalDialogue" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.0"/>
+  <testcase name="overlappingRepeatedProviderCuesAreNotCollapsedAsASRWindowDuplicates" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.001"/>
+  <testcase name="fractionalNegativeNonMonotonicAndBeyondVideoTimingsAreRejected" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.001"/>
+  <testcase name="srtUsesActualLongCueEndWithoutWhisperWindowClipping" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.0"/>
+  <testcase name="differentlyFormattedPayloadsKeepDistinctBodyEvidenceAndEquivalentTimedCueEvidence" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.0"/>
+  <testcase name="json3JoinsWordsButPreservesTheDeclaredEventRange" classname="com.mangalens.ui.video.ProviderCaptionParserTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

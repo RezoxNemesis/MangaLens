@@ -4,8 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.RectF
+import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -14,13 +14,16 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.Text
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.util.concurrent.Executor
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 
 enum class LocalSourceLanguage { JAPANESE, KOREAN, CHINESE, SPANISH, FRENCH, HINDI, ENGLISH, UNKNOWN }
 
@@ -33,11 +36,15 @@ data class TranslationRegion(
     val backgroundColor: Int,
     val textSize: Float,
     val lineBounds: List<RectF> = listOf(bounds),
-    val recognitionConfidence: Float = 0f
+    val recognitionConfidence: Float = 0f,
+    val recognizerScript: String = ""
 )
 
 class AdvancedTranslationEngine(private val context: Context? = null) {
+    data class OcrOptions(val script: String = "AUTO", val highAccuracy: Boolean = true)
+
     internal var tileObserver: ((Int, List<TranslationRegion>) -> Unit)? = null
+    internal var regionRetryObserver: ((TranslationRegion, List<TranslationRegion>, TranslationRegion?) -> Unit)? = null
     suspend fun recognize(bitmap: Bitmap): List<TranslationRegion> {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         return try {
@@ -47,27 +54,46 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         }
     }
 
-    private suspend fun recognizeWith(recognizer: TextRecognizer, bitmap: Bitmap): List<TranslationRegion> =
-        suspendCancellableCoroutine { continuation ->
+    private suspend fun recognizeWith(
+        recognizer: TextRecognizer, bitmap: Bitmap, script: String = "LATIN", mergeBlocks: Boolean = true
+    ): List<TranslationRegion> {
+        val result = awaitOcrCompletion<Text> { complete ->
             recognizer.process(InputImage.fromBitmap(bitmap, 0))
-                .addOnSuccessListener { result ->
-                    if (!continuation.isActive) return@addOnSuccessListener
-                    val regions = mutableListOf<TranslationRegion>()
-                    result.textBlocks.forEach { block ->
-                        val box = block.boundingBox
-                        val source = block.text.trim()
-                        if (box != null && source.isNotBlank()) {
-                            regions += TranslationRegion(source, source, RectF(box), detect(source),
-                                Color.BLACK, Color.WHITE,
-                                block.lines.mapNotNull { it.boundingBox?.height()?.toFloat() }.average().toFloat().coerceAtLeast(12f),
-                                block.lines.mapNotNull { it.boundingBox?.let(::RectF) },
-                                block.lines.map { it.confidence }.filter { it.isFinite() && it > 0f }.average().toFloat().let { if (it.isFinite()) it else 0f })
-                        }
-                    }
-                    if (continuation.isActive) continuation.resume(mergeLikelySameBalloon(regions))
+                .addOnCompleteListener(ocrCallbackExecutor) { task ->
+                    complete(when {
+                        task.isSuccessful -> Result.success(task.result)
+                        task.isCanceled -> Result.failure(CancellationException("Native OCR task was cancelled"))
+                        else -> Result.failure(task.exception ?: IllegalStateException("Native OCR failed without a cause"))
+                    })
                 }
-                .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
         }
+        val regions = mutableListOf<TranslationRegion>()
+        result.textBlocks.forEach { block ->
+            val box = block.boundingBox
+            val source = block.text.trim()
+            if (box != null && source.isNotBlank()) {
+                val lines = block.lines.mapNotNull { line -> line.boundingBox?.let { line to RectF(it) } }
+                val confidence = block.lines.map { it.confidence }.filter { it.isFinite() && it > 0f }
+                    .average().toFloat().let { if (it.isFinite()) it else 0f }
+                val descriptor = OcrReading(source, script, confidence,
+                    OcrBox(box.left.toFloat(), box.top.toFloat(), box.right.toFloat(), box.bottom.toFloat()),
+                    lineBounds = lines.map { (_, bounds) -> OcrBox(bounds.left, bounds.top, bounds.right, bounds.bottom) })
+                val vertical = isVerticalOcr(descriptor)
+                val lineOrder = if (vertical) orderVerticalOcrLines(descriptor.lineBounds) else lines.indices.toList()
+                val ordered = lineOrder.map(lines::get)
+                val rawReading = if (vertical && lines.size == block.lines.size && ordered.isNotEmpty())
+                    ordered.joinToString("\n") { it.first.text.trim() } else source
+                val reading = OcrSourceQuality.normalizeLatinSource(rawReading)
+                val size = ordered.map { if (vertical) it.second.width() else it.second.height() }
+                    .average().toFloat().takeIf(Float::isFinite)?.coerceAtLeast(12f) ?: 12f
+                val detected = detect(reading)
+                val language = if (script == "JAPANESE" && detected == LocalSourceLanguage.CHINESE) LocalSourceLanguage.JAPANESE else detected
+                regions += TranslationRegion(reading, reading, RectF(box), language, Color.BLACK, Color.WHITE,
+                    size, ordered.map { it.second }, confidence, script)
+            }
+        }
+        return if (mergeBlocks) mergeLikelySameBalloon(regions) else regions
+    }
 
     /**
      * ML Kit can split one speech balloon into two text blocks. Translating those blocks
@@ -77,7 +103,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
      */
     internal fun mergeLikelySameBalloon(regions: List<TranslationRegion>): List<TranslationRegion> {
         if (regions.size < 2) return regions
-        val sorted = regions.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
+        val sorted = orderOcrReadings(regions.map(::readingCandidate)).map(regions::get)
         val merged = mutableListOf<TranslationRegion>()
 
         fun compatible(a: TranslationRegion, b: TranslationRegion): Boolean {
@@ -88,6 +114,10 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
             val maxText = maxOf(a.textSize, b.textSize).coerceAtLeast(8f)
             val minText = minOf(a.textSize, b.textSize).coerceAtLeast(1f)
             if (minText / maxText < .62f) return false
+
+            val readingA = readingCandidate(a)
+            val readingB = readingCandidate(b)
+            if (isVerticalOcr(readingA) || isVerticalOcr(readingB)) return canMergeVerticalOcr(readingA, readingB)
 
             val fragment = minOf(a.source.trim().length, b.source.trim().length) <= 18 ||
                 minOf(a.lineBounds.size, b.lineBounds.size) <= 1
@@ -120,6 +150,10 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                 b.recognitionConfidence <= 0f -> a.recognitionConfidence
                 else -> (a.recognitionConfidence * charsA + b.recognitionConfidence * charsB) / (charsA + charsB)
             }
+            val lines = a.lineBounds + b.lineBounds
+            val orderedLines = if (isVerticalOcr(readingCandidate(a)))
+                orderVerticalOcrLines(lines.map { OcrBox(it.left, it.top, it.right, it.bottom) }).map(lines::get)
+                else lines.sortedWith(compareBy<RectF> { it.top }.thenBy { it.left })
             return TranslationRegion(
                 source = source,
                 translated = source,
@@ -129,12 +163,13 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                     maxOf(a.bounds.right, b.bounds.right),
                     maxOf(a.bounds.bottom, b.bounds.bottom)
                 ),
-                sourceLanguage = detect(source),
+                sourceLanguage = if (a.sourceLanguage == b.sourceLanguage) a.sourceLanguage else detect(source),
                 textColor = a.textColor,
                 backgroundColor = a.backgroundColor,
                 textSize = (a.textSize * charsA + b.textSize * charsB) / (charsA + charsB),
-                lineBounds = (a.lineBounds + b.lineBounds).sortedWith(compareBy<RectF> { it.top }.thenBy { it.left }),
-                recognitionConfidence = confidence
+                lineBounds = orderedLines,
+                recognitionConfidence = confidence,
+                recognizerScript = a.recognizerScript.ifBlank { b.recognizerScript }
             )
         }
 
@@ -150,27 +185,46 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     }
 
     suspend fun recognizeFast(bitmap: Bitmap): List<TranslationRegion> {
-        val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
-        val configured = prefs?.getString("script", "AUTO") ?: "AUTO"
+        val configured = currentPrefsSnapshot().script.uppercase(Locale.ROOT)
         val recognizer = createRecognizer(if (configured == "AUTO") "LATIN" else configured)
         return try {
-            recognizeWith(recognizer, bitmap)
+            recognizeWith(recognizer, bitmap, if (configured == "AUTO") "LATIN" else configured)
         } finally {
             recognizer.close()
         }
     }
 
-    suspend fun recognizeScriptAware(bitmap: Bitmap): List<TranslationRegion> {
+    private fun currentPrefsSnapshot(): OcrOptions {
+        val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
+        return OcrOptions(prefs?.getString("script", "AUTO") ?: "AUTO", prefs?.getBoolean("high_accuracy", true) ?: true)
+    }
+
+    suspend fun recognizeScriptAware(bitmap: Bitmap, options: OcrOptions = currentPrefsSnapshot()): List<TranslationRegion> =
+        recognizeScriptAware(bitmap, options, null)
+
+    internal suspend fun recognizeScriptAware(bitmap: Bitmap, options: OcrOptions,
+        originalSource: OcrOriginalRegionSource?): List<TranslationRegion> {
+        val session = OcrRecognizerSession(::createRecognizer) { it.close() }
+        return try { recognizePage(bitmap, options, session, originalSource) } finally { session.close() }
+    }
+
+    private suspend fun recognizePage(
+        bitmap: Bitmap, options: OcrOptions, session: OcrRecognizerSession<TextRecognizer>,
+        originalSource: OcrOriginalRegionSource?
+    ): List<TranslationRegion> {
         // Long webtoon pages must keep glyph resolution; use overlapping vertical OCR tiles.
-        if (bitmap.height <= 2048) return recognizeTile(bitmap)
+        currentCoroutineContext().ensureActive()
+        if (bitmap.height <= 2048) return recognizeTile(bitmap, options, session, originalSource,
+            bitmap.width, bitmap.height, 0)
         val output = mutableListOf<TranslationRegion>()
         val margins = mutableListOf<Float>()
         var y = 0
         while (y < bitmap.height) {
+            currentCoroutineContext().ensureActive()
             val height = minOf(2048, bitmap.height - y)
             val tile = Bitmap.createBitmap(bitmap, 0, y, bitmap.width, height)
             try {
-                val recognized = recognizeTile(tile)
+                val recognized = recognizeTile(tile, options, session, originalSource, bitmap.width, bitmap.height, y)
                 tileObserver?.invoke(y, recognized)
                 recognized.forEach { region ->
                     val margin = minOf(region.bounds.top, height - region.bounds.bottom).coerceAtLeast(0f)
@@ -200,69 +254,156 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                         }
                     }
                 }
-            } finally { tile.recycle() }
+            } finally { if (tile !== bitmap) tile.recycle() }
             if (y + height >= bitmap.height) break
             y += 1792
         }
-        return output.sortedBy { it.bounds.top }
+        // Tile-local merging cannot join an OCR block split across the tile boundary.
+        // Dedupe first, then apply the same conservative balloon grouping in page space.
+        return mergeLikelySameBalloon(output.sortedBy { it.bounds.top })
     }
 
-    private suspend fun recognizeTile(bitmap: Bitmap): List<TranslationRegion> {
-        val prefs = context?.getSharedPreferences("mangalens_ocr", Context.MODE_PRIVATE)
-        val script = prefs?.getString("script", "AUTO") ?: "AUTO"
-        val highAccuracy = prefs?.getBoolean("high_accuracy", true) ?: true
-        val candidates = if (script != "AUTO") listOf(createRecognizer(script)) else if (!highAccuracy) listOf(createRecognizer("LATIN")) else listOf(
-            createRecognizer("LATIN"), createRecognizer("DEVANAGARI"),
-            createRecognizer("CHINESE"), createRecognizer("JAPANESE"), createRecognizer("KOREAN")
-        )
-        return try {
-            val failures = mutableListOf<Throwable>()
-            val results = candidates.map { recognizer ->
-                try {
-                    recognizeWith(recognizer, bitmap)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    failures += failure
-                    emptyList()
-                }
-            }
-            if (failures.size == candidates.size) throw failures.first()
-            var best = results.maxByOrNull(::recognitionScore) ?: emptyList()
-            // A larger pile of hallucinated letters is not a better OCR result. Retry faint/small
-            // lettering at a bounded higher resolution, then map geometry back to the source.
-            if (highAccuracy && (best.isEmpty() || best.any { it.textSize < 24f })) {
-                currentCoroutineContext().ensureActive()
-                val factor = minOf(2f, 2560f / bitmap.width, 4096f / bitmap.height)
-                if (factor > 1.1f) {
-                    val enhanced = Bitmap.createScaledBitmap(bitmap,
-                        (bitmap.width * factor).toInt(), (bitmap.height * factor).toInt(), true)
-                    try {
-                        val retry = createRecognizer(if (script == "AUTO") dominantScript(best) else script)
-                        val reread = try { recognizeWith(retry, enhanced) } finally { retry.close() }
-                        val mapped = reread.map { region -> region.copy(
-                            bounds = RectF(region.bounds.left / factor, region.bounds.top / factor,
-                                region.bounds.right / factor, region.bounds.bottom / factor),
-                            lineBounds = region.lineBounds.map { RectF(it.left / factor, it.top / factor, it.right / factor, it.bottom / factor) },
-                            textSize = region.textSize / factor
-                        ) }
-                        if (recognitionScore(mapped) > recognitionScore(best)) best = mapped
-                    } finally { enhanced.recycle() }
-                }
-            }
-            val accepted = if (script == "AUTO") best.filter(::isPlausibleRegion) else best
-            accepted.sortedWith(compareBy<TranslationRegion> { it.bounds.top }.thenBy { it.bounds.left })
-        } finally {
-            candidates.forEach { it.close() }
+    private suspend fun recognizeTile(
+        bitmap: Bitmap, options: OcrOptions, session: OcrRecognizerSession<TextRecognizer>,
+        originalSource: OcrOriginalRegionSource?, pageWidth: Int, pageHeight: Int, tileTop: Int
+    ): List<TranslationRegion> {
+        val script = options.script.uppercase(Locale.ROOT)
+        val highAccuracy = options.highAccuracy
+        val scripts = if (script != "AUTO") listOf(script) else if (!highAccuracy) listOf("LATIN") else
+            listOf("LATIN", "DEVANAGARI", "CHINESE", "JAPANESE", "KOREAN")
+        val candidates = readOcrScripts(scripts, { it },
+            { readingScript -> session.read(readingScript) { recognizeWith(it, bitmap, readingScript, mergeBlocks = false) } }, { },
+            onFailure = { failedScript, failure -> Log.w("MangaLensOCR", "$failedScript recognizer failed", failure) })
+            .flatMap { it.second }
+        val fused = if (script == "AUTO") chooseOcrReadings(candidates.map(::readingCandidate), allowWeakForRetry = highAccuracy)
+            .map(candidates::get) else candidates
+        val grouped = mergeLikelySameBalloon(fused)
+        val best = when {
+            !highAccuracy -> grouped
+            grouped.isEmpty() -> retryEmptyTile(bitmap, script, session)
+            else -> retryWeakRegions(bitmap, grouped, script, session, originalSource, pageWidth, pageHeight, tileTop)
         }
+        val accepted = if (script == "AUTO") retainOcrReadingsForReview(best.map(::readingCandidate)).map(best::get) else best
+        return orderOcrReadings(accepted.map(::readingCandidate)).map(accepted::get)
     }
 
-    private fun recognitionScore(regions: List<TranslationRegion>): Double = regions.sumOf { region ->
-        val letters = region.source.count(Char::isLetterOrDigit)
-        val confidence = region.recognitionConfidence.takeIf { it > 0f } ?: .65f
-        val garbage = region.source.count { !it.isLetterOrDigit() && !it.isWhitespace() && it !in ".,!?…:;\"'‘’“”()[]-—、。！？「」" }
-        val implausible = if (isPlausibleRegion(region)) 0.0 else 12.0
-        letters.coerceAtMost(240) * confidence.toDouble() - garbage * 2.0 - implausible
+    private fun readingCandidate(region: TranslationRegion): OcrReading = OcrReading(
+        source = region.source, script = region.recognizerScript.ifBlank { dominantScript(listOf(region)) },
+        confidence = region.recognitionConfidence,
+        bounds = OcrBox(region.bounds.left, region.bounds.top, region.bounds.right, region.bounds.bottom),
+        plausible = isPlausibleRegion(region), textSize = region.textSize,
+        lineBounds = region.lineBounds.map { OcrBox(it.left, it.top, it.right, it.bottom) },
+        retryable = isPlausibleRegion(region, allowLowConfidenceForRetry = true)
+    )
+
+    private fun mapRetryReading(region: TranslationRegion, plan: OcrRetryPlan): TranslationRegion {
+        fun mapBox(box: RectF): RectF {
+            val mapped = plan.map(OcrBox(box.left, box.top, box.right, box.bottom))
+            return RectF(mapped.left, mapped.top, mapped.right, mapped.bottom)
+        }
+        return region.copy(bounds = mapBox(region.bounds), lineBounds = region.lineBounds.map(::mapBox),
+            textSize = region.textSize / minOf(plan.scaleX, plan.scaleY))
+    }
+
+    private fun mapContextualRetryReading(region: TranslationRegion, plan: OcrContextualRetryPlan): TranslationRegion? {
+        fun mapBox(box: RectF): RectF? = plan.map(OcrBox(box.left, box.top, box.right, box.bottom))?.let {
+            RectF(it.left, it.top, it.right, it.bottom)
+        }
+        val bounds = mapBox(region.bounds) ?: return null
+        return region.copy(bounds = bounds, lineBounds = region.lineBounds.mapNotNull(::mapBox),
+            textSize = region.textSize / plan.pixels.transform.a)
+    }
+
+    private suspend fun retryEmptyTile(
+        bitmap: Bitmap, configuredScript: String, session: OcrRecognizerSession<TextRecognizer>
+    ): List<TranslationRegion> {
+        currentCoroutineContext().ensureActive()
+        val plan = planOcrRetry(OcrBox(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()),
+            bitmap.width, bitmap.height, 16f, maxPixels = 4_000_000, maxDimension = 2560) ?: return emptyList()
+        val enhanced = Bitmap.createScaledBitmap(bitmap, plan.scaledWidth, plan.scaledHeight, true)
+        try {
+            val script = if (configuredScript == "AUTO") "LATIN" else configuredScript
+            val reread = session.read(script) { recognizeWith(it, enhanced, script) }
+            return reread.map { mapRetryReading(it, plan) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("MangaLensOCR", "Empty-tile retry failed", failure)
+            return emptyList()
+        } finally { if (enhanced !== bitmap) enhanced.recycle() }
+    }
+
+    private suspend fun retryWeakRegions(
+        bitmap: Bitmap, regions: List<TranslationRegion>, configuredScript: String,
+        session: OcrRecognizerSession<TextRecognizer>, originalSource: OcrOriginalRegionSource?,
+        pageWidth: Int, pageHeight: Int, tileTop: Int
+    ): List<TranslationRegion> {
+        val output = regions.toMutableList()
+        for (index in chooseOcrRetryTargets(regions.map(::readingCandidate))) {
+            currentCoroutineContext().ensureActive()
+            val original = regions[index]
+            val candidate = readingCandidate(original)
+            val uncertainSource = OcrSourceQuality.needsPixelRetry(original.source)
+            val neighbors = regions.indices.filter { it != index }.map { readingCandidate(regions[it]) }
+            val contextual = if (uncertainSource) planContextualOcrRetry(candidate, bitmap.width, bitmap.height,
+                neighbors.map { it.bounds }) else null
+            val plan = if (contextual == null) planOcrRetryWithScale(candidate.bounds, bitmap.width, bitmap.height, original.textSize,
+                maxPixels = 1_000_000, maxDimension = 1280,
+                maxScale = if (uncertainSource) 3f else 2f) else null
+            val cropBounds = contextual?.crop ?: plan?.crop ?: continue
+            try {
+                val script = if (configuredScript == "AUTO") candidate.script else configuredScript
+                val pageCrop = OcrBox(cropBounds.left, cropBounds.top + tileTop, cropBounds.right, cropBounds.bottom + tileTop)
+                val originalReading = originalSource?.withCrop(OcrSourceResolutionRequest(pageCrop, pageWidth, pageHeight,
+                    maxScale = if (uncertainSource) 3f else 2f)) { image ->
+                    currentCoroutineContext().ensureActive()
+                    val reread = session.read(script) { recognizeWith(it, image.bitmap, script) }
+                    reread.mapNotNull { mapOriginalRetryReading(it, image, tileTop, bitmap.width, bitmap.height) }
+                }
+                val mapped = originalReading ?: run {
+                    val crop = Bitmap.createBitmap(bitmap, cropBounds.left.toInt(), cropBounds.top.toInt(), cropBounds.width.toInt(), cropBounds.height.toInt())
+                    try {
+                        val enhanced = if (contextual != null) renderContextualOcrRetry(crop, contextual.pixels)
+                            else Bitmap.createScaledBitmap(crop, plan!!.scaledWidth, plan.scaledHeight, true)
+                        try {
+                            val reread = session.read(script) { recognizeWith(it, enhanced, script) }
+                            if (contextual != null) reread.mapNotNull { mapContextualRetryReading(it, contextual) }
+                            else reread.map { mapRetryReading(it, plan!!) }
+                        } finally { if (enhanced !== crop) enhanced.recycle() }
+                    } finally { if (crop !== bitmap) crop.recycle() }
+                }
+                val selected = chooseOcrRetryReadingGroup(candidate, mapped.map(::readingCandidate), neighbors)
+                if (selected.isNotEmpty()) {
+                    val parts = selected.map(mapped::get)
+                    val combined = composeOcrRetryReading(parts.map(::readingCandidate))
+                    output[index] = parts.first().copy(source = combined.source, translated = combined.source,
+                        bounds = RectF(combined.bounds.left, combined.bounds.top, combined.bounds.right, combined.bounds.bottom),
+                        lineBounds = parts.flatMap { it.lineBounds }, textSize = combined.textSize,
+                        recognitionConfidence = combined.confidence)
+                }
+                regionRetryObserver?.invoke(original, mapped, output[index].takeIf { it !== original })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (changed: OcrOriginalSourceChangedException) {
+                throw changed
+            } catch (failure: Exception) {
+                // An optional crop retry must not discard the first reading or other bubbles.
+                Log.w("MangaLensOCR", "Region retry failed; retaining the first reading", failure)
+            }
+        }
+        return output
+    }
+
+    private fun mapOriginalRetryReading(region: TranslationRegion, crop: OcrOriginalRegionCrop,
+        tileTop: Int, width: Int, height: Int): TranslationRegion? {
+        fun map(box: RectF): RectF? {
+            val page = crop.mapToPage(OcrBox(box.left, box.top, box.right, box.bottom)) ?: return null
+            val local = originalPageBoxToTile(page, tileTop, width, height) ?: return null
+            return RectF(local.left, local.top, local.right, local.bottom)
+        }
+        val bounds = map(region.bounds) ?: return null
+        return region.copy(bounds = bounds, lineBounds = region.lineBounds.mapNotNull(::map),
+            textSize = crop.textSizeToPage(region.textSize))
     }
 
     /**
@@ -270,13 +411,13 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
      * Keep real dialogue permissive, but reject low-confidence garbage and narrow vertical
      * Latin pseudo-words that produce floating replacement labels over character artwork.
      */
-    private fun isPlausibleRegion(region: TranslationRegion): Boolean {
+    private fun isPlausibleRegion(region: TranslationRegion, allowLowConfidenceForRetry: Boolean = false): Boolean {
         val value = region.source.trim()
         if (value.isBlank()) return false
         val letters = value.count(Char::isLetterOrDigit)
         if (letters == 0) return false
         val confidence = region.recognitionConfidence
-        if (region.sourceLanguage == LocalSourceLanguage.ENGLISH &&
+        if (!allowLowConfidenceForRetry && region.sourceLanguage == LocalSourceLanguage.ENGLISH &&
             confidence > 0f && confidence < .30f) return false
         if (region.textSize < 6f) return false
 
@@ -299,7 +440,7 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
                 region.bounds.height() > region.bounds.width() * 1.20f
         if (verticalLatinPseudoWord) return false
 
-        return !(value.length <= 2 && confidence in .0001f..0.54f)
+        return !(!allowLowConfidenceForRetry && value.length <= 2 && confidence in .0001f..0.54f)
     }
 
     private fun dominantScript(regions: List<TranslationRegion>): String = when (
@@ -323,32 +464,30 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     fun render(bitmap: Bitmap, regions: List<TranslationRegion>): Bitmap {
         val output = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
-        val prepared = mutableListOf<Pair<TranslationRegion, com.mangalens.core.translation.MangaLettering.Patch>>()
-
-        // Phase 1: erase/reconstruct every source region on the evolving output. Preparing
-        // every patch from the immutable original page allowed overlapping OCR fragments
-        // to paint already-erased source glyphs back into the balloon.
-        regions.forEach { region ->
-            val patch = com.mangalens.core.translation.MangaLettering.prepare(
-                output,
-                region.bounds,
-                region.lineBounds,
-                region.source
-            )
-            com.mangalens.core.translation.MangaLettering.drawBackground(canvas, patch)
-            prepared += region to patch
-        }
-
-        // Phase 2: typeset only after the page is clean so translated lettering cannot be
-        // sampled as "background" by a neighbouring OCR fragment.
+        val prepared = mutableListOf<Triple<TranslationRegion, android.graphics.Rect,
+            com.mangalens.core.translation.MangaLettering.Style>>()
         try {
-            prepared.forEach { (region, patch) ->
-                com.mangalens.core.translation.MangaLettering.drawText(canvas, patch, region.translated)
+            // Erase all source lettering before adding translations. Retain only metadata,
+            // not every reconstructed bitmap on a potentially very long webtoon page.
+            regions.forEach { region ->
+                val patch = com.mangalens.core.translation.MangaLettering.prepare(
+                    output, region.bounds, region.lineBounds, region.source
+                )
+                try {
+                    com.mangalens.core.translation.MangaLettering.drawBackground(canvas, patch)
+                    prepared += Triple(region, android.graphics.Rect(patch.bounds), patch.style)
+                } finally {
+                    patch.background.recycle()
+                }
             }
-        } finally {
-            prepared.forEach { (_, patch) -> patch.background.recycle() }
+            prepared.forEach { (region, bounds, style) ->
+                com.mangalens.core.translation.MangaLettering.drawText(canvas, bounds, style, region.translated)
+            }
+            return output
+        } catch (failure: Throwable) {
+            output.recycle()
+            throw failure
         }
-        return output
     }
 
     fun detect(source: String): LocalSourceLanguage {
@@ -367,3 +506,240 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
 
     fun close() = Unit
 }
+
+private val ocrCallbackExecutor = Executor { it.run() }
+private val cjkScripts = setOf(Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA)
+private fun isCjkCharacter(character: Char): Boolean = Character.UnicodeScript.of(character.code) in cjkScripts
+
+/** The native task retains its input image until completion, even after its owner is cancelled. */
+internal suspend fun <T> awaitOcrCompletion(register: ((Result<T>) -> Unit) -> Unit): T {
+    currentCoroutineContext().ensureActive()
+    val result = withContext(NonCancellable) {
+        suspendCoroutine<Result<T>> { continuation ->
+            try {
+                register { continuation.resume(it) }
+            } catch (failure: Exception) {
+                continuation.resume(Result.failure(failure))
+            }
+        }
+    }
+    currentCoroutineContext().ensureActive()
+    return result.getOrThrow()
+}
+
+internal suspend fun <R, T> readOcrScripts(
+    scripts: List<String>,
+    open: (String) -> R,
+    recognize: suspend (R) -> List<T>,
+    close: (R) -> Unit,
+    onFailure: (String, Exception) -> Unit = { _, _ -> }
+): List<Pair<String, List<T>>> {
+    val failures = mutableListOf<Exception>()
+    val results = mutableListOf<Pair<String, List<T>>>()
+    for (script in scripts) {
+        currentCoroutineContext().ensureActive()
+        val resource = try {
+            open(script)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            failures += failure
+            onFailure(script, failure)
+            continue
+        }
+        try {
+            results += script to recognize(resource)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            failures += failure
+            onFailure(script, failure)
+        } finally {
+            close(resource)
+        }
+    }
+    if (results.isEmpty() && failures.isNotEmpty()) throw failures.first()
+    return results
+}
+
+internal data class OcrBox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+    val width: Float get() = right - left
+    val height: Float get() = bottom - top
+    val area: Float get() = width * height
+    val valid: Boolean get() = width > 0f && height > 0f &&
+        listOf(left, top, right, bottom, area).all(Float::isFinite)
+
+    fun intersectionArea(other: OcrBox): Float =
+        (minOf(right, other.right) - maxOf(left, other.left)).coerceAtLeast(0f) *
+            (minOf(bottom, other.bottom) - maxOf(top, other.top)).coerceAtLeast(0f)
+}
+
+internal data class OcrReading(
+    val source: String,
+    val script: String,
+    val confidence: Float,
+    val bounds: OcrBox,
+    val plausible: Boolean = true,
+    val textSize: Float = 24f,
+    val lineBounds: List<OcrBox> = listOf(bounds),
+    val retryable: Boolean = plausible
+)
+
+internal fun ocrReadingQuality(reading: OcrReading): Double {
+    val letters = reading.source.filter(Char::isLetter)
+    if (letters.isEmpty()) return if (reading.source.any(Char::isDigit)) .3 else Double.NEGATIVE_INFINITY
+    val script = reading.script.uppercase(Locale.ROOT)
+    val affinity = letters.sumOf { character ->
+        val native = Character.UnicodeScript.of(character.code)
+        when {
+            script == "LATIN" && native == Character.UnicodeScript.LATIN -> 1.0
+            script == "DEVANAGARI" && native == Character.UnicodeScript.DEVANAGARI -> 1.0
+            script == "KOREAN" && native == Character.UnicodeScript.HANGUL -> 1.0
+            script == "CHINESE" && native == Character.UnicodeScript.HAN -> 1.0
+            script == "JAPANESE" && native in cjkScripts -> 1.0
+            native == Character.UnicodeScript.LATIN -> .75
+            else -> 0.0
+        }
+    } / letters.length
+    val confidence = reading.confidence.takeIf { it.isFinite() && it > 0f }?.coerceIn(0f, 1f) ?: .55f
+    val sourcePenalty = if (OcrSourceQuality.needsPixelRetry(reading.source)) .30 else 0.0
+    return confidence * .70 + affinity * .30 - sourcePenalty
+}
+
+internal fun chooseOcrReadings(readings: List<OcrReading>, allowWeakForRetry: Boolean = false): List<Int> {
+    val accepted = mutableListOf<Int>()
+    val ranked = readings.indices.filter {
+        readings[it].bounds.valid && (readings[it].plausible ||
+            (readings[it].retryable && (allowWeakForRetry || OcrSourceQuality.needsPixelRetry(readings[it].source))))
+    }
+        .sortedByDescending { ocrReadingQuality(readings[it]) }
+    for (index in ranked) {
+        val box = readings[index].bounds
+        val duplicate = accepted.any { previous ->
+            val other = readings[previous].bounds
+            val smaller = minOf(box.area, other.area)
+            val comparable = maxOf(box.area, other.area) <= smaller * 4f
+            comparable && box.intersectionArea(other) > smaller * .55f
+        }
+        if (!duplicate) accepted += index
+    }
+    return accepted.sorted()
+}
+
+internal data class OcrRetryPlan(val crop: OcrBox, val scaledWidth: Int, val scaledHeight: Int) {
+    val scaleX: Float get() = scaledWidth / crop.width
+    val scaleY: Float get() = scaledHeight / crop.height
+
+    fun map(box: OcrBox): OcrBox = OcrBox(
+        crop.left + box.left / scaleX, crop.top + box.top / scaleY,
+        crop.left + box.right / scaleX, crop.top + box.bottom / scaleY
+    )
+}
+
+internal fun planOcrRetry(
+    bounds: OcrBox, imageWidth: Int, imageHeight: Int, textSize: Float,
+    maxPixels: Int = 1_000_000, maxDimension: Int = 1280
+): OcrRetryPlan? = planOcrRetryWithScale(bounds, imageWidth, imageHeight, textSize, maxPixels, maxDimension, 2f)
+
+internal fun planOcrRetryWithScale(
+    bounds: OcrBox, imageWidth: Int, imageHeight: Int, textSize: Float,
+    maxPixels: Int, maxDimension: Int, maxScale: Float
+): OcrRetryPlan? {
+    if (!bounds.valid || imageWidth <= 0 || imageHeight <= 0 || maxPixels <= 0 || maxDimension <= 0 ||
+        !maxScale.isFinite() || maxScale <= 1f) return null
+    val padding = (textSize.takeIf(Float::isFinite) ?: 16f).coerceIn(8f, 40f) * .65f + 4f
+    val crop = OcrBox(
+        kotlin.math.floor(bounds.left - padding).coerceAtLeast(0f),
+        kotlin.math.floor(bounds.top - padding).coerceAtLeast(0f),
+        kotlin.math.ceil(bounds.right + padding).coerceAtMost(imageWidth.toFloat()),
+        kotlin.math.ceil(bounds.bottom + padding).coerceAtMost(imageHeight.toFloat())
+    )
+    if (!crop.valid) return null
+    val factor = minOf(maxScale, maxDimension / crop.width, maxDimension / crop.height,
+        kotlin.math.sqrt(maxPixels / crop.area))
+    return if (factor > 1.1f) OcrRetryPlan(crop, (crop.width * factor).toInt(), (crop.height * factor).toInt()) else null
+}
+
+internal fun chooseOcrRetryTargets(readings: List<OcrReading>): List<Int> = readings.indices
+    .filter { readings[it].bounds.valid && (readings[it].textSize < 22f || readings[it].confidence in .0001f..0.68f ||
+        OcrSourceQuality.needsPixelRetry(readings[it].source)) }
+    .sortedBy { ocrReadingQuality(readings[it]) }
+    .take(6)
+
+internal fun retainOcrReadingsForReview(readings: List<OcrReading>): List<Int> = readings.indices
+    .filter { index ->
+        val reading = readings[index]
+        reading.bounds.valid && (reading.plausible ||
+            (reading.retryable && OcrSourceQuality.needsPixelRetry(reading.source)))
+    }
+
+internal fun isVerticalOcr(reading: OcrReading): Boolean {
+    if (reading.source.count(::isCjkCharacter) < 2) return false
+    val lines = reading.lineBounds.filter { it.valid }.ifEmpty { listOf(reading.bounds).filter { it.valid } }
+    if (lines.isEmpty()) return false
+    val totalArea = lines.sumOf { it.area.toDouble() }
+    if (lines.filter { it.height > it.width * 1.35f }.sumOf { it.area.toDouble() } > totalArea * .60) return true
+    val squareGlyphs = lines.count { it.height / it.width in .8f..1.3f }
+    val horizontalSpread = lines.maxOf { (it.left + it.right) * .5f } - lines.minOf { (it.left + it.right) * .5f }
+    return lines.size >= 3 && squareGlyphs >= lines.size * .75f &&
+        reading.bounds.height > reading.bounds.width * 1.6f && horizontalSpread < lines.minOf { it.width } * .65f
+}
+
+internal fun orderOcrReadings(readings: List<OcrReading>): List<Int> {
+    val rtl = readings.any { reading ->
+        (reading.script == "JAPANESE" && reading.source.any(::isCjkCharacter)) || isVerticalOcr(reading)
+    }
+    val byTop = readings.indices.sortedWith(compareBy<Int> { readings[it].bounds.top }.thenBy { readings[it].bounds.left })
+    val rows = mutableListOf<MutableList<Int>>()
+    for (index in byTop) {
+        val box = readings[index].bounds
+        val row = rows.lastOrNull()
+        val anchor = row?.firstOrNull()?.let { readings[it].bounds }
+        val overlap = anchor?.let { minOf(box.bottom, it.bottom) - maxOf(box.top, it.top) } ?: 0f
+        if (anchor != null && minOf(box.height, anchor.height) > 0f &&
+            maxOf(box.height, anchor.height) <= minOf(box.height, anchor.height) * 3f &&
+            overlap >= minOf(box.height, anchor.height) * .5f) row += index
+        else rows += mutableListOf(index)
+    }
+    return rows.flatMap { row -> row.sortedWith(compareBy<Int> {
+        if (rtl) -readings[it].bounds.right else readings[it].bounds.left
+    }.thenBy { readings[it].bounds.top }) }
+}
+
+internal fun canMergeVerticalOcr(right: OcrReading, left: OcrReading): Boolean {
+    val verticalA = isVerticalOcr(right)
+    val verticalB = isVerticalOcr(left)
+    if (!verticalA && !verticalB) return false
+    val maxText = maxOf(right.textSize, left.textSize).coerceAtLeast(8f)
+    val minText = minOf(right.textSize, left.textSize).coerceAtLeast(1f)
+    if (minText / maxText < .70f || right.lineBounds.size + left.lineBounds.size > 8) return false
+    // A block may become identifiable as a column only after several single glyphs merge.
+    // Continue that same column instead of stranding its remaining one-character fragments.
+    val fragment = if (!verticalA) right else if (!verticalB) left else null
+    val glyphFragment = fragment == null || (fragment.source.count(::isCjkCharacter) in 1..2 &&
+        fragment.bounds.width <= maxText * 1.6f && fragment.bounds.height <= maxText * 1.6f)
+    val xOverlap = minOf(right.bounds.right, left.bounds.right) - maxOf(right.bounds.left, left.bounds.left)
+    val stackedGap = left.bounds.top - right.bounds.bottom
+    if (glyphFragment && xOverlap >= minOf(right.bounds.width, left.bounds.width) * .70f &&
+        stackedGap in -maxText * .15f..maxText * .95f) return true
+    if (!verticalA || !verticalB) return false
+    val gap = right.bounds.left - left.bounds.right
+    val overlap = minOf(right.bounds.bottom, left.bounds.bottom) - maxOf(right.bounds.top, left.bounds.top)
+    return gap in -maxText * .15f..maxText * .85f &&
+        overlap >= minOf(right.bounds.height, left.bounds.height) * .78f
+}
+
+internal fun orderVerticalOcrLines(lines: List<OcrBox>): List<Int> {
+    val byRight = lines.indices.sortedByDescending { lines[it].right }
+    val columns = mutableListOf<MutableList<Int>>()
+    for (index in byRight) {
+        val box = lines[index]
+        val column = columns.lastOrNull()
+        val anchor = column?.firstOrNull()?.let(lines::get)
+        val overlap = anchor?.let { minOf(box.right, it.right) - maxOf(box.left, it.left) } ?: 0f
+        if (anchor != null && overlap >= minOf(box.width, anchor.width) * .5f) column += index
+        else columns += mutableListOf(index)
+    }
+    return columns.flatMap { column -> column.sortedBy { lines[it].top } }
+}
+

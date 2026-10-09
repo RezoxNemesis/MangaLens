@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.events.CommittedDownloadHintTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:14" hostname="53f09df5485f" time="0.042">
+  <properties/>
+  <testcase name="publisherFailureHintHasNoUntrustedReasonOrFreeFormPayload" classname="com.mangalens.core.events.CommittedDownloadHintTest" time="0.001"/>
+  <testcase name="aResumedGenerationCannotWakeThePreviousCapturedTaskObserver" classname="com.mangalens.core.events.CommittedDownloadHintTest" time="0.001"/>
+  <testcase name="onlyCommittedTerminalStateWithCurrentOwnershipProducesAHint" classname="com.mangalens.core.events.CommittedDownloadHintTest" time="0.001"/>
+  <testcase name="malformedOwnershipCannotPublishURLsPrivatePathsOrUnboundedIdentities" classname="com.mangalens.core.events.CommittedDownloadHintTest" time="0.001"/>
+  <testcase name="executionGenerationAndTaskAreCapturedWithoutSourceContent" classname="com.mangalens.core.events.CommittedDownloadHintTest" time="0.033"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

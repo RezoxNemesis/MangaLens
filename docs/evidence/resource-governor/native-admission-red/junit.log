@@ -1,0 +1,12 @@
+JUnit version 4.13.2
+.E...
+Time: 0.367
+There was 1 failure:
+1) theConfiguredQueueCannotExceedTheSixtyFourWaiterSafetyLimit(com.mangalens.core.compute.NativeComputeAdmissionTest)
+java.lang.AssertionError: A configuration override must not create an unbounded native waiter queue
+	at org.junit.Assert.fail(Assert.java:89)
+	at com.mangalens.core.compute.NativeComputeAdmissionTest.theConfiguredQueueCannotExceedTheSixtyFourWaiterSafetyLimit(NativeComputeAdmissionTest.kt:19)
+
+FAILURES!!!
+Tests run: 4,  Failures: 1
+

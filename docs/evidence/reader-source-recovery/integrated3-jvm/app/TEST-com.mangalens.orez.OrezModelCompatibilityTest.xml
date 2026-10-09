@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.OrezModelCompatibilityTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.009">
+  <properties/>
+  <testcase name="refusesUnsupportedArchitectureAndInsufficientContext" classname="com.mangalens.orez.OrezModelCompatibilityTest" time="0.001"/>
+  <testcase name="readsQwenArchitectureContextAndTensorDataWithoutLoadingWeights" classname="com.mangalens.orez.OrezModelCompatibilityTest" time="0.001"/>
+  <testcase name="boundsMalformedMetadataBeforeAllocationOrLongLoops" classname="com.mangalens.orez.OrezModelCompatibilityTest" time="0.0"/>
+  <testcase name="rejectsSameSizeNonGgufInsteadOfAdvertisingItAsInstalled" classname="com.mangalens.orez.OrezModelCompatibilityTest" time="0.001"/>
+  <testcase name="refusesWrongQuantizationAndInvalidTensorExtent" classname="com.mangalens.orez.OrezModelCompatibilityTest" time="0.005"/>
+  <testcase name="refusesUnsupportedRuntimeAndPausesForMemoryPressure" classname="com.mangalens.orez.OrezModelCompatibilityTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

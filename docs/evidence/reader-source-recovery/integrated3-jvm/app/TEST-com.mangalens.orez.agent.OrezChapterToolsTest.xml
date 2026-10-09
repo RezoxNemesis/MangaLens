@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezChapterToolsTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.072">
+  <properties/>
+  <testcase name="pauseRacingNativeStartStopsTheOwnedGeneration" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.028"/>
+  <testcase name="lostOrPartialNativeOutputNeverBecomesCompleted" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.007"/>
+  <testcase name="changedSourcesStopBeforeNativeSideEffects" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.001"/>
+  <testcase name="cleanupRechecksStopRightsAfterSuspendedLookupAndConcurrentResume" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.016"/>
+  <testcase name="oldWorkerCleanupMustNotPauseTheSameOwnersNewResumedGeneration" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.003"/>
+  <testcase name="alteredGenerationOrOwnerFailsInsteadOfAttachingAnotherRequestsResult" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.001"/>
+  <testcase name="nativeStartReturnsDurableReceiptAndReplayObservesWithoutRestarting" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.003"/>
+  <testcase name="providerReceiptUsesNativeHex32GenerationThroughExecutorValidation" classname="com.mangalens.orez.agent.OrezChapterToolsTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.NativeMediaArchiveInstallerTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:23" hostname="53f09df5485f" time="0.053">
+  <properties/>
+  <testcase name="nestedVerifiedAliasesMatchTheActualPublisherArchive" classname="com.mangalens.download.NativeMediaArchiveInstallerTest" time="0.007"/>
+  <testcase name="extractionCancellationCannotActivatePartialDependencies" classname="com.mangalens.download.NativeMediaArchiveInstallerTest" time="0.013"/>
+  <testcase name="manifestCannotEscapeThePrivateVersionDirectory" classname="com.mangalens.download.NativeMediaArchiveInstallerTest" time="0.002"/>
+  <testcase name="newVersionsNeverOverwriteAlreadyOpenLibraryBytes" classname="com.mangalens.download.NativeMediaArchiveInstallerTest" time="0.004"/>
+  <testcase name="tamperedDataCannotActivateAPointer" classname="com.mangalens.download.NativeMediaArchiveInstallerTest" time="0.027"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

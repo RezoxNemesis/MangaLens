@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.reader.ReaderHudLayoutTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:13:06" hostname="53f09df5485f" time="0.001">
+  <properties/>
+  <testcase name="zeroAndTemporarilyUnavailableViewportsHaveNoNegativeOrNonfiniteConstraint" classname="com.mangalens.ui.reader.ReaderHudLayoutTest" time="0.001"/>
+  <testcase name="installedSmallScreenCannotPaintTheExpandedToolsOverItsPageHeader" classname="com.mangalens.ui.reader.ReaderHudLayoutTest" time="0.0"/>
+  <testcase name="largerFontAndLandscapeReserveActualHeaderAndNavigationSpace" classname="com.mangalens.ui.reader.ReaderHudLayoutTest" time="0.0"/>
+  <testcase name="headerChangesAlwaysReduceTheAvailableToolArea" classname="com.mangalens.ui.reader.ReaderHudLayoutTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

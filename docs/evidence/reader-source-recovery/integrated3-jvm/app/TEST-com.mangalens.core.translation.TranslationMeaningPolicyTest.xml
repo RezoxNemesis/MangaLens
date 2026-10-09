@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.TranslationMeaningPolicyTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.033">
+  <properties/>
+  <testcase name="independentRefinementCannotEraseTheDraftsNegation" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.002"/>
+  <testcase name="capturedNoFamilyDefinitionCannotBecomeHavingAFamily" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.0"/>
+  <testcase name="unrepairedOcrCorruptionCannotBeRecalledAsSuccessfulHindi" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.001"/>
+  <testcase name="explicitAmountsCannotChangeOrDisappear" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.0"/>
+  <testcase name="hyphenApostropheAndStutterNamesRetainTheirCompleteIdentity" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.019"/>
+  <testcase name="preservesNegativePossessionAcrossUnrelatedNouns" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.0"/>
+  <testcase name="explicitNamedEntitiesCannotDisappearButTransliterationIsAllowed" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.002"/>
+  <testcase name="negativeWordsInsidePositiveIdiomsAreNotBlindlyRequired" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.0"/>
+  <testcase name="explicitOrdinalAndFinalLabelsCannotChange" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.001"/>
+  <testcase name="financialShortageCannotBecomePlentyOfMoney" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.0"/>
+  <testcase name="romanHindiEvidenceCannotAuthorizeAnOppositeHindiIntermediate" classname="com.mangalens.core.translation.TranslationMeaningPolicyTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

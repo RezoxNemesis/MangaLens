@@ -1,7 +1,6 @@
 package com.mangalens.download
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
@@ -29,20 +28,37 @@ data class ResolvedMediaLink(
     val headers: Map<String, String> = emptyMap(),
     val audioUrl: String? = null,
     val audioHeaders: Map<String, String> = emptyMap(),
-    val requestedHeight: Int? = null
+    val requestedHeight: Int? = null,
+    val expectedDurationUs: Long? = null,
+    val originalSelection: OriginalMediaSelection? = null,
+    val providerCaptions: ProviderCaptionInventory? = null
 )
 
 class MediaLinkResolver(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .followRedirects(true).followSslRedirects(true)
         .callTimeout(45, TimeUnit.SECONDS).build(),
-    private val siteExtractor: SiteMediaExtractor? = null
+    private val siteExtractor: SiteMediaExtractor? = null,
+    private val timeoutMs: Long = 90_000L
 ) {
 
-    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? =
-        runInterruptible(Dispatchers.IO) { resolve(input, quality) }
+    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.BEST,
+        budgetMs: Long = timeoutMs): ResolvedMediaLink? =
+        MediaResolutionRunner.run(minOf(timeoutMs, budgetMs)) { session -> resolveWithin(input, quality, session) }
 
-    fun resolve(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? {
+    fun resolve(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? =
+        runBlocking { resolveCancellable(input, quality) }
+
+    private fun extract(clean: String, quality: DownloadQuality, session: MediaResolutionSession): ResolvedMediaLink? {
+        session.checkActive()
+        val result = if (siteExtractor is YtDlpSiteMediaExtractor) siteExtractor.extractWithin(clean, quality, session)
+            else siteExtractor?.extract(clean, quality)
+        session.checkActive()
+        return result
+    }
+
+    private fun resolveWithin(input: String, quality: DownloadQuality, session: MediaResolutionSession): ResolvedMediaLink? {
+        session.checkActive()
         val clean = input.trim()
         val inputUri = runCatching { URI(clean) }.getOrNull()
         require(inputUri?.scheme in setOf("http", "https") && !inputUri?.host.isNullOrBlank() && inputUri?.userInfo == null) {
@@ -59,8 +75,9 @@ class MediaLinkResolver(
         }
         val dedicated = !isDirect(lower) && siteExtractor != null && (provider != "generic" || pathLooksLikeVideo)
         if (dedicated) {
-            try { siteExtractor?.extract(clean, quality)?.let { return it } }
+            try { extract(clean, quality, session)?.let { return it } }
             catch (failure: Exception) {
+                session.checkActive()
                 if (failure is InterruptedException) throw failure
                 extractorFailure = failure
             }
@@ -84,7 +101,12 @@ class MediaLinkResolver(
             .header("Referer", clean)
             .build()
 
-        val genericResult = try { client.newCall(request).execute().use { response ->
+        session.checkActive()
+        val call = client.newCall(request)
+        call.timeout().deadlineNanoTime(session.deadlineNanos)
+        val cancellation = session.onCancel { call.cancel() }
+        val genericResult = try { call.execute().use { response ->
+            session.checkActive()
             if (!response.isSuccessful) return@use null
             val body = response.body ?: return@use null
             val contentType = response.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
@@ -100,6 +122,7 @@ class MediaLinkResolver(
             source.request(MAX_HTML_BYTES + 1L)
             if (source.buffer.size > MAX_HTML_BYTES) return@use null
             val html = source.readUtf8()
+            session.checkActive()
             val provider = providerFor(clean)
             val title = Regex("""(?is)<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)""")
                 .find(html)?.groupValues?.getOrNull(1)?.let(::unescape)
@@ -163,16 +186,21 @@ class MediaLinkResolver(
                 qualityFit + if (candidate.mimeType == "video/mp4") 50 else 0
             }
         } } catch (failure: java.io.IOException) {
+            session.checkActive()
             if (siteExtractor == null) throw failure
             null
+        } finally {
+            cancellation.close()
+            call.cancel()
         }
+        session.checkActive()
         val videoPage = runCatching { URI(clean).path.orEmpty() }.getOrDefault("")
             .split('/').any { it.lowercase() in setOf("video", "videos", "watch", "reel", "reels", "player") }
         // A social/adult player thumbnail is not a successful video download.
-        val result = genericResult.takeUnless { videoPage && it?.mimeType?.startsWith("image/") == true }
+        val result = genericResult.takeUnless { (dedicated || videoPage) && it?.mimeType?.startsWith("image/") == true }
         result?.let { return it }
         if (extractorFailure != null) throw extractorFailure
-        return if (dedicated) null else siteExtractor?.extract(clean, quality)
+        return if (dedicated) null else extract(clean, quality, session)
     }
 
     private fun isObviousAd(url: String): Boolean {
@@ -252,3 +280,4 @@ class MediaLinkResolver(
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36 MangaLens/13"
     }
 }
+

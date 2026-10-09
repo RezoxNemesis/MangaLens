@@ -1,0 +1,1964 @@
+{
+  "candidate": "dirty integrated build3 based on 08ca908c35e0a3593c84b683ed967fed1a069715",
+  "unit_results": {
+    "tests": 1469,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": 210,
+    "xml": [
+      {
+        "path": "app/TEST-com.mangalens.core.V12SubsystemTest.xml",
+        "sha256": "1cb7fd5cd348dbec263f263b42221f32d98c3763d3caf561f11be15278183470",
+        "name": "com.mangalens.core.V12SubsystemTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.acquisition.MangaSourceAdapterTest.xml",
+        "sha256": "f2f0830f2cf41a9fdc252b2f36ba18acdc84b70382281954c90b7f2b7a5cd321",
+        "name": "com.mangalens.core.acquisition.MangaSourceAdapterTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.adblock.AdBlockDocumentStartRegistrationTest.xml",
+        "sha256": "bd1371eae2e1fbc32ab61b322f47f7fbda19c196665d83ae368c468aa7bebeff",
+        "name": "com.mangalens.core.adblock.AdBlockDocumentStartRegistrationTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.adblock.AdBlockEngineTest.xml",
+        "sha256": "d47bb0b22ff507273dceb07232bd01d95897b140cc43737eb66caf01b67678f8",
+        "name": "com.mangalens.core.adblock.AdBlockEngineTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.adblock.AdBlockInjectionGateTest.xml",
+        "sha256": "7fbef1c4215c327d07ae0146856cc8496d8de236e06996672f2deb32521e8732",
+        "name": "com.mangalens.core.adblock.AdBlockInjectionGateTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.adblock.AdBlockRequestPolicyTest.xml",
+        "sha256": "2e7e4324731a804e38655117a597fe83bcb429c8233ee20b4465b8fae6237cb6",
+        "name": "com.mangalens.core.adblock.AdBlockRequestPolicyTest",
+        "tests": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.compute.NativeCleanupOverflowTest.xml",
+        "sha256": "7e6b51b6569adbb65533d793dab25ff04c4d275d8ae362ffcf56279661d95bef",
+        "name": "com.mangalens.core.compute.NativeCleanupOverflowTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.compute.NativeComputeAdmissionTest.xml",
+        "sha256": "f5ab0835cb4081f26dc30b283489065f794b8cc647c83b3d80b8815dccc4e8c4",
+        "name": "com.mangalens.core.compute.NativeComputeAdmissionTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.compute.NativeComputeMemoryReleaseTest.xml",
+        "sha256": "a331ba990872b6d54e7dff39578d8fc42b2407792c110dc3fc04f30b327c85fa",
+        "name": "com.mangalens.core.compute.NativeComputeMemoryReleaseTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.compute.ResourceGovernorTest.xml",
+        "sha256": "f703198ef58618f9eeee2137d2dadd5b02f739950c07247cc58bf4da9e066860",
+        "name": "com.mangalens.core.compute.ResourceGovernorTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.events.AppEventBusTest.xml",
+        "sha256": "5485b36eae0732901106e89c69acba6766a9f3833eaba5bb62b034c1c023d17c",
+        "name": "com.mangalens.core.events.AppEventBusTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.events.CommittedDownloadHintTest.xml",
+        "sha256": "70f2ffc1f2120161dabcacf4f948c1008fe092e7540fceae9c0b22d6a7d1e886",
+        "name": "com.mangalens.core.events.CommittedDownloadHintTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.events.CommittedEventWaiterTest.xml",
+        "sha256": "e7106cb750d0bfaad892d6c1673f6fb0f21c9877417b9c0a4d805907532a6cd4",
+        "name": "com.mangalens.core.events.CommittedEventWaiterTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.events.ResourceEventObservationTest.xml",
+        "sha256": "90c070f682f4f9079898d8a1d6a6f962a2a2077c908403b0eab782cb1a7a7a0e",
+        "name": "com.mangalens.core.events.ResourceEventObservationTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.imports.SafeChapterArchiveProvenanceTest.xml",
+        "sha256": "84dfb6edf0483033aa92145107d5c10a3f5b3e4e634ee22c5ad5376e1542f1c5",
+        "name": "com.mangalens.core.imports.SafeChapterArchiveProvenanceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.imports.SafeChapterArchiveTest.xml",
+        "sha256": "8c2f5d4e8b1ea8e67e85a7c0601f753eaf3fe80152d8215188ab11de2d9159e1",
+        "name": "com.mangalens.core.imports.SafeChapterArchiveTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.reader.BoundedTransferTest.xml",
+        "sha256": "69cf8527a88c33068f104f25fb2dde985b0a84ad5ab471c5ae613b1ac2393bda",
+        "name": "com.mangalens.core.reader.BoundedTransferTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.reader.ChapterDocumentManifestTest.xml",
+        "sha256": "49b33976ce00e74af1d46327814ab82a88dfebb09f6f871f391e3a909e2d53df",
+        "name": "com.mangalens.core.reader.ChapterDocumentManifestTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.reader.ChapterDocumentSourceTest.xml",
+        "sha256": "047ff85cb5f86250f57b3c2c6d721a9b8519b83b1434d323f15b98e90b1f21c7",
+        "name": "com.mangalens.core.reader.ChapterDocumentSourceTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.reader.ChapterLibraryTest.xml",
+        "sha256": "a2b73357eca3fb7abc0682c1d25d792d3c9fe2f0083f7d89e116ea87a97025b0",
+        "name": "com.mangalens.core.reader.ChapterLibraryTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.reader.MangaImagePolicyTest.xml",
+        "sha256": "f9e092815597085ceead01a32969f0bf428591fc87721747fda6380741107da8",
+        "name": "com.mangalens.core.reader.MangaImagePolicyTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.reader.ReaderPromoPolicyTest.xml",
+        "sha256": "16d1db83bcde19847fe52c3cd5a1e968d1ad7b060a82c6283a6b0813388d66e0",
+        "name": "com.mangalens.core.reader.ReaderPromoPolicyTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.router.UrlEngineRouterTest.xml",
+        "sha256": "7aa3db21e097a7534cf41b0e2d63c7f87671db6c5db2eebdc327b6abe1228b73",
+        "name": "com.mangalens.core.router.UrlEngineRouterTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.router.UrlSafetyTest.xml",
+        "sha256": "43ace80783bb949a062eb3282dbf9e314d840aba166085cc63dbabbf9be913f0",
+        "name": "com.mangalens.core.router.UrlSafetyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.CapturedTranslationStylePolicyTest.xml",
+        "sha256": "302e100c5fe9329713445291b4a59bdbadb6974e0bc04cea4b064111c4adad14",
+        "name": "com.mangalens.core.translation.CapturedTranslationStylePolicyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ChapterNativeEntryGuardTest.xml",
+        "sha256": "c384cfcbdfc43623d7016a25e77d5974e8f13cec7859137a31e5cd0e9f18adbe",
+        "name": "com.mangalens.core.translation.ChapterNativeEntryGuardTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ChapterRefinementCaptureTest.xml",
+        "sha256": "4eb4ac9466e092f085fa1f7894cf18bfa73c3fcd1face67175e886b2e9a4be7f",
+        "name": "com.mangalens.core.translation.ChapterRefinementCaptureTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ChapterTranslationDisplayTest.xml",
+        "sha256": "cf18a7fc90071d0c1ecc4b0e3ad5503f4e04c187abe53695d1d84ee565617682",
+        "name": "com.mangalens.core.translation.ChapterTranslationDisplayTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ChapterTranslationRequestTest.xml",
+        "sha256": "efe70cff47699187f8f943ef9b9633e2af1e25db8f1b5b46ab1204aeb48698b6",
+        "name": "com.mangalens.core.translation.ChapterTranslationRequestTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ChapterTranslationSourceIdentityTest.xml",
+        "sha256": "90230f4286066ad62c4802e5708db7f1edc201d8c0eb66475f8eb70b3fb3280b",
+        "name": "com.mangalens.core.translation.ChapterTranslationSourceIdentityTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ChapterTranslationStoreTest.xml",
+        "sha256": "b2cee9785badae17abe45c5125a39a25316f69ecb6b8384da17d256f896fba6d",
+        "name": "com.mangalens.core.translation.ChapterTranslationStoreTest",
+        "tests": 40,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.EnglishDialoguePolicyTest.xml",
+        "sha256": "ec0307f03a57df719a2832026231de44e30ada815a144bd906b2618df06c1c94",
+        "name": "com.mangalens.core.translation.EnglishDialoguePolicyTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.EnglishHindiTranslationInputsTest.xml",
+        "sha256": "ff1767d3c78b24c99165b97bde1950e56bda4d976277860e32553a37d95cd184",
+        "name": "com.mangalens.core.translation.EnglishHindiTranslationInputsTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.HindiRomanizationTest.xml",
+        "sha256": "ad61032131aeecec6de5321de18e280e95d011b253c8a3d5ddcc05defcc32d54",
+        "name": "com.mangalens.core.translation.HindiRomanizationTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.HinglishQualityPolicyTest.xml",
+        "sha256": "5db59f42d8a2091504d93b66f566d464e2719b7be49af1ae1b24b318dd1e846b",
+        "name": "com.mangalens.core.translation.HinglishQualityPolicyTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.HinglishRefinementPromptTest.xml",
+        "sha256": "5cb1a7ed5caaf0d8c48beb617c64217acffb2afcbec0f1615451d46dbb1b72b6",
+        "name": "com.mangalens.core.translation.HinglishRefinementPromptTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.HinglishTranslationOutputTest.xml",
+        "sha256": "19f6266d660814113c1ee280d10d3b5736fbea031f4098de8eb9504116c3e322",
+        "name": "com.mangalens.core.translation.HinglishTranslationOutputTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.MangaGlyphReconstructionTest.xml",
+        "sha256": "5a77d17b143579ac73f6465fed494a3ec8df2f9ca27339b8be6a62a85e3a5109",
+        "name": "com.mangalens.core.translation.MangaGlyphReconstructionTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.NativeMemoryPublicationAdapterTest.xml",
+        "sha256": "4bb911c3bb7a3b94609ea4d45cd55be4254be14417ab5575f3101885137fabbc",
+        "name": "com.mangalens.core.translation.NativeMemoryPublicationAdapterTest",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.OriginalMangaGeometryTest.xml",
+        "sha256": "9adcb3ae2a78c36a8b8330245c9eca6081fceee7e9bc9dd88018267a3c46915d",
+        "name": "com.mangalens.core.translation.OriginalMangaGeometryTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest.xml",
+        "sha256": "e2534dbd96493e6e811fabdb788acc5324db70182ab27f9c10041e931b3fa8d9",
+        "name": "com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ReaderMemoryControllerTest.xml",
+        "sha256": "3597c6b8ef9728ad29421dcf7878e4e94fe9ed967934f43303a01b0314d576a4",
+        "name": "com.mangalens.core.translation.ReaderMemoryControllerTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.ReaderTranslationPresentationTest.xml",
+        "sha256": "a013eda580baa1bb1c1e7fc8d12073d3661741456a8ee960712e410c6a2e5336",
+        "name": "com.mangalens.core.translation.ReaderTranslationPresentationTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationDialogueNormalizationTest.xml",
+        "sha256": "0c32254384413b77486a009147c98901320b97de08096b37307cf5e71833603a",
+        "name": "com.mangalens.core.translation.TranslationDialogueNormalizationTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationDraftTest.xml",
+        "sha256": "4140634428fedcbfabcb8b584b7cb63c9db6b1a0e761eb9ac01d5773a922d0f9",
+        "name": "com.mangalens.core.translation.TranslationDraftTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationFluencyTest.xml",
+        "sha256": "b8c827d3830b5309ea93902e3bf3bfeb38ae92d96ac57835924f5710546704f8",
+        "name": "com.mangalens.core.translation.TranslationFluencyTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationMeaningPolicyTest.xml",
+        "sha256": "d5d10ce42c535d477b1e88195b7252fd74a37edfed9ec9f484b3076992009304",
+        "name": "com.mangalens.core.translation.TranslationMeaningPolicyTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationMemoryCodecTest.xml",
+        "sha256": "d004fca8eee7decb63a0ae032cdaec5ab14b60fb492c5aaeca8d643a53bfdac5",
+        "name": "com.mangalens.core.translation.TranslationMemoryCodecTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationQualityPolicyTest.xml",
+        "sha256": "5714c625f86cc9cc6995e94eba098a270b3ad083e8ea679d991df555fb043560",
+        "name": "com.mangalens.core.translation.TranslationQualityPolicyTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationRefinementProvenanceTest.xml",
+        "sha256": "1e3a71a30d27f0e076fa8bc0418b474ca94dbadeb3a76d82ad5d03d40f0eb791",
+        "name": "com.mangalens.core.translation.TranslationRefinementProvenanceTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationRegisterAgreementTest.xml",
+        "sha256": "473596e4b29b4eeb839c97813946562b5e7a7a8f353c01e98602c552227e9c7c",
+        "name": "com.mangalens.core.translation.TranslationRegisterAgreementTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.TranslationStyleProfileTest.xml",
+        "sha256": "e7e81c1636e932e3fc3442d0a794c9cf2d4ff47433fc48586f8dc92aad758a54",
+        "name": "com.mangalens.core.translation.TranslationStyleProfileTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.WebTranslationScriptTest.xml",
+        "sha256": "3ee9238f4e6242b69f930ee83b7d6c9c7086aa5b8175e85facd52a014eecc4f3",
+        "name": "com.mangalens.core.translation.WebTranslationScriptTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.memory.SeriesMemoryCanonicalPageTest.xml",
+        "sha256": "54e12a2fc62ad8380497d2d61879cdd81879932e636662ae40fa9c4650be15ff",
+        "name": "com.mangalens.core.translation.memory.SeriesMemoryCanonicalPageTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest.xml",
+        "sha256": "ce022107af40182342cbdf6cf7d907bae05e2e8f2b6105a633ee9d83e37a9c8a",
+        "name": "com.mangalens.core.translation.memory.SeriesMemoryEditRevisionTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.memory.SeriesMemoryPublicationFenceTest.xml",
+        "sha256": "bcb38d7ec84fc679fd7025cd8252956f5130505af31164c0e36a1078a31799af",
+        "name": "com.mangalens.core.translation.memory.SeriesMemoryPublicationFenceTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.memory.SeriesMemoryQueryTest.xml",
+        "sha256": "f9c89460f0a1ec0b06be3c04b965b1471292bd98344638f5ef514c4295e061d9",
+        "name": "com.mangalens.core.translation.memory.SeriesMemoryQueryTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.memory.SeriesMemoryRemovalReviewTest.xml",
+        "sha256": "5d15d4e13a3f2390f8730a8fa95dd2bff4dd34d96cc860f051edd0315cf90b77",
+        "name": "com.mangalens.core.translation.memory.SeriesMemoryRemovalReviewTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.memory.SeriesMemoryStoreTest.xml",
+        "sha256": "1c20d86f539cdd0ca5aa9ae4576144752664d9b60848d33c768b7d23d8fb88b9",
+        "name": "com.mangalens.core.translation.memory.SeriesMemoryStoreTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.translation.memory.SeriesMemoryTwoPhasePublicationTest.xml",
+        "sha256": "1619db907b0eca5c3c662f89e75afc420ae9e77f5fff277f2baf9ad3c207c337",
+        "name": "com.mangalens.core.translation.memory.SeriesMemoryTwoPhasePublicationTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.core.verification.CaptchaBridgeTest.xml",
+        "sha256": "103acfccc87ac46518e20a4b0c862f019db84131aebc93874f9ab5f7f2754c91",
+        "name": "com.mangalens.core.verification.CaptchaBridgeTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.BundledExtractorInstallerTest.xml",
+        "sha256": "43b495e6d12f167132300f9ca2247489a9342b416de15a1f01d5035ff26f40ac",
+        "name": "com.mangalens.download.BundledExtractorInstallerTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.DownloadModelsTest.xml",
+        "sha256": "4660b6da220f3ccc55c503617f1015098aa1b758f291c647994d7e566bbf455b",
+        "name": "com.mangalens.download.DownloadModelsTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaCompletenessPolicyTest.xml",
+        "sha256": "2d4c723244f56ecba02823c01abf1d2a96f70259b2f13454bf849ef0c4d10ae8",
+        "name": "com.mangalens.download.MediaCompletenessPolicyTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaExtractorCancellationTest.xml",
+        "sha256": "21c0c4174095d2fe3f1e015d7cb1def525607f8b410a42ff3d4d659c98495640",
+        "name": "com.mangalens.download.MediaExtractorCancellationTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaLinkResolverTest.xml",
+        "sha256": "c94053598a056c9f90eb36edb79afe97bd7e3c8b546ccdf419a65935a72fe260",
+        "name": "com.mangalens.download.MediaLinkResolverTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaProcessAttemptDeadlineTest.xml",
+        "sha256": "c280a9a17bab1f3af81d1e30246b72ff867a8b1867d0ace8647729b939e33010",
+        "name": "com.mangalens.download.MediaProcessAttemptDeadlineTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaResolutionDeadlineTest.xml",
+        "sha256": "8955c569a6fdb8e74df5084bf12c84ec6443104689c7a281cc520c583f2cdf68",
+        "name": "com.mangalens.download.MediaResolutionDeadlineTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaResolverProviderFallbackTest.xml",
+        "sha256": "dc5e86b3fb1941a91125af7654dcefeb9f0c8f2e8dadd66ee9f2e02b403e0b43",
+        "name": "com.mangalens.download.MediaResolverProviderFallbackTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaSourceFailureBoundaryTest.xml",
+        "sha256": "255338362aad440cd1199347d6453767210ffa644eaedbd1088f1dfa6829d8bd",
+        "name": "com.mangalens.download.MediaSourceFailureBoundaryTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.MediaSourceFailureTest.xml",
+        "sha256": "fdd9e4cb3cf69b305bb7a1735add6c57520a63b6a8c898ce0dccc7488490e025",
+        "name": "com.mangalens.download.MediaSourceFailureTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.NativeExtractorNetworkPolicyTest.xml",
+        "sha256": "766bc1fbfc0792c2257f3a7b57311656729c176188cc0d4b62d4c7a665dc5955",
+        "name": "com.mangalens.download.NativeExtractorNetworkPolicyTest",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.NativeMediaArchiveChainTest.xml",
+        "sha256": "acc7709d0dbd647b5f862cce5f0b387bf4afdde49d77e0ba3f37ecf975cbb359",
+        "name": "com.mangalens.download.NativeMediaArchiveChainTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.NativeMediaArchiveInstallerTest.xml",
+        "sha256": "37fb5f14c4899d3efe0149d142dcd694d07db2d1311bbdc0f49ee3e298ab035a",
+        "name": "com.mangalens.download.NativeMediaArchiveInstallerTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.NativeOriginalMediaProcessOwnershipTest.xml",
+        "sha256": "545c5ec4da87a5aaccfffdbcf64f47859d5bbadbc6d01f82758c8d1c245a70dc",
+        "name": "com.mangalens.download.NativeOriginalMediaProcessOwnershipTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.NativeOriginalOwnedRuntimeIntegrationTest.xml",
+        "sha256": "6e79c42fea58532a4cf281a4074388de26d047abbda10c9c506b6342e5fecd74",
+        "name": "com.mangalens.download.NativeOriginalOwnedRuntimeIntegrationTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.NativeOwnedExtractorToolsTest.xml",
+        "sha256": "175383a3243e7bc1e81be68983826e81bfe22252498a7c563f9231237b8d8759",
+        "name": "com.mangalens.download.NativeOwnedExtractorToolsTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.NativeSystemTrustBundleStoreTest.xml",
+        "sha256": "c11b4f913172b6fc9b97389121356bfd4bca39e86048c2e7b8c8808d23ee87aa",
+        "name": "com.mangalens.download.NativeSystemTrustBundleStoreTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OpenSslConfigurationPolicyTest.xml",
+        "sha256": "3d451a11d9715b6451673d5d092fc67fdca0d9206d5bda1b81d6e4fe466fe168",
+        "name": "com.mangalens.download.OpenSslConfigurationPolicyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OriginalMediaAttemptIsolationTest.xml",
+        "sha256": "7363c4557f53a26d5ceec7c46cd6d804ba2161291cd020f05ed80e390c755bdd",
+        "name": "com.mangalens.download.OriginalMediaAttemptIsolationTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OriginalMediaCompletionPolicyTest.xml",
+        "sha256": "97894ca74986f3f642ff8027d112fead1da39738d67e20cfe164f1f5b27a522c",
+        "name": "com.mangalens.download.OriginalMediaCompletionPolicyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OriginalMediaMuxPolicyTest.xml",
+        "sha256": "7bd9237ab5b8b5cc776a59950aa3dcec89d51f8102e67e716714e867a5b1ea8e",
+        "name": "com.mangalens.download.OriginalMediaMuxPolicyTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OriginalMediaParserTest.xml",
+        "sha256": "a5ad134946fc16ca904326b37f01031934c9af68f2f956939508a4f64c249cb3",
+        "name": "com.mangalens.download.OriginalMediaParserTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OriginalMediaSourceBindingTest.xml",
+        "sha256": "56e0d8712c73b9efa284fae1fefe25c5cd5f22fc0c61bc8a4acc61afaa1e5fd6",
+        "name": "com.mangalens.download.OriginalMediaSourceBindingTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OriginalMediaTailTest.xml",
+        "sha256": "e1ea1375ed9863403c7cfd86a031ee3f15533f5127199610c84d95d2edc9c2cd",
+        "name": "com.mangalens.download.OriginalMediaTailTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.OriginalPacketAuditTest.xml",
+        "sha256": "f6d4c8d10fdfaf109a5aac433f62bdab5580d5ad690b28731c687e45c0cac7da",
+        "name": "com.mangalens.download.OriginalPacketAuditTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.PackagedOriginalMediaAdmissionTest.xml",
+        "sha256": "98e7c303f7c3b790e87a5f4e745fc5b53fab261b3b7cb455f34717242752c9a2",
+        "name": "com.mangalens.download.PackagedOriginalMediaAdmissionTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.PackagedOriginalMediaEnvironmentTest.xml",
+        "sha256": "49ba997c818d2ea44ed4dd16b372eed4a8a1d03c0341499a762bcddb8a333046",
+        "name": "com.mangalens.download.PackagedOriginalMediaEnvironmentTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.ProviderCaptionDiscoveryTest.xml",
+        "sha256": "34a83892baaf95018c572907f1950d04b3feec40b88fa4e3c915ee1b4f090f4d",
+        "name": "com.mangalens.download.ProviderCaptionDiscoveryTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.ProviderCaptionSourceBindingTest.xml",
+        "sha256": "05e014a31e9a728d904f87a74d05a0778c788f2efb9925269e070091b9fa1464",
+        "name": "com.mangalens.download.ProviderCaptionSourceBindingTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.ResolvedDownloadHeadersTest.xml",
+        "sha256": "016f3439ab7136c7f812e89ff673977e5e3c47c909c0b96d204abe8db32f416a",
+        "name": "com.mangalens.download.ResolvedDownloadHeadersTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.ResumableMediaTransferTest.xml",
+        "sha256": "63073181f9913cc1220666a9a8e3eac5e11fe81fa9dbdb5abb51d124342d7ca2",
+        "name": "com.mangalens.download.ResumableMediaTransferTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.ScopedDownloadHeadersTest.xml",
+        "sha256": "d84de8655445d01453b8186c77f9cdd324a5f619d83349f79d2f8a5920242cda",
+        "name": "com.mangalens.download.ScopedDownloadHeadersTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.SiteExtractionPolicyTest.xml",
+        "sha256": "472424842c01739b99d7b94239dfdaea34131a731f758e1dcf4e05e13b174d7b",
+        "name": "com.mangalens.download.SiteExtractionPolicyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.download.SiteMediaInfoParserTest.xml",
+        "sha256": "0926972fc3ffd1a6b082a144deba44894df0af945cb1ea5bd7ebe5572320d850",
+        "name": "com.mangalens.download.SiteMediaInfoParserTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrContextualRetryPlanTest.xml",
+        "sha256": "a79d3dffc83c05d1392d4cb1528524bb7bbc57753ea0888497d6d46e3e0f959b",
+        "name": "com.mangalens.engine.OcrContextualRetryPlanTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrContextualSourceRecoveryTest.xml",
+        "sha256": "3b020cc6f648cad80832a44128b7e650e10c0c0c4d6a65af1abe07ebb3888ed6",
+        "name": "com.mangalens.engine.OcrContextualSourceRecoveryTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrCropGeometryTest.xml",
+        "sha256": "7b0558d84ba96fea6f1b54f2ea1ffc10ce6d751a100e3c211306f00f78f15c6d",
+        "name": "com.mangalens.engine.OcrCropGeometryTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrFusionPolicyTest.xml",
+        "sha256": "acf2e14d2be78af0bc950ed2143261ce9190cc846f78f3edc709b4cb47b961e6",
+        "name": "com.mangalens.engine.OcrFusionPolicyTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrMixedCaseVariantTest.xml",
+        "sha256": "095009f6127e8bb066b18dbcb060edcea3e1031353dfb6ac0e2d269639149971",
+        "name": "com.mangalens.engine.OcrMixedCaseVariantTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrNativeLifetimeTest.xml",
+        "sha256": "ca825a98c704a4cc676ef00b6f72e443d1324c2fcba502cd184b1cd94a364f3e",
+        "name": "com.mangalens.engine.OcrNativeLifetimeTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrObservedSourceUncertaintyTest.xml",
+        "sha256": "bb2b7556885eb08ae0644542f5c809db9be88d0b2555bf0fc0037ff2606ad0f8",
+        "name": "com.mangalens.engine.OcrObservedSourceUncertaintyTest",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrPixelVariantPlanTest.xml",
+        "sha256": "e65541cd019a71e2959a6ee900b9ff48c315003a32d7db9cd8933657c5c844c3",
+        "name": "com.mangalens.engine.OcrPixelVariantPlanTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrReadingOrderTest.xml",
+        "sha256": "60aef568343b351c1ed6986b840bbcaaff7844ae8d4d8f6509f42b42c9c9f5ba",
+        "name": "com.mangalens.engine.OcrReadingOrderTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrRecognizerLifetimeTest.xml",
+        "sha256": "e273140de5abb056845f572d4f771706a9031ce5e75de834b323d4e0a6ad7a2d",
+        "name": "com.mangalens.engine.OcrRecognizerLifetimeTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrRecognizerSessionTest.xml",
+        "sha256": "c8e02279e393d8500b4b74cbbd78a2680041a2d196dae3738e39d9e716069599",
+        "name": "com.mangalens.engine.OcrRecognizerSessionTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrRegionSourceQualityTest.xml",
+        "sha256": "61c082d47660811fef21ce360873fa533f7a186b7c94ce61d1c81468208c0104",
+        "name": "com.mangalens.engine.OcrRegionSourceQualityTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrSourceResolutionLifetimeTest.xml",
+        "sha256": "efdebfb2e40e645b46f70d570088b23bde83f1607ab76dec27fd69276168cbab",
+        "name": "com.mangalens.engine.OcrSourceResolutionLifetimeTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OcrSourceResolutionPolicyTest.xml",
+        "sha256": "ccbc86004b31ecd32f83b2cad06c1ae7ff001c0c05f3492038fdc6d43ca8d88a",
+        "name": "com.mangalens.engine.OcrSourceResolutionPolicyTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OrezLiveSearchConnectorTest.xml",
+        "sha256": "e2b3f4687c4de2ce2d164660cf7947af91cea1f132431cd4c6ca31a18b968285",
+        "name": "com.mangalens.engine.OrezLiveSearchConnectorTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.engine.OrezSearchParserTest.xml",
+        "sha256": "068853aa0ce17179b04962566c06402f36d0d2b8ae0c66896e1c8054c3a727eb",
+        "name": "com.mangalens.engine.OrezSearchParserTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezChatTranslationPolicyTest.xml",
+        "sha256": "85b5cba84134a411211915f5f9dd98501180be2d48a2d327b2c6087790512106",
+        "name": "com.mangalens.orez.OrezChatTranslationPolicyTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezCorpusWindowPlannerTest.xml",
+        "sha256": "34324d5b144c6d1d8575ea34192a07ff6ab0fe5ec073b542036ac555a36b640d",
+        "name": "com.mangalens.orez.OrezCorpusWindowPlannerTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezDiscoveryPolicyTest.xml",
+        "sha256": "23784e01df4854c2bfa0b467d72cb5e2530599ee0c474f9b00291d4f4e231e80",
+        "name": "com.mangalens.orez.OrezDiscoveryPolicyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezLiveAnswerPolicyTest.xml",
+        "sha256": "5d9a597b869f3ad7831a976348f7f5c89333b63f0ded83e36bb695a2e9ebf5e7",
+        "name": "com.mangalens.orez.OrezLiveAnswerPolicyTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelActivationStoreTest.xml",
+        "sha256": "d43c2902fc68b42f31a799d2241ab91249d52a9491a098ab8f846c566058a89f",
+        "name": "com.mangalens.orez.OrezModelActivationStoreTest",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelCatalogTest.xml",
+        "sha256": "63d878fdfe37d1dc30b151203d4f170e1899bdc44adbe2ffbd927f1fd72bfd99",
+        "name": "com.mangalens.orez.OrezModelCatalogTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelCompatibilityTest.xml",
+        "sha256": "a7bba80eb4f7307ea21594a5c9a805ffe83addba11cec696e23e1b9a380640b2",
+        "name": "com.mangalens.orez.OrezModelCompatibilityTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelLeaseSwitchTest.xml",
+        "sha256": "9c173e1b9fd6939b37201f5c50db719a022abe64d353c2a10be156e1b686b1ff",
+        "name": "com.mangalens.orez.OrezModelLeaseSwitchTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelTransferIOTest.xml",
+        "sha256": "d8715bc2fbdb7e368903add9e01cb290e7706476dfa47c63f65da2c598c4ce4d",
+        "name": "com.mangalens.orez.OrezModelTransferIOTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelTransferJournalTest.xml",
+        "sha256": "cf0f8372d1932851568dd7b8c2d4a0754edaaded4f5faa2304fba7f441ea165f",
+        "name": "com.mangalens.orez.OrezModelTransferJournalTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelTransferOwnerTest.xml",
+        "sha256": "0616b921a92493d969c9a1700975084e37579db6a603d771283d70ce473e3753",
+        "name": "com.mangalens.orez.OrezModelTransferOwnerTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezModelTransferPolicyTest.xml",
+        "sha256": "bd11bd9ec5085b6935b729b9c1f779e1f0778cbfd52586620c380628b1200ef1",
+        "name": "com.mangalens.orez.OrezModelTransferPolicyTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezPinnedModelPolicyTest.xml",
+        "sha256": "45a0bdc8d3067d961029d846e4225527570c58df6a533d45ace5368d7d10fbcd",
+        "name": "com.mangalens.orez.OrezPinnedModelPolicyTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezPromptBoundaryTest.xml",
+        "sha256": "8a2f5c955fdd257b04bf301dbafe0f17224f4d69da5211b2ee5a8e58533eb141",
+        "name": "com.mangalens.orez.OrezPromptBoundaryTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.OrezVideoResultCodecTest.xml",
+        "sha256": "834ba695780a0ea78cfcd0e507ffd6c4fc79d3a195817bcfd39560baddc4895a",
+        "name": "com.mangalens.orez.OrezVideoResultCodecTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezAgentRuntimeTest.xml",
+        "sha256": "92cadde8329e8bd29923f4899c5363523560b51c0ebd3a2a2a9aa9d8b5c0b86c",
+        "name": "com.mangalens.orez.agent.OrezAgentRuntimeTest",
+        "tests": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezChapterPlanCaptureTest.xml",
+        "sha256": "074c13a15bc37462995ac96def1e44249da0e61d3b71dbbd259b5d3f6fdbe989",
+        "name": "com.mangalens.orez.agent.OrezChapterPlanCaptureTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezChapterRefinementContractTest.xml",
+        "sha256": "bad2e9d4160ea5c8f463f62a95f2ba5c1457ad3ec68492c826fc280d9c552a90",
+        "name": "com.mangalens.orez.agent.OrezChapterRefinementContractTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezChapterSourceEvidenceTest.xml",
+        "sha256": "8ff062703cc23fb52a8fd2db6cd8b652dbab0d6c6fb9f7c9917929833430dbc7",
+        "name": "com.mangalens.orez.agent.OrezChapterSourceEvidenceTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezChapterToolsTest.xml",
+        "sha256": "d15cc81058aa2ddd7b45080638f4e42ff8b9a08ac234e9a385e1fa2490b1857a",
+        "name": "com.mangalens.orez.agent.OrezChapterToolsTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezControlRecoveryBatchTest.xml",
+        "sha256": "5de408692dc32647066c6cb41ba9148a3d1bb59084297b1f7fb47792dfe5535e",
+        "name": "com.mangalens.orez.agent.OrezControlRecoveryBatchTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezDownloadTaskLinkTest.xml",
+        "sha256": "23cd9364505daedf2a8b7b903d94ccd217e18d5f3a3e2eb062524b3324ee50e5",
+        "name": "com.mangalens.orez.agent.OrezDownloadTaskLinkTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezHinglishPlanningTest.xml",
+        "sha256": "21118c45c1e3ac40ab3e47d7cd3dfb3ca241658feea440865567b0e6ac2fa8e1",
+        "name": "com.mangalens.orez.agent.OrezHinglishPlanningTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezModelPlanDecoderTest.xml",
+        "sha256": "1bd77e0455f2dc1980f8d6254faadb21765f9bd136fbe16991478231a47a8205",
+        "name": "com.mangalens.orez.agent.OrezModelPlanDecoderTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezNativeChapterFixtureScopeTest.xml",
+        "sha256": "f925b3bc1562593126b62c229da3e08d65238f85c61388cc288a113126992dc8",
+        "name": "com.mangalens.orez.agent.OrezNativeChapterFixtureScopeTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezNativeTargetWorkflowTest.xml",
+        "sha256": "5365e035f91103d505f4cd36bb7bb8effeb7c2951985eb7ad830ff80dc4bc540",
+        "name": "com.mangalens.orez.agent.OrezNativeTargetWorkflowTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezNativeWorkflowTest.xml",
+        "sha256": "616a6f8aecffc85f2c065d26755827daebabab335acc1eab7e1df5d77d42d4c0",
+        "name": "com.mangalens.orez.agent.OrezNativeWorkflowTest",
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezOwnedChapterLookupTest.xml",
+        "sha256": "ad505f0cbf3ef200e026a4462b5470a9b50958639b359db7f36725456b56a724",
+        "name": "com.mangalens.orez.agent.OrezOwnedChapterLookupTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest.xml",
+        "sha256": "3b01d29fbc6d67cff504401469a80be564079d7e25bad56626f03412444c2bb3",
+        "name": "com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezPairedMediaSelectionTest.xml",
+        "sha256": "d43509684f1437b598db29db546f9801d35abdbf162b569322b2d073fad1989f",
+        "name": "com.mangalens.orez.agent.OrezPairedMediaSelectionTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest.xml",
+        "sha256": "89f0a6be5f3b663948eb9765f56af7d348d7a663dda073dfb3b7dcac0a8918a4",
+        "name": "com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezProviderCaptionEvidenceTest.xml",
+        "sha256": "fdf19d3a0f726b35f467903a809fb76679f4d071ae6de717567c04364f7182d6",
+        "name": "com.mangalens.orez.agent.OrezProviderCaptionEvidenceTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezProviderCaptionWorkflowTest.xml",
+        "sha256": "e8eb1c9acb20b28a7d575d250a225d793543e74a66cd2bece712565a12a91001",
+        "name": "com.mangalens.orez.agent.OrezProviderCaptionWorkflowTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSavedSpeechRepairScopeTest.xml",
+        "sha256": "3a27c3ec9caf31971ed6d2f55d2725eb465782e95c4288b29a3c79c5338c958b",
+        "name": "com.mangalens.orez.agent.OrezSavedSpeechRepairScopeTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleControlsTest.xml",
+        "sha256": "f530a390cb71a12963c3f4d967a74a885d17e6ba4ed4932cf7548e8614f43286",
+        "name": "com.mangalens.orez.agent.OrezSubtitleControlsTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest.xml",
+        "sha256": "55cef8d066d57edb751af5476a6c5db69932da8a7e87b551a3e97f2fa7f0159d",
+        "name": "com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitlePlanningTest.xml",
+        "sha256": "622904162ffb527a972b4140fff0c237c5555d2afa2b6a15a387f38475074f8c",
+        "name": "com.mangalens.orez.agent.OrezSubtitlePlanningTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest.xml",
+        "sha256": "a4d46cc1286fe0426b751cad9d00bbb05146cec99447892a65d13ac90493b52b",
+        "name": "com.mangalens.orez.agent.OrezSubtitleQualifiedTargetTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleResultTest.xml",
+        "sha256": "508b0f205bb769df39894cb98b5ff6dd3cf526746499e565dc4c65079c17b83e",
+        "name": "com.mangalens.orez.agent.OrezSubtitleResultTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest.xml",
+        "sha256": "6ec68858578aff5f58137ef08377e66766ccad7c1c5a4b030f457c98370635b3",
+        "name": "com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleTargetPlanningTest.xml",
+        "sha256": "d4dcdf7c2c261c94bfdcd061dad8dd2d844c8f46716b4677185523a1dbcb54f7",
+        "name": "com.mangalens.orez.agent.OrezSubtitleTargetPlanningTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleToolsTest.xml",
+        "sha256": "e93c16c5dd5107bede5537305f8563996e8438ecda342f36795ec1f1ce011e49",
+        "name": "com.mangalens.orez.agent.OrezSubtitleToolsTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezSubtitleWorkGateTest.xml",
+        "sha256": "adf28bdd501cff666285f3e50304b6f64d9d3fee19477565592bff0838acaacc",
+        "name": "com.mangalens.orez.agent.OrezSubtitleWorkGateTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezTaskExecutorTest.xml",
+        "sha256": "4046e74488ffa04a0b4673c58d2b2f0e05aaac6f31bb15a0c8d9975fff477a0d",
+        "name": "com.mangalens.orez.agent.OrezTaskExecutorTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.orez.agent.OrezTaskStoreTest.xml",
+        "sha256": "2bc5cf58b015ef88eb61fbb4353f96971bb385b2fdc1022a4b970b136ffb03f4",
+        "name": "com.mangalens.orez.agent.OrezTaskStoreTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.components.BrandHeaderLayoutTest.xml",
+        "sha256": "d7f9c21f51c989e3c6bd7b647bd3ccbbd707c88e13b918e12dad8c1099d3693d",
+        "name": "com.mangalens.ui.components.BrandHeaderLayoutTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.home.HomeLayoutPolicyTest.xml",
+        "sha256": "e344c1600b4b06a73e78eae1bdbeaec71200b1766eb22f156d5153cbff599253",
+        "name": "com.mangalens.ui.home.HomeLayoutPolicyTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.home.HomeLayoutStoreTest.xml",
+        "sha256": "d899b8ffe1ec4924ea7245bf4a02f94e39fd1833977acf0b11a025d26a2ee622",
+        "name": "com.mangalens.ui.home.HomeLayoutStoreTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.library.LibraryQueryTest.xml",
+        "sha256": "108c1a922c0d0f5d86b709a0eba8f4ce5f7ba8a1c894ad874a817fdc35111a6d",
+        "name": "com.mangalens.ui.library.LibraryQueryTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.library.LibrarySettingsTest.xml",
+        "sha256": "5986eb644272962cb7b8a707c377827276f4138850196aec7b99c15b7abbc5c8",
+        "name": "com.mangalens.ui.library.LibrarySettingsTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.reader.ReaderHudLayoutTest.xml",
+        "sha256": "1e92d06fe086f4e52f32461bc928df714092a71366c75c203ed8c15289ff1278",
+        "name": "com.mangalens.ui.reader.ReaderHudLayoutTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.reader.ReaderNavigationDiagnosticsTest.xml",
+        "sha256": "f1e23cb39a141b9df97fafed1e86056168b0dbf7d912d473067dfdde3b725526",
+        "name": "com.mangalens.ui.reader.ReaderNavigationDiagnosticsTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.reader.ReaderPositionStateTest.xml",
+        "sha256": "23b7232189d83d283e9dfda0d683fb9abd9f5ca1f65e9bde3dcbbc42bf308b17",
+        "name": "com.mangalens.ui.reader.ReaderPositionStateTest",
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.CaptionFileStoreTest.xml",
+        "sha256": "09fc570bd250b823dc25fbb34bcad52475651b66d466c5231836c43c2c1ad5ec",
+        "name": "com.mangalens.ui.video.CaptionFileStoreTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.CaptionPublicationTest.xml",
+        "sha256": "1e200c0ea03a66cfec3b9f7d150d1aac48d85e6e0f335c5f6c3dd32855a6aa57",
+        "name": "com.mangalens.ui.video.CaptionPublicationTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.CaptionTranslationTest.xml",
+        "sha256": "d0facf33ca43a52064448fa82f40b3b7b936fed3b7f248568ed9c0202b4595e6",
+        "name": "com.mangalens.ui.video.CaptionTranslationTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.FullVideoSubtitleGeneratorTest.xml",
+        "sha256": "7621ea0f86a65dbae2deefbddbd76facb72b25bb7cb294dabb0555606d270aaf",
+        "name": "com.mangalens.ui.video.FullVideoSubtitleGeneratorTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ImportedCaptionFileTest.xml",
+        "sha256": "a7598234eddf8beb32a67bb70c24dcf9d6ea0c2cfd61722cad093fe25def7ca5",
+        "name": "com.mangalens.ui.video.ImportedCaptionFileTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.LiveSpeechWindowSnapshotTest.xml",
+        "sha256": "47f43f47c15556466c4babeb115b0d672955b424cfd8dabc6dd2a2c9ca9046b5",
+        "name": "com.mangalens.ui.video.LiveSpeechWindowSnapshotTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.MediaRequestContextTest.xml",
+        "sha256": "ff24a71ce2eff3c700cae92e485efb3968d784cd9a6a69a9f9d0c91748414c5e",
+        "name": "com.mangalens.ui.video.MediaRequestContextTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.NativeLiveSpeechBudgetTest.xml",
+        "sha256": "2f19363fae0ba3a80d0981b8eed04eec80883a1b35e714409e5eb86fc77ade57",
+        "name": "com.mangalens.ui.video.NativeLiveSpeechBudgetTest",
+        "tests": 20,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.PlaybackContinuationFenceTest.xml",
+        "sha256": "8c8d89e792da265f69ca4aea26fcc4f339596446b13881fa61a15c939f2a407a",
+        "name": "com.mangalens.ui.video.PlaybackContinuationFenceTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.PlaybackContinuationPolicyTest.xml",
+        "sha256": "d261b14eeb6d3572d489d590238d7938b146b14749143f5278a5498a6bfa8b80",
+        "name": "com.mangalens.ui.video.PlaybackContinuationPolicyTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.PlaybackLifecyclePolicyTest.xml",
+        "sha256": "e28c2dbf0bccc6395620c03dbf23fc1aed7349173cc627b51c0e994cde3a7120",
+        "name": "com.mangalens.ui.video.PlaybackLifecyclePolicyTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.PlaybackMutationGuardTest.xml",
+        "sha256": "2c7a4d78b16024b9959b9149e7aecfd939f2811f2c2a692df62d239aec749eac",
+        "name": "com.mangalens.ui.video.PlaybackMutationGuardTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.PlaybackRefreshRequestsTest.xml",
+        "sha256": "afc13779488b763719f0456005e77bb3f9af3486f54f208e6037bddf0ee84adb",
+        "name": "com.mangalens.ui.video.PlaybackRefreshRequestsTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.PlaybackTrackControlsTest.xml",
+        "sha256": "06999d50cafcadac61744a6903b1b33c4ac59bcaff775d0485d3f0cd48f04d86",
+        "name": "com.mangalens.ui.video.PlaybackTrackControlsTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionAlternativeFetcherTest.xml",
+        "sha256": "a83fdfeae5aa9e52a1a0b9f0ced83ca023dec90471822e34917d26cf3ad33765",
+        "name": "com.mangalens.ui.video.ProviderCaptionAlternativeFetcherTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionFetcherTest.xml",
+        "sha256": "1ac5234c346a67266c5575c8be0c5184887c218e1b32e9807504797a19e0c4ea",
+        "name": "com.mangalens.ui.video.ProviderCaptionFetcherTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionOverlapTailTest.xml",
+        "sha256": "996c8878b1d537cbb55736afc54a542cab763b7921e55e7d93d35869b4a37217",
+        "name": "com.mangalens.ui.video.ProviderCaptionOverlapTailTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionParserTest.xml",
+        "sha256": "107fadf982be7b5dde1df8e01f5113586f23389b339c2225db002e47ddebd40a",
+        "name": "com.mangalens.ui.video.ProviderCaptionParserTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionPlaybackSourceTest.xml",
+        "sha256": "76fe2740b2b51632793d1c310c2fe1aee4b6551ab6bcbd62deba4c9ed5c11644",
+        "name": "com.mangalens.ui.video.ProviderCaptionPlaybackSourceTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionProcessorTest.xml",
+        "sha256": "01fa660438bab75a842fbdf009d8061f38f6e93faff5110662a280e8709cdacf",
+        "name": "com.mangalens.ui.video.ProviderCaptionProcessorTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionProofTest.xml",
+        "sha256": "b5399b5680f386dd5640b504cbf5d0d65b3bf4f351f939b6247aa21c3cfe80eb",
+        "name": "com.mangalens.ui.video.ProviderCaptionProofTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest.xml",
+        "sha256": "d2bf1304582aad4523c21a3942630dfca23919921b658cc02b7d8e8c288f6ca5",
+        "name": "com.mangalens.ui.video.ProviderCaptionStoreLifecycleTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.SpeechWindowPolicyTest.xml",
+        "sha256": "4fc3c529a04a1c7e093a2d71a46603f4c0b8983d7f9a89e12e5f16d5e7ba449f",
+        "name": "com.mangalens.ui.video.SpeechWindowPolicyTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.SubtitleGenerationStoreTest.xml",
+        "sha256": "e8bc68bb22e86108553ab17cf6d75aa2ff15273e419c897cdf3926fd5c09fc42",
+        "name": "com.mangalens.ui.video.SubtitleGenerationStoreTest",
+        "tests": 46,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.SubtitleNativeAdmissionLifetimeTest.xml",
+        "sha256": "1de1bd59423fb16d12bc5f2fe3957cd5e6d03ffa8e8419901c7fb4a70f773cf2",
+        "name": "com.mangalens.ui.video.SubtitleNativeAdmissionLifetimeTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.SubtitleNetworkSourceTest.xml",
+        "sha256": "0388935bdac119f79f3fa5b9a684660d29e5037f6ebcb56ad953a987833d2be0",
+        "name": "com.mangalens.ui.video.SubtitleNetworkSourceTest",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.SubtitlePlaybackReceiptTest.xml",
+        "sha256": "84bb07762be4bff6fffead4dfeb4ab0ea38e7cc0854d03ee9f86ebc89d115668",
+        "name": "com.mangalens.ui.video.SubtitlePlaybackReceiptTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.SubtitleTargetCheckpointTest.xml",
+        "sha256": "b32ef9a71b54b7af65ded3ab1a890b86b1213eba2df6a1c78c702abfe9b7fcea",
+        "name": "com.mangalens.ui.video.SubtitleTargetCheckpointTest",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.SubtitleWindowProcessorTest.xml",
+        "sha256": "24055d8a8122cae4db3af3bdff4aa9350311ec0ed4da0a4653aa61cde068f31a",
+        "name": "com.mangalens.ui.video.SubtitleWindowProcessorTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.VideoPlaybackEntryTest.xml",
+        "sha256": "6197b31027540615933cf62d2a914034999527c4cce2f5088b784a3973bb4d62",
+        "name": "com.mangalens.ui.video.VideoPlaybackEntryTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.VideoPlaybackPublicationTest.xml",
+        "sha256": "11bf8cbd1b2b3599cd2e13e14c148e6c0d09286a9a4320e4bb06b1d389f2af4f",
+        "name": "com.mangalens.ui.video.VideoPlaybackPublicationTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.VideoResolutionDeadlineTest.xml",
+        "sha256": "af40309f384c830fdddc4d16583c62bd204766aa0ec5e034cdfdeb57f7c21e67",
+        "name": "com.mangalens.ui.video.VideoResolutionDeadlineTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.video.VideoSourcePolicyTest.xml",
+        "sha256": "0fc59611cf0e2b0a5ab0e35ac0926d6f13789b05ba293401773cd01167de2aa5",
+        "name": "com.mangalens.ui.video.VideoSourcePolicyTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserAddressTest.xml",
+        "sha256": "02161140528d2841c64b01858d535701a66316dbc085dd1161726825f6c87beb",
+        "name": "com.mangalens.ui.web.BrowserAddressTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserCapturePolicyTest.xml",
+        "sha256": "1f77f8fa1b1b86cb6e7afc91da7917560d44e8608e295ee6401678194bea0b84",
+        "name": "com.mangalens.ui.web.BrowserCapturePolicyTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserFileUploadPolicyTest.xml",
+        "sha256": "6b8a500bf4fe7732240f3e76bb550ab68865865391012dec823332cbcfc2ac90",
+        "name": "com.mangalens.ui.web.BrowserFileUploadPolicyTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserPageMutationGuardTest.xml",
+        "sha256": "11eb2a2ec708337b36d703a40a2f4035842f7a03001166046d443baab1c2ab67",
+        "name": "com.mangalens.ui.web.BrowserPageMutationGuardTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserResolvedCaptionHandoffTest.xml",
+        "sha256": "9a8d0b2ca34b0a2519754d7c5167915a699779009b53fb59bb60f8f1a05dd7eb",
+        "name": "com.mangalens.ui.web.BrowserResolvedCaptionHandoffTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserWorkspaceCodecTest.xml",
+        "sha256": "af0d7b307ac177bc93e8b61c476740dedb908af96a3765b24caa7fa38783402f",
+        "name": "com.mangalens.ui.web.BrowserWorkspaceCodecTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserWorkspaceNavigationTest.xml",
+        "sha256": "76a5205a5d8dd84fd980c280f7cf418f3db651f46eee7c36f83faa6a3970ace1",
+        "name": "com.mangalens.ui.web.BrowserWorkspaceNavigationTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserWorkspaceSessionTest.xml",
+        "sha256": "d4112376e3aad59efd5f75dcaf525113cf95f0abc3a7cd12c9bfc21ba41f3fd8",
+        "name": "com.mangalens.ui.web.BrowserWorkspaceSessionTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.BrowserWorkspaceStoreTest.xml",
+        "sha256": "4aab86ec46c5d29ad7f75a8ca38406f9b099734ced5922086c2dab090efb4e7e",
+        "name": "com.mangalens.ui.web.BrowserWorkspaceStoreTest",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.WebPageLoadStateTest.xml",
+        "sha256": "6c811f57e94108c695c14ba62d952e7cca2995998596f14ad074cae0c9e8d428",
+        "name": "com.mangalens.ui.web.WebPageLoadStateTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "app/TEST-com.mangalens.ui.web.WebReloadRequestTest.xml",
+        "sha256": "7555d6e26689a9c48eeafcd2095c166c2e7bcb4371f5f7821a022275f0108052",
+        "name": "com.mangalens.ui.web.WebReloadRequestTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "orez-native/TEST-com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest.xml",
+        "sha256": "9bfc6e87b6ac82fa2a15f6dd7d3fa03cb893198eaad8fad132f30795359e7ba5",
+        "name": "com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "orez-native/TEST-com.mangalens.oreznative.NativeModelLeaseRegistryTest.xml",
+        "sha256": "d613983a2077e2e662d3c797c6819fa4a15e4d5cc58ec27a389e050b7fb31e83",
+        "name": "com.mangalens.oreznative.NativeModelLeaseRegistryTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 77
+  },
+  "android_test_rerun": "BUILD SUCCESSFUL after first compilation failure; test-only source corrections saved",
+  "device_acceptance": "not established; root reports TCG SystemUI/install/start failures",
+  "limitations": [
+    "No positive device UI/native model/output-quality/hardware acceptance follows from JVM, lint, compilation or package checks.",
+    "Max and captured generation-memory follow-on remain external preparations."
+  ],
+  "evidence_files": [
+    {
+      "path": "apk-manifest.json",
+      "bytes": 1886,
+      "sha256": "728799300357bbf90ebddcff02bb85e42bd2fd0c858df09d005151c68c82dd00"
+    },
+    {
+      "path": "integrated-3-source-frozen.json",
+      "bytes": 162796,
+      "sha256": "7a3c5336d247cfc3cf836fbd397fc6b0add0b3216ac4ac32a08043e9890098a9"
+    },
+    {
+      "path": "integrated-3-source-test-corrections.json",
+      "bytes": 162796,
+      "sha256": "4d0c186ac94f3bc82db9a8998781eac969fcc7a3614956fe71d99d7ee63aa331"
+    },
+    {
+      "path": "integrated-3-source-test-gesture-correction.json",
+      "bytes": 706,
+      "sha256": "7d94abb395266fc92bc4131260b79e0cdf7bec01eb21ba6499d418dc4f920f10"
+    },
+    {
+      "path": "integrated-build-3-android-test-rerun.log",
+      "bytes": 13386,
+      "sha256": "13040598a7d46416a92cb7742a3f61284d7b5f878a536831592b49fdb893e7af"
+    },
+    {
+      "path": "integrated-build-3-debug-package-verification.log",
+      "bytes": 1315,
+      "sha256": "174c61a274bd64b9b3c7cd56507568867b3d100be3e9a05656c8c7a46c242e1e"
+    },
+    {
+      "path": "integrated-build-3-selftest-package-verification.log",
+      "bytes": 1327,
+      "sha256": "2817ab1de59fde1e0543c9b33504ed7f489937053a62d5762817b1b69f0fbdf4"
+    },
+    {
+      "path": "integrated-build-3.log",
+      "bytes": 55544,
+      "sha256": "b618a8af882d809a529411a5a824ce7f393ea43d813369d101d9e3688e6a811f"
+    },
+    {
+      "path": "lint-results-debug.xml",
+      "bytes": 79439,
+      "sha256": "b1291d39c4d0252797a9517f33cb926fb3b5b68b420be74f49b8ad9451b2d484"
+    },
+    {
+      "path": "unit-results.tar.gz",
+      "bytes": 53728,
+      "sha256": "3936eec57817c677a439f718e30e36979e5ff0ba04991df4dce4c79a4d00a4d3"
+    }
+  ]
+}

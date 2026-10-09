@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezTaskExecutorTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.035">
+  <properties/>
+  <testcase name="interruptionAfterAnEffectReusesItsIdentityAndSkipsVerifiedSteps" classname="com.mangalens.orez.agent.OrezTaskExecutorTest" time="0.013"/>
+  <testcase name="cancellationDuringToolExecutionCannotStartTheNextStepOrResurrectTheTask" classname="com.mangalens.orez.agent.OrezTaskExecutorTest" time="0.004"/>
+  <testcase name="nativeFailurePreservesEarlierCompletionForAnExplicitRetry" classname="com.mangalens.orez.agent.OrezTaskExecutorTest" time="0.005"/>
+  <testcase name="pausedStepRetainsCompletedEvidenceAndResumesInPlace" classname="com.mangalens.orez.agent.OrezTaskExecutorTest" time="0.005"/>
+  <testcase name="anotherTransfersResultCannotCompleteThisTask" classname="com.mangalens.orez.agent.OrezTaskExecutorTest" time="0.003"/>
+  <testcase name="malformedLaterStepPreventsEverySideEffect" classname="com.mangalens.orez.agent.OrezTaskExecutorTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -4,17 +4,30 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.res.Configuration
 import coil.Coil
+import kotlinx.coroutines.launch
 
 class MangaLensApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        com.mangalens.core.compute.AndroidResourceSignalMonitor.install(this)
+        com.mangalens.orez.agent.OrezTaskRecovery.enqueue(this)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
+            com.mangalens.ui.video.SubtitleGenerationJobs.recoverPending(this@MangaLensApplication)
+        }
+    }
+
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        com.mangalens.core.compute.AndroidResourceSignalMonitor.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             runCatching { Coil.imageLoader(this).memoryCache?.clear() }
         }
         if (level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
             level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
             level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
-            com.mangalens.oreznative.OrezNativeEngine.trimMemory()
+            com.mangalens.oreznative.OrezNativeEngine.trimMemory(
+                com.mangalens.core.compute.NativeComputeMemoryRelease.shared::schedule
+            )
         }
     }
 

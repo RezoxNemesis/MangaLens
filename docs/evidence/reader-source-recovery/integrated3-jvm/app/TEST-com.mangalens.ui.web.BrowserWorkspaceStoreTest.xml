@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.web.BrowserWorkspaceStoreTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:32" hostname="53f09df5485f" time="2.069">
+  <properties/>
+  <testcase name="onlyExactCurrentSuccessfulCommitAddsVisitedHistory" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.001"/>
+  <testcase name="coldReopenRetainsTabsCurrentCursorAndDesktopChoice" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.0"/>
+  <testcase name="historyIsBoundedDeduplicatedAndCanBeExplicitlyCleared" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="1.982"/>
+  <testcase name="repeatedRequestedUrlDoesNotCreateDuplicateBackEntries" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.0"/>
+  <testcase name="tabAndCursorCapsAreEnforcedWithoutLosingCurrentPage" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.069"/>
+  <testcase name="committedParentUrlSurvivesColdBlankTabRestorationWithoutSelectingAnOlderTab" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.0"/>
+  <testcase name="malformedOrUnsafeSnapshotRestoresBlankWithoutAutoDispatchingEmbeddedUrls" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.001"/>
+  <testcase name="closingSelectedTabChoosesNeighbourAndClosingLastCreatesBlankTab" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.0"/>
+  <testcase name="redirectReplacementDoesNotAppendAnExtraBackPage" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.0"/>
+  <testcase name="storageFailureDoesNotPublishOrOverwriteThePriorDurableTab" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.012"/>
+  <testcase name="unsafeOrCredentialedNavigationIsRejectedBeforeAnyWrite" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.001"/>
+  <testcase name="navigatingAfterBackDiscardsOnlyThatTabsForwardHistory" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.001"/>
+  <testcase name="bookmarkTogglePersistsExactTitleWithoutTouchingCookiesOrHistory" classname="com.mangalens.ui.web.BrowserWorkspaceStoreTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

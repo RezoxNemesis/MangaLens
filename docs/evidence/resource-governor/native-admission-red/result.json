@@ -1,0 +1,8 @@
+{
+  "compile_exit": 0,
+  "junit_exit": 1,
+  "test_classes": [
+    "com.mangalens.core.compute.NativeComputeAdmissionTest"
+  ],
+  "source_manifest": "source-manifest.json"
+}

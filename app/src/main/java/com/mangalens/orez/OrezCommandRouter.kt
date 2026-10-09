@@ -5,7 +5,9 @@ import com.mangalens.core.router.UrlEngineRouter
 
 enum class OrezRoute {
     CHAT, MANGA_READER, VIDEO_PLAYER, WEB_VIEW,
-    TRANSLATE_MANGA, TRANSLATE_VIDEO, TRANSLATE_WEB
+    DOWNLOADS, LIBRARY, SETTINGS,
+    TRANSLATE_MANGA, TRANSLATE_VIDEO, TRANSLATE_WEB,
+    TRANSLATE_ACTIVE_CHAPTER
 }
 
 data class OrezCommandResult(

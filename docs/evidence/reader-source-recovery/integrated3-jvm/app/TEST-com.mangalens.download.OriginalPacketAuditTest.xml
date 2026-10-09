@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.OriginalPacketAuditTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.091">
+  <properties/>
+  <testcase name="uniformContainerRebaseRetainsAudioVideoTimingButIndependentShiftDoesNot" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.023"/>
+  <testcase name="invalidOrHashlessPacketsFailVerificationInsteadOfBeingCounted" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.013"/>
+  <testcase name="tailsAndHashesStayIndependentForVideoAndAudio" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.0"/>
+  <testcase name="everyPacketMayShareARebaseWithTickRoundingIncludingOutOfOrderPts" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.004"/>
+  <testcase name="missingOrTruncatedTimingReceiptsCannotPassAndCancellationStillPropagates" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.002"/>
+  <testcase name="encodedPayloadFingerprintIgnoresPermittedTimestampRebase" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.001"/>
+  <testcase name="unchangedEndpointsCannotHideAnInteriorPacketTimestampOrDurationChange" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.02"/>
+  <testcase name="changedPayloadMissingSamplesAndReorderedSamplesCannotClaimOriginal" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.0"/>
+  <testcase name="negativePrimingPacketsAreRetainedAndBFramePtsCanBeOutOfOrder" classname="com.mangalens.download.OriginalPacketAuditTest" time="0.028"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

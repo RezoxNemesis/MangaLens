@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.TranslationFluencyTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.174">
+  <properties/>
+  <testcase name="observedDativePluralObjectCannotAgreeWithSingularInability" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.011"/>
+  <testcase name="singularMassAndAgentiveSpeakerAgreementRemainValid" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.003"/>
+  <testcase name="independentRomanRefinementCannotReintroduceTheKnownPluralDisagreement" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.009"/>
+  <testcase name="differentNounsNumbersAndFemininePluralAgreementHaveTheSameGuard" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.003"/>
+  <testcase name="capturedStylesRetainExactValidatedHindiProofAcrossMemoryRoundTrip" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.088"/>
+  <testcase name="aSavedHindiProofCannotHideTheObservedGrammarErrorInRomanOutput" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.003"/>
+  <testcase name="aPinnedIndependentCandidateMustStillPreserveMeaningAndAmounts" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.005"/>
+  <testcase name="oneDistinctRealTranslatorInputRetryPreservesNameCountNegationAndHindiProof" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.008"/>
+  <testcase name="inabilityAlternativePreservesSubjectAndDoesNotRewritePositiveOrPerfectIdioms" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.0"/>
+  <testcase name="oldWeakCachedEvidenceIsRejectedWithoutChangingTheMemoryFormat" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.007"/>
+  <testcase name="caseMarkedOrUnmarkedMeasurementPhrasesAndOtherLanguagesStayOutsideTheNarrowGate" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.0"/>
+  <testcase name="nasalFemininePluralUsesItsCheckedHindiProofRatherThanAmbiguousRomanEndings" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.003"/>
+  <testcase name="alreadyUsableAgreementMakesOnlyOneTranslationCall" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.001"/>
+  <testcase name="unsuccessfulGrammarAttemptsStayBoundedAndNeverBecomeUsable" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.003"/>
+  <testcase name="explicitSubjectsAndCurlyApostropheDoNotChangeNamesOrQuantities" classname="com.mangalens.core.translation.TranslationFluencyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

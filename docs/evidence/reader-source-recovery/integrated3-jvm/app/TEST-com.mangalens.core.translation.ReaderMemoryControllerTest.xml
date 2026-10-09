@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.ReaderMemoryControllerTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:18" hostname="53f09df5485f" time="0.43">
+  <properties/>
+  <testcase name="heldSaveCannotClearANewerSamePageOpeningLoadingState" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.08"/>
+  <testcase name="currentPageSaveRemoveRollbackAndColdRecreationKeepNativeAndOriginalFilesUnchanged" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.114"/>
+  <testcase name="sourceOrOutputByteReplacementHidesEarlierPersonalOverlay" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.113"/>
+  <testcase name="acceptedSameReceiptAndActualNeighbourPageCommitKeepEditorIdentityUntilReaderLeaves" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.036"/>
+  <testcase name="actualSyncedHeldSaveCannotBlockReaderLeaveOrPublishAfterIt" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.035"/>
+  <testcase name="heldBubbleSelectionCannotAttachToADismissedAndReopenedSamePage" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.024"/>
+  <testcase name="wrongTargetSaveReportsFailureWithoutPublishingACorrection" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.008"/>
+  <testcase name="legacySavedPageShowsOriginalsAndRequiresRetranslationWithoutAnEditor" classname="com.mangalens.core.translation.ReaderMemoryControllerTest" time="0.02"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

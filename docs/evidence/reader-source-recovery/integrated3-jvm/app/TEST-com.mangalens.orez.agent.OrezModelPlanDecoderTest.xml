@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezModelPlanDecoderTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.002">
+  <properties/>
+  <testcase name="emptyChapterAndUntrustedOriginAreRejected" classname="com.mangalens.orez.agent.OrezModelPlanDecoderTest" time="0.0"/>
+  <testcase name="inventedDangerousToolIsRejected" classname="com.mangalens.orez.agent.OrezModelPlanDecoderTest" time="0.0"/>
+  <testcase name="modelMustRetainTheApprovedSourceUrl" classname="com.mangalens.orez.agent.OrezModelPlanDecoderTest" time="0.002"/>
+  <testcase name="modelCannotInjectItsOwnRiskOrApproval" classname="com.mangalens.orez.agent.OrezModelPlanDecoderTest" time="0.0"/>
+  <testcase name="questionsDoNotActivateModelToolSelection" classname="com.mangalens.orez.agent.OrezModelPlanDecoderTest" time="0.0"/>
+  <testcase name="validModelToolUsesRuntimeOwnedPermissions" classname="com.mangalens.orez.agent.OrezModelPlanDecoderTest" time="0.0"/>
+  <testcase name="openRequestCannotBeReinterpretedAsDownload" classname="com.mangalens.orez.agent.OrezModelPlanDecoderTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

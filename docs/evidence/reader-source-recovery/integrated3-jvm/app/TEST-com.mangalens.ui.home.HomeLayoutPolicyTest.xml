@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.home.HomeLayoutPolicyTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.005">
+  <properties/>
+  <testcase name="defaultsPreserveTheExistingModuleOrderAndKeepNewOptionalSectionsHidden" classname="com.mangalens.ui.home.HomeLayoutPolicyTest" time="0.002"/>
+  <testcase name="hidingAllSectionsLeavesAValidRecoverableLayoutAndResetRestoresDefaults" classname="com.mangalens.ui.home.HomeLayoutPolicyTest" time="0.0"/>
+  <testcase name="duplicateAndUnknownSavedIdsCannotDuplicateOrDeleteRealModules" classname="com.mangalens.ui.home.HomeLayoutPolicyTest" time="0.001"/>
+  <testcase name="corruptOversizedAndUnknownVersionStorageFallsBackWithoutInventingSections" classname="com.mangalens.ui.home.HomeLayoutPolicyTest" time="0.0"/>
+  <testcase name="movingAnEdgeOrUsingAnInvalidDirectionCannotRemoveASection" classname="com.mangalens.ui.home.HomeLayoutPolicyTest" time="0.0"/>
+  <testcase name="savedVisibilityAndOrderRoundTripTogether" classname="com.mangalens.ui.home.HomeLayoutPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

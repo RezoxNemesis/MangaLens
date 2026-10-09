@@ -1,0 +1,4 @@
+Actual HTTP NO_RESPONSE received; cancelAndJoin <=2500ms=true; elapsedMs=20; pages=0; ownedPartialFiles=0; exception=kotlinx.coroutines.JobCancellationException
+PASS scope=actual HTTP header-stall/coroutine cancellation; Android bitmap/document/rename stubs all throw if reached; no decoder/UI claim
+Oct 09, 2026 7:49:38 PM okhttp3.mockwebserver.MockWebServer$SocketHandler handle
+WARNING: MockWebServer[53595] connection from /127.0.0.1 didn't make a request

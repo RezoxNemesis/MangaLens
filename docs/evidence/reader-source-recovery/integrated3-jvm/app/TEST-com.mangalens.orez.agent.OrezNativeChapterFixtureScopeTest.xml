@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezNativeChapterFixtureScopeTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.048">
+  <properties/>
+  <testcase name="inspectedIntentColdReopensAndVerifiesTheExactNativeOptionsAndSource" classname="com.mangalens.orez.agent.OrezNativeChapterFixtureScopeTest" time="0.019"/>
+  <testcase name="committedOldInspectionCannotAuthorizeAChangedSourceOrReplacementOwner" classname="com.mangalens.orez.agent.OrezNativeChapterFixtureScopeTest" time="0.026"/>
+  <testcase name="nativeOwnerAloneCannotResolveAnUncommittedInspection" classname="com.mangalens.orez.agent.OrezNativeChapterFixtureScopeTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

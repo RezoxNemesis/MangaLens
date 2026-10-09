@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezSubtitleResultTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.093">
+  <properties/>
+  <testcase name="corruptManagedExportFailsResultAndNewOwnerIsNotInspectedByOldGeneration" classname="com.mangalens.orez.agent.OrezSubtitleResultTest" time="0.036"/>
+  <testcase name="foreignPlanStepOrGenerationCannotOpenThisTrack" classname="com.mangalens.orez.agent.OrezSubtitleResultTest" time="0.019"/>
+  <testcase name="dispatchWaitingAndPendingControlNeverExposeCompletedResultNavigation" classname="com.mangalens.orez.agent.OrezSubtitleResultTest" time="0.014"/>
+  <testcase name="completedReferenceReopensOnlyExactManagedGenerationExports" classname="com.mangalens.orez.agent.OrezSubtitleResultTest" time="0.017"/>
+  <testcase name="savedHashAndFullCapturedPairMustMatchFreshReceipt" classname="com.mangalens.orez.agent.OrezSubtitleResultTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

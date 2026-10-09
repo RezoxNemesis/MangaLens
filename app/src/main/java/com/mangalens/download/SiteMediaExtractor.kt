@@ -4,9 +4,9 @@ import android.content.Context
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONObject
+import kotlinx.coroutines.runBlocking
 import java.net.URI
 import java.util.UUID
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /** A real local extractor, with no remote paid API and no authentication/DRM bypass. */
@@ -17,56 +17,65 @@ fun interface SiteMediaExtractor {
 class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams: Boolean = false) : SiteMediaExtractor {
     private val app = context.applicationContext
 
-    override fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink? {
-        YoutubeDL.init(app)
-        refreshExtractorIfUseful(url)
-        val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
-        val youtube = host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com")
+    override fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink? = runBlocking {
+        MediaResolutionRunner.run(90_000L) { extractWithin(url, quality, it) }
+    }
+
+    internal fun extractWithin(url: String, quality: DownloadQuality, session: MediaResolutionSession): ResolvedMediaLink? {
+        session.checkActive()
+        val extractorDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
+            SiteExtractionPolicy.extractorBudgetMs(session.remainingMillis())
+        )
+        // Use the installed extractor immediately. The library's synchronous updater fetches
+        // metadata without a network deadline and holds the init monitor, so it must never run
+        // on the playback path. A stale extractor reports an actionable source-page fallback.
+        BundledYtDlpRuntime.initialize(app, session::checkActive)
+        session.checkActive()
         // Do not mix YouTube clients in one request. Mixed client URLs can be signed for a
         // different player and later fail with HTTP 403. Try the current yt-dlp default first
         // for full quality, then bounded single-client fallbacks.
-        val clients: List<String?> = if (youtube) {
-            // Current yt-dlp gives the default client first. Then try clients that can expose
-            // ordinary HTTPS/DASH/HLS media without intentionally capping quality. Keep Android
-            // last because YouTube periodically applies stricter token checks to that client.
-            listOf(null, "tv", "web_embedded", "web_safari", "ios", "android")
-        } else listOf(null)
-        var lastFailure: Exception? = null
-        clients.forEach { client ->
+        val failures = mutableListOf<Throwable>()
+        for ((index, client) in SiteExtractionPolicy.clients(url).withIndex()) {
+            session.checkActive()
+            val remaining = minOf(
+                session.remainingMillis(),
+                TimeUnit.NANOSECONDS.toMillis(extractorDeadline - System.nanoTime())
+            )
+            if (remaining < 1_000L) break
             try {
-                execute(url, quality, client)?.let { return it.copy(requestedHeight = quality.height) }
+                execute(url, quality, client, session, SiteExtractionPolicy.attemptBudgetMs(index, remaining))
+                    ?.let { return it.copy(requestedHeight = quality.height) }
             } catch (failure: Exception) {
+                session.checkActive()
                 if (failure is InterruptedException) throw failure
-                lastFailure = failure
+                failures += failure
             }
         }
-        throw IllegalArgumentException(
-            "The site extractor could not find an accessible video/audio source. MangaLens tried fresh extractor data and safe site-specific fallbacks; protected, private or login-only media may still be unavailable.",
-            lastFailure
-        )
+        throw MediaSourceException.fromFailures(failures)
     }
 
-    private fun execute(url: String, quality: DownloadQuality, youtubeClient: String?): ResolvedMediaLink? {
+    private fun execute(
+        url: String, quality: DownloadQuality, youtubeClient: String?,
+        session: MediaResolutionSession, timeoutMs: Long
+    ): ResolvedMediaLink? {
+        session.checkActive()
         val browserCookies = browserCookieFile(url)
-        val heightFilter = if (quality == DownloadQuality.BEST) "" else "[height<=${quality.height}]"
-        val format = if (allowSeparateStreams) {
-            "bestvideo$heightFilter[ext=mp4]+bestaudio[ext=m4a]/" +
-                "bestvideo$heightFilter+bestaudio/" +
-                "best$heightFilter/" +
-                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
-        } else {
-            "best$heightFilter/best"
-        }
+        val format = OriginalMediaFormatPolicy.selector(quality, allowSeparateStreams)
         val request = YoutubeDLRequest(url).apply {
             addOption("--ignore-config")
+            addOption("--no-plugin-dirs")
+            addOption("--no-remote-components")
+            addOption("--no-geo-bypass")
             addOption("--no-playlist")
             addOption("--skip-download")
-            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,title,extractor_key,http_headers,has_drm,_type,requested_formats})j")
+            // Inventory is never persisted; the parser rejects JSON over 16 MiB.
+            // Only safe selected facts persist with the complete source tuple.
+            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,format_id,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats,formats,id,language,original_language,subtitles,automatic_captions})j")
             addOption("--no-warnings")
-            addOption("--socket-timeout", "30")
-            addOption("--retries", "3")
-            addOption("--extractor-retries", "3")
-            addOption("--fragment-retries", "3")
+            addOption("--socket-timeout", "8")
+            addOption("--retries", "1")
+            addOption("--extractor-retries", "1")
+            addOption("--fragment-retries", "1")
             addOption("--user-agent", "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36")
             addOption("--referer", url)
             browserCookies?.let { addOption("--cookies", it.absolutePath) }
@@ -74,15 +83,25 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
                 addOption("--extractor-args", "youtube:player_client=$youtubeClient")
             }
             addOption("-f", format)
+            addOption("--format-sort", OriginalMediaFormatPolicy.SORT)
+            addOption("--format-sort-force")
+            if (allowSeparateStreams) addOption("--audio-multistreams")
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
-        val timeout = timer.schedule({ YoutubeDL.destroyProcessById(processId) }, 90, TimeUnit.SECONDS)
-        return try {
+        val guard = MediaProcessGuard(session, processId, timeoutMs, YoutubeDL::destroyProcessById)
+        return try { guard.run {
+            guard.checkActive()
+            NativeOwnedExtractorTools.configure(app, request, session)
+            guard.checkActive()
+            AndroidNativeExtractorNetworking.configure(app, request, url, session::checkActive)
+            guard.checkActive()
             val response = YoutubeDL.execute(request, processId = processId, callback = null)
-            SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)
-        } finally {
-            timeout.cancel(false)
-            YoutubeDL.destroyProcessById(processId)
+            guard.checkActive()
+            SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)?.let { media ->
+                media.copy(originalSelection = media.originalSelection?.copy(client = youtubeClient ?: "default"))
+            }
+        } } finally {
+            guard.close()
             browserCookies?.delete()
         }
     }
@@ -121,39 +140,6 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         }
     }
 
-    /**
-     * YouTube changes signatures frequently. Prefer the current yt-dlp nightly on Android because
-     * extractor fixes often land before the next stable release. A failed update is non-fatal.
-     */
-    private fun refreshExtractorIfUseful(url: String) {
-        val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
-        val dynamicSite = host == "youtu.be" ||
-            host == "youtube.com" || host.endsWith(".youtube.com") ||
-            host == "instagram.com" || host.endsWith(".instagram.com") ||
-            host == "x.com" || host.endsWith(".x.com") ||
-            host == "twitter.com" || host.endsWith(".twitter.com") ||
-            host == "tiktok.com" || host.endsWith(".tiktok.com") ||
-            host == "facebook.com" || host.endsWith(".facebook.com") ||
-            host == "rule34video.com" || host.endsWith(".rule34video.com") ||
-            host == "spankbang.com" || host.endsWith(".spankbang.com")
-        if (!dynamicSite) return
-        val prefs = app.getSharedPreferences("mangalens_ytdlp", Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val lastAttempt = prefs.getLong("nightly_update_attempt", 0L)
-        if (now - lastAttempt < 12L * 60L * 60L * 1000L) return
-        prefs.edit().putLong("nightly_update_attempt", now).apply()
-        runCatching {
-            YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel._NIGHTLY)
-        }.onSuccess {
-            prefs.edit().putLong("nightly_update_success", now).apply()
-        }
-    }
-
-    companion object {
-        private val timer = Executors.newSingleThreadScheduledExecutor { runnable ->
-            Thread(runnable, "mangalens-extractor-timeout").apply { isDaemon = true }
-        }
-    }
 }
 
 /** Kept separate from the native runtime so format/security decisions have JVM tests. */
@@ -166,37 +152,63 @@ internal object SiteMediaInfoParser {
         if (allowSeparateStreams && formats?.length() == 2) {
             val parts = (0 until formats.length()).map { formats.getJSONObject(it) }
             if (parts.any { it.optBoolean("has_drm") }) return null
-            val video = parts.singleOrNull { it.optString("vcodec") != "none" && it.optString("acodec") == "none" } ?: return null
+            val video = parts.singleOrNull { it.optString("vcodec").let { codec -> codec.isNotBlank() && codec != "none" } } ?: return null
             val audio = parts.singleOrNull { it.optString("vcodec") == "none" && it.optString("acodec") != "none" } ?: return null
-            if (video.optString("ext") != "mp4" || audio.optString("ext") !in setOf("m4a", "mp4")) return null
+            val videoMime = OriginalMediaFormatPolicy.videoMime(video.optString("ext")) ?: return null
+            if (parts.any { protectedOrUnsupportedProtocol(it) }) return null
             val videoUrl = video.optString("url").takeIf(::isWebUrl) ?: return null
             val audioUrl = audio.optString("url").takeIf(::isWebUrl) ?: return null
-            return ResolvedMediaLink(videoUrl, "video/mp4", info.optString("extractor_key", "yt-dlp"),
+            return ResolvedMediaLink(videoUrl, videoMime, info.optString("extractor_key", "yt-dlp"),
                 detectedHeight = heightHint(video), title = info.optString("title"),
                 sourcePageUrl = sourcePage, headers = safeHeaders(info) + safeHeaders(video),
-                audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio))
+                audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio),
+                expectedDurationUs = durationUs(info), originalSelection = selection(info, video, audio),
+                providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, audio.optString("language")))
         }
         if (info.optString("vcodec") == "none" || info.optString("acodec") == "none") return null
         // Never substitute one of requested_formats: those commonly contain separate tracks.
         if (info.optJSONArray("requested_formats")?.length()?.let { it > 1 } == true) return null
         val url = info.optString("url").takeIf(::isWebUrl) ?: return null
         val protocol = info.optString("protocol")
-        if (protocol.contains("drm", true) || protocol.contains("rtmp", true)) return null
+        if (protectedOrUnsupportedProtocol(info)) return null
         val mime = when {
             protocol.startsWith("m3u8") -> "application/x-mpegURL"
             protocol.contains("dash") || url.substringBefore('?').endsWith(".mpd", true) -> "application/dash+xml"
-            info.optString("ext") == "webm" -> "video/webm"
-            info.optString("ext") == "mov" -> "video/quicktime"
-            else -> "video/mp4"
+            else -> OriginalMediaFormatPolicy.videoMime(info.optString("ext")) ?: "video/mp4"
         }
         val headers = safeHeaders(info)
         return ResolvedMediaLink(
             url = url, mimeType = mime, provider = info.optString("extractor_key", "yt-dlp"),
             detectedHeight = heightHint(info),
             title = info.optString("title").takeIf { it.isNotBlank() },
-            sourcePageUrl = sourcePage, headers = headers
+            sourcePageUrl = sourcePage, headers = headers, expectedDurationUs = durationUs(info),
+            originalSelection = selection(info, info, info),
+            providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, info.optString("language"))
         )
     }
+
+    private fun protectedOrUnsupportedProtocol(info: JSONObject): Boolean =
+        info.optString("protocol").let { it.contains("drm", true) || it.contains("rtmp", true) }
+
+    private fun selection(info: JSONObject, video: JSONObject, audio: JSONObject): OriginalMediaSelection {
+        val formats = info.optJSONArray("formats")
+        val maximum = formats?.let { rows -> (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            if (row.optBoolean("has_drm") || row.optString("vcodec") == "none") null
+            else heightHint(row)
+        }.maxOrNull() }
+        return OriginalMediaSelection(
+            videoFormatId = OriginalMediaFormatPolicy.safeFormatId(video.optString("format_id")),
+            audioFormatId = OriginalMediaFormatPolicy.safeFormatId(audio.optString("format_id")),
+            videoCodec = OriginalMediaFormatPolicy.safeCodec(video.optString("vcodec")),
+            audioCodec = OriginalMediaFormatPolicy.safeCodec(audio.optString("acodec")),
+            maximumReportedHeight = maximum
+        )
+    }
+
+    private fun durationUs(info: JSONObject): Long? = info.optDouble("duration", Double.NaN)
+        .takeIf { it.isFinite() && it > 0.0 && it < Long.MAX_VALUE / 1_000_000.0 }
+        ?.let { (it * 1_000_000.0).toLong() }
 
     private fun heightHint(info: JSONObject): Int? {
         info.optInt("height", 0).takeIf { it > 0 }?.let { return it }
@@ -225,3 +237,4 @@ internal object SiteMediaInfoParser {
         uri.scheme in setOf("https", "http") && !uri.host.isNullOrBlank() && uri.userInfo == null
     }.getOrDefault(false)
 }
+

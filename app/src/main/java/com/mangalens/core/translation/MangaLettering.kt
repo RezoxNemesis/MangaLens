@@ -80,7 +80,8 @@ object MangaLettering {
             sourceBounds = bounds,
             lines = sourceLines,
             padding = padding,
-            uniformSurface = uniformSurface
+            uniformSurface = uniformSurface,
+            surfaceColor = reference
         )
         return Patch(rect, patch, style)
     }
@@ -220,7 +221,8 @@ object MangaLettering {
         sourceBounds: RectF,
         lines: List<RectF>,
         padding: Int,
-        uniformSurface: Boolean
+        uniformSurface: Boolean,
+        surfaceColor: Int
     ) {
         val width = destination.width
         val height = destination.height
@@ -288,8 +290,9 @@ object MangaLettering {
             for (i in masked.indices) masked[i] = grown[i]
         }
 
-        val result = original.clone()
-        val fallback = borderColor(
+        // Expansion can reach a dark balloon outline. Its perimeter is not the
+        // paper colour established around the original OCR zone.
+        val fallback = if (uniformSurface) surfaceColor else borderColor(
             source,
             RectF(
                 destinationBounds.left.toFloat(),
@@ -301,99 +304,11 @@ object MangaLettering {
         )
         val search = max(10, min(48, padding * 8))
 
-        fun cleanIndex(x: Int, y: Int): Int? {
-            if (x !in 0 until width || y !in 0 until height) return null
-            val index = y * width + x
-            return index.takeUnless { masked[it] }
-        }
-
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val index = y * width + x
-                if (!masked[index]) continue
-
-                var left: Int? = null
-                var right: Int? = null
-                var up: Int? = null
-                var down: Int? = null
-                var upLeft: Int? = null
-                var upRight: Int? = null
-                var downLeft: Int? = null
-                var downRight: Int? = null
-                for (d in 1..search) {
-                    if (left == null) left = cleanIndex(x - d, y)
-                    if (right == null) right = cleanIndex(x + d, y)
-                    if (up == null) up = cleanIndex(x, y - d)
-                    if (down == null) down = cleanIndex(x, y + d)
-                    if (upLeft == null) upLeft = cleanIndex(x - d, y - d)
-                    if (upRight == null) upRight = cleanIndex(x + d, y - d)
-                    if (downLeft == null) downLeft = cleanIndex(x - d, y + d)
-                    if (downRight == null) downRight = cleanIndex(x + d, y + d)
-                    if (listOf(left,right,up,down,upLeft,upRight,downLeft,downRight).count { it != null } >= 6) break
-                }
-
-                val horizontal = if (left != null && right != null) {
-                    mix(original[left], original[right], .5f)
-                } else left?.let { original[it] } ?: right?.let { original[it] }
-                val vertical = if (up != null && down != null) {
-                    mix(original[up], original[down], .5f)
-                } else up?.let { original[it] } ?: down?.let { original[it] }
-
-                val diagonalValues = listOfNotNull(upLeft, upRight, downLeft, downRight).map { original[it] }
-                val diagonal = diagonalValues.takeIf { it.isNotEmpty() }?.let { values ->
-                    Color.rgb(
-                        values.sumOf { Color.red(it) } / values.size,
-                        values.sumOf { Color.green(it) } / values.size,
-                        values.sumOf { Color.blue(it) } / values.size
-                    )
-                }
-                result[index] = when {
-                    // On a clean balloon/document surface, nearest-neighbour reconstruction
-                    // can sample another antialiased source glyph and leave the grey "ghost"
-                    // fragments seen in real translated pages. A robust border median is the
-                    // safer source of truth for this deliberately uniform surface.
-                    uniformSurface -> fallback
-                    horizontal != null && vertical != null && diagonal != null ->
-                        mix(mix(horizontal, vertical, .5f), diagonal, .34f)
-                    horizontal != null && vertical != null ->
-                        if (distance(horizontal, vertical) <= 90) mix(horizontal, vertical, .5f)
-                        else if (distance(horizontal, fallback) <= distance(vertical, fallback)) horizontal else vertical
-                    horizontal != null && diagonal != null -> mix(horizontal, diagonal, .35f)
-                    vertical != null && diagonal != null -> mix(vertical, diagonal, .35f)
-                    horizontal != null -> horizontal
-                    vertical != null -> vertical
-                    diagonal != null -> diagonal
-                    else -> fallback
-                }
-            }
-        }
-
-        // Soften only reconstructed pixels. Clean art and panel borders stay byte-for-byte untouched.
-        val smoothed = result.clone()
-        for (y in 1 until height - 1) {
-            for (x in 1 until width - 1) {
-                val index = y * width + x
-                if (!masked[index]) continue
-                val neighbours = intArrayOf(
-                    result[index], result[index - 1], result[index + 1],
-                    result[index - width], result[index + width]
-                )
-                smoothed[index] = Color.rgb(
-                    neighbours.sumOf { Color.red(it) } / neighbours.size,
-                    neighbours.sumOf { Color.green(it) } / neighbours.size,
-                    neighbours.sumOf { Color.blue(it) } / neighbours.size
-                )
-            }
-        }
+        val smoothed = MangaGlyphReconstruction.reconstruct(
+            original, masked, width, height, uniformSurface, surfaceColor, fallback, search
+        )
         destination.setPixels(smoothed, 0, width, 0, 0, width, height)
     }
-
-    private fun mix(a: Int, b: Int, fraction: Float): Int = Color.argb(
-        (Color.alpha(a) + (Color.alpha(b) - Color.alpha(a)) * fraction).toInt(),
-        (Color.red(a) + (Color.red(b) - Color.red(a)) * fraction).toInt(),
-        (Color.green(a) + (Color.green(b) - Color.green(a)) * fraction).toInt(),
-        (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * fraction).toInt()
-    )
 
     private fun borderColor(image: Bitmap, box: RectF, pad: Int): Int {
         val colors = mutableListOf<Int>()
@@ -589,21 +504,28 @@ object MangaLettering {
         text: String,
         textScale: Float = 1f,
         cachedLayout: StaticLayout? = null
+    ) = drawText(canvas, patch.bounds, patch.style, text, textScale, cachedLayout)
+
+    /** Typesetting needs only geometry/style; background bitmaps may already be released. */
+    fun drawText(
+        canvas: Canvas,
+        bounds: Rect,
+        style: Style,
+        text: String,
+        textScale: Float = 1f,
+        cachedLayout: StaticLayout? = null
     ) {
-        val layout = cachedLayout ?: layout(
-            text,
-            patch.style,
-            patch.bounds.width(),
-            patch.bounds.height(),
-            textScale
-        )
-        val x = patch.bounds.left + (patch.bounds.width() - layout.width) / 2f
-        val y = patch.bounds.top + (patch.bounds.height() - layout.height) / 2f
-        canvas.save()
-        canvas.clipRect(patch.bounds)
-        canvas.translate(x, y)
-        layout.draw(canvas)
-        canvas.restore()
+        val layout = cachedLayout ?: layout(text, style, bounds.width(), bounds.height(), textScale)
+        val x = bounds.left + (bounds.width() - layout.width) / 2f
+        val y = bounds.top + (bounds.height() - layout.height) / 2f
+        val saveCount = canvas.save()
+        try {
+            canvas.clipRect(bounds)
+            canvas.translate(x, y)
+            layout.draw(canvas)
+        } finally {
+            canvas.restoreToCount(saveCount)
+        }
     }
 
     fun draw(
@@ -617,3 +539,4 @@ object MangaLettering {
         drawText(canvas, patch, text, textScale, cachedLayout)
     }
 }
+

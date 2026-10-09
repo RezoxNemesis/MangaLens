@@ -1,0 +1,42 @@
+{
+  "head": "08ca908c35e0a3593c84b683ed967fed1a069715",
+  "oracles": [
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ReaderModesTest.kt",
+      "head_sha256": "450e81affd1e527d0d84b35e06998be834d183dc2e6eb750696eccf741f216e3",
+      "current_sha256": "450e81affd1e527d0d84b35e06998be834d183dc2e6eb750696eccf741f216e3",
+      "byte_identical": true
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ReaderRestorationSmokeTest.kt",
+      "head_sha256": "7f8210e12128741d27d0537e6c68f2738c0c716bb658f1a11ccfe891c9ee75e5",
+      "current_sha256": "7f8210e12128741d27d0537e6c68f2738c0c716bb658f1a11ccfe891c9ee75e5",
+      "byte_identical": true
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ReaderSourceFrameOracle.kt",
+      "head_sha256": "071071e7680c10132d9b81d8bbe08a68d3dc252b48ae53817b18addf70293d03",
+      "current_sha256": "071071e7680c10132d9b81d8bbe08a68d3dc252b48ae53817b18addf70293d03",
+      "byte_identical": true
+    },
+    {
+      "path": "app/src/androidTest/java/com/mangalens/MangaImageDecodeTest.kt",
+      "head_sha256": "9f8631425dc27bffd3b8f1ad23afb7532285c76c6ffa5837f02ca9ca407f0225",
+      "current_sha256": "9f8631425dc27bffd3b8f1ad23afb7532285c76c6ffa5837f02ca9ca407f0225",
+      "byte_identical": true
+    },
+    {
+      "path": "app/src/test/java/com/mangalens/ui/reader/ReaderPositionStateTest.kt",
+      "head_sha256": "ba238c9a581214da60f475b99dd46aa16bf7a5c0d1dd58fc2a2eeb490e7af584",
+      "current_sha256": "ba238c9a581214da60f475b99dd46aa16bf7a5c0d1dd58fc2a2eeb490e7af584",
+      "byte_identical": true
+    },
+    {
+      "path": "app/src/test/java/com/mangalens/ui/reader/ReaderHudLayoutTest.kt",
+      "head_sha256": "ff05eeac093d401d3d805680d520b67cbae5022060ccad609dacde3ab97f5d38",
+      "current_sha256": "ff05eeac093d401d3d805680d520b67cbae5022060ccad609dacde3ab97f5d38",
+      "byte_identical": true
+    }
+  ],
+  "scope": "Source equality only; actual runtime outcome remains root-owned."
+}

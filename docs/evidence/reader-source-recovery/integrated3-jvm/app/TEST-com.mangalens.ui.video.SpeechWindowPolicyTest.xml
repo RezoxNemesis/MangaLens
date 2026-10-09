@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.SpeechWindowPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:30" hostname="53f09df5485f" time="0.03">
+  <properties/>
+  <testcase name="overlapIsDeduplicatedButLaterRepeatedDialogueSurvives" classname="com.mangalens.ui.video.SpeechWindowPolicyTest" time="0.0"/>
+  <testcase name="silenceAndSingleTransientDoNotBecomeSpeech" classname="com.mangalens.ui.video.SpeechWindowPolicyTest" time="0.026"/>
+  <testcase name="adjacentShortFragmentsBecomeOneReadableCue" classname="com.mangalens.ui.video.SpeechWindowPolicyTest" time="0.0"/>
+  <testcase name="sustainedQuietDialogueStillCountsAsSpeech" classname="com.mangalens.ui.video.SpeechWindowPolicyTest" time="0.004"/>
+  <testcase name="overlappingTailFragmentDoesNotRepeatMovieSubtitle" classname="com.mangalens.ui.video.SpeechWindowPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

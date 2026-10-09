@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.OriginalMangaGeometryTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:18" hostname="53f09df5485f" time="0.006">
+  <properties/>
+  <testcase name="fullResolutionPreservesExactBoundsIncludingPageEdges" classname="com.mangalens.core.translation.OriginalMangaGeometryTest" time="0.0"/>
+  <testcase name="largePageDepthUsesOriginalHeightRatherThanViewportOrWidthRatio" classname="com.mangalens.core.translation.OriginalMangaGeometryTest" time="0.0"/>
+  <testcase name="invalidOrUpscaledSourceProofCannotBeInvented" classname="com.mangalens.core.translation.OriginalMangaGeometryTest" time="0.006"/>
+  <testcase name="oddDownsampledDimensionsRoundOutwardUsingBothActualAxes" classname="com.mangalens.core.translation.OriginalMangaGeometryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

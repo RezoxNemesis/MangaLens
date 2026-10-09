@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.MediaSourceFailureBoundaryTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:22" hostname="53f09df5485f" time="0.003">
+  <properties/>
+  <testcase name="genericTypedWrapperCannotHideItsNativeTimeoutCause" classname="com.mangalens.download.MediaSourceFailureBoundaryTest" time="0.0"/>
+  <testcase name="wrappedSuppressedCancellationRemainsCancellation" classname="com.mangalens.download.MediaSourceFailureBoundaryTest" time="0.0"/>
+  <testcase name="suppressedProviderFailureSurvivesLaterCompatibilityError" classname="com.mangalens.download.MediaSourceFailureBoundaryTest" time="0.0"/>
+  <testcase name="typedReasonUsesFixedTextEvenIfItsConstructorContainsRawDiagnostics" classname="com.mangalens.download.MediaSourceFailureBoundaryTest" time="0.001"/>
+  <testcase name="aggregateRetainsEarlierNativeCauseForSafeEvidenceWhileKeepingTheLastCause" classname="com.mangalens.download.MediaSourceFailureBoundaryTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

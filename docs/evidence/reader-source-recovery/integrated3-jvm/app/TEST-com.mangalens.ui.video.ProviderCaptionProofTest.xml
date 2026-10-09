@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ProviderCaptionProofTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:30" hostname="53f09df5485f" time="0.01">
+  <properties/>
+  <testcase name="changedProviderDocumentIsNotTheSameProofEvenWhenOnlyItsBodyBytesChange" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.001"/>
+  <testcase name="sceneContextChangesConfigurationAndIsCapturedBeforeCallerMutation" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.001"/>
+  <testcase name="providerCuePairingRetainsOverlappingRepeatAcrossJournalBatches" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.001"/>
+  <testcase name="resumedGenerationCanRetainMaskedSourceButCannotPublishUntilFreshCaptionProof" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.001"/>
+  <testcase name="providerTimingProofDoesNotClaimAudioCompletionOrDecodedPcm" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.002"/>
+  <testcase name="providerCaptionCandidateQueuesWithoutRequiringAWhisperModel" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.001"/>
+  <testcase name="changedInteriorTimingDialogueSourceConfigAndGenerationRejectTheReceipt" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.002"/>
+  <testcase name="sceneContextAndOnlyEarlierOriginalCuesReachTheCurrentPrompt" classname="com.mangalens.ui.video.ProviderCaptionProofTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,7 +1,11 @@
 package com.mangalens
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import android.util.Base64
+import android.view.View
+import android.view.ViewGroup
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -10,6 +14,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.hls.offline.HlsDownloader
+import androidx.media3.ui.PlayerView
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mangalens.download.MangaLensDownloadService
@@ -30,6 +36,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Original two-second audio HLS fixture; no external source or account is involved. */
 @OptIn(UnstableApi::class)
@@ -72,6 +79,10 @@ class AdaptiveOfflinePlaybackTest {
         val store = ViewModelStore()
         val finished = CountDownLatch(1)
         val playbackError = AtomicReference<PlaybackException?>()
+        val playbackUiAttached = AtomicBoolean(false)
+        val offlinePlaybackStarted = AtomicBoolean(false)
+        var foreground: ActivityScenario<MainActivity>? = null
+        var presentation: ActivityScenario<MainActivity>? = null
         var stopped = false
         try {
             downloader.download(null)
@@ -80,28 +91,70 @@ class AdaptiveOfflinePlaybackTest {
             assertTrue("Downloads must live in durable files storage", File(app.filesDir, "media_download_cache").isDirectory)
             server.shutdown()
             stopped = true
-            instrumentation.runOnMainSync {
+            // Android 15 requires a foreground app/service for media audio focus.
+            // Exercise the real activity and opaque production player route;
+            // production audio focus and the offline completion oracle stay active.
+            if (android.os.Build.VERSION.SDK_INT >= 33)
+                instrumentation.uiAutomation.grantRuntimePermission(app.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+            val visible = ActivityScenario.launch(MainActivity::class.java).also { foreground = it }
+            lateinit var owner: LocalVideoPlayerViewModel
+            visible.onActivity {
                 val viewModel = LocalVideoPlayerViewModel(app)
+                owner = viewModel
                 store.put("qa-offline-player", viewModel)
                 viewModel.player.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) finished.countDown()
+                        if (playbackUiAttached.get() && playbackState == Player.STATE_ENDED &&
+                            viewModel.player.playbackState == Player.STATE_ENDED) finished.countDown()
+                    }
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (playbackUiAttached.get() && isPlaying) offlinePlaybackStarted.set(true)
                     }
                     override fun onPlayerError(error: PlaybackException) {
                         playbackError.set(error)
                         finished.countDown()
                     }
                 })
-                viewModel.openHttp(source)
+                assertTrue(viewModel.openHttp(source, referer = source))
+            }
+            val route = Intent(app, MainActivity::class.java).setAction(Intent.ACTION_VIEW)
+                .setData(Uri.parse("mangalens://video/session/${owner.session.policy.sessionId}"))
+            val active = ActivityScenario.launch<MainActivity>(route).also { presentation = it }
+            var bound = false
+            val uiDeadline = android.os.SystemClock.elapsedRealtime() + 8_000L
+            while (!bound && android.os.SystemClock.elapsedRealtime() < uiDeadline) {
+                active.onActivity { bound = findPlayerView(it.window.decorView)?.player === owner.player }
+                if (!bound) android.os.SystemClock.sleep(100L)
+            }
+            assertTrue("The actual production PlayerView never bound the offline player", bound)
+            active.onActivity {
+                assertEquals(source, owner.player.currentMediaItem?.localConfiguration?.uri?.toString())
+                owner.player.pause()
+                owner.player.seekTo(0L)
+                playbackUiAttached.set(true)
+                owner.player.play()
             }
             assertTrue("Offline HLS playback never completed", finished.await(30, TimeUnit.SECONDS))
             assertNull("Playback attempted an unavailable source or could not decode the saved media", playbackError.get())
+            assertTrue("Offline playback never started through the visible production player", offlinePlaybackStarted.get())
+            active.onActivity { assertNotNull("The offline audio track was never decoded", owner.player.audioFormat) }
         } finally {
-            instrumentation.runOnMainSync { store.clear() }
-            downloader.remove()
-            if (!stopped) server.shutdown()
-            client.connectionPool.evictAll()
-            client.dispatcher.executorService.shutdown()
+            try {
+                try { presentation?.close() } finally { foreground?.close() }
+            } finally {
+                instrumentation.runOnMainSync { store.clear() }
+                downloader.remove()
+                if (!stopped) server.shutdown()
+                client.connectionPool.evictAll()
+                client.dispatcher.executorService.shutdown()
+            }
         }
+    }
+
+    private fun findPlayerView(view: View): PlayerView? {
+        if (view is PlayerView) return view
+        if (view is ViewGroup) for (index in 0 until view.childCount)
+            findPlayerView(view.getChildAt(index))?.let { return it }
+        return null
     }
 }

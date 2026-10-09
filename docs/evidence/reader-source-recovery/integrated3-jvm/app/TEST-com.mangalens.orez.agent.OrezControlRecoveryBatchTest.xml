@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezControlRecoveryBatchTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.016">
+  <properties/>
+  <testcase name="failingFirst128ControlsCannotStarveLaterCapturedControls" classname="com.mangalens.orez.agent.OrezControlRecoveryBatchTest" time="0.006"/>
+  <testcase name="duplicateAndFailingIdsAreAttemptedOnceWithoutRetryLoops" classname="com.mangalens.orez.agent.OrezControlRecoveryBatchTest" time="0.003"/>
+  <testcase name="workerStopLeavesRemainingCapturedControlsForNextRestoration" classname="com.mangalens.orez.agent.OrezControlRecoveryBatchTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

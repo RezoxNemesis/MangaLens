@@ -16,6 +16,28 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class MangaLetteringTest {
+    @Test fun expandedPatchDoesNotSampleGreyPanelAsWhitePaper() {
+        val image = Bitmap.createBitmap(800, 400, Bitmap.Config.ARGB_8888)
+        val panel = Color.rgb(235, 235, 235)
+        Canvas(image).apply {
+            drawColor(panel)
+            drawRect(200f, 140f, 600f, 260f, Paint().apply { color = Color.WHITE })
+            drawRect(280f, 185f, 520f, 215f, Paint().apply { color = Color.BLACK })
+        }
+        val bounds = RectF(260f, 175f, 540f, 225f)
+        val patch = MangaLettering.prepare(image, bounds, listOf(bounds), "SOURCE TEXT", false)
+        try {
+            assertEquals("Grey expanded perimeter contaminated erased source ink", Color.WHITE,
+                patch.background.getPixel(400 - patch.bounds.left, 200 - patch.bounds.top))
+            val cleaned = image.copy(Bitmap.Config.ARGB_8888, true)
+            try {
+                MangaLettering.drawBackground(Canvas(cleaned), patch)
+                assertEquals(Color.WHITE, cleaned.getPixel(400, 200))
+                assertEquals("Unmasked panel texture changed", panel, cleaned.getPixel(20, 20))
+            } finally { cleaned.recycle() }
+        } finally { patch.background.recycle(); image.recycle() }
+    }
+
     @Test fun opaqueRemovalPreservesTintAndMatchesBoldCondensedLettering() {
         val image = Bitmap.createBitmap(1000, 350, Bitmap.Config.ARGB_8888)
         val paper = Color.rgb(209, 200, 184)
@@ -218,3 +240,4 @@ class MangaLetteringTest {
         device.executeShellCommand("cp ${file.absolutePath} /sdcard/Download/mangalens-qa/")
     }
 }
+

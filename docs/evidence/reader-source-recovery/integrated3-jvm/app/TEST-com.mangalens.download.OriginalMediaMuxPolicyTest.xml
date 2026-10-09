@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.OriginalMediaMuxPolicyTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.002">
+  <properties/>
+  <testcase name="copyCommandCannotEncodeOrReadNetworkInputs" classname="com.mangalens.download.OriginalMediaMuxPolicyTest" time="0.001"/>
+  <testcase name="api28PreservesVp9OpusWithCopyOnlyWebmRatherThanLowerMp4" classname="com.mangalens.download.OriginalMediaMuxPolicyTest" time="0.0"/>
+  <testcase name="selectorIncludesCombinedVideoAndNeverEscapesAnExplicitCeiling" classname="com.mangalens.download.OriginalMediaMuxPolicyTest" time="0.001"/>
+  <testcase name="supportedNativeContainersFollowDocumentedCodecAndSdkLimits" classname="com.mangalens.download.OriginalMediaMuxPolicyTest" time="0.0"/>
+  <testcase name="crossContainerPairsUseMatroskaWithoutChangingEitherCodec" classname="com.mangalens.download.OriginalMediaMuxPolicyTest" time="0.0"/>
+  <testcase name="unsupportedCodecPairFailsWithoutAQualityFallback" classname="com.mangalens.download.OriginalMediaMuxPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

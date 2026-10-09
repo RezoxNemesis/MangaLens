@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.SubtitleGenerationStoreTest" tests="46" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:30" hostname="53f09df5485f" time="0.655">
+  <properties/>
+  <testcase name="changedSourceInvalidatesAllOldCuesAndLateCommandReceiptsNeverReturnReplacement" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.003"/>
+  <testcase name="failedAtomicCheckpointDoesNotPublishOrDestroyPriorWindow" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="pendingDocumentExportRestoresExactBytesFromOnlyItsSavedSmallToken" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.005"/>
+  <testcase name="acceptedExportClaimsItsTokenBeforeHeldProviderDispatchCanRun" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.004"/>
+  <testcase name="malformedOwnerCannotReplaceAValidTaskOrItsPrivateExports" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="completedWindowSurvivesRestartWithoutRepeatingInference" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.021"/>
+  <testcase name="acknowledgedOwnedStopExitsWithoutFailingTheNativeTaskAndCannotTouchItsResumedGeneration" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.003"/>
+  <testcase name="pcmVerificationCannotExposeCuesThroughASeparatelyClearedSourceFlag" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.0"/>
+  <testcase name="heldDocumentExportWritesTheRequestedGenerationAfterSourceChanges" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="capturedGetProofSurvivesRestartAndUpgradesLegacyWindowsWithoutPrematureExposure" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="generatedTrackNormalizerRetainsTheFirstCueBeyondLiveTailLimit" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.069"/>
+  <testcase name="sourceModelAndLanguageChangesCannotReuseAnotherConfiguration" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="unownedWorkDoesNotAllocateOrInspectTheWorkflowStoreAndOwnedLookupFailureDefersSafely" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.003"/>
+  <testcase name="exportFailureNeverPublishesCompletedAndKeepsItsCheckpoint" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="sameProcessReopenHidesAnUnverifiableOnlineTrackUntilItsPcmIsCheckedAgain" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="continuousResampledAudioAcceptsBoundedCodecTimestampRounding" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.021"/>
+  <testcase name="pauseResumeCancelAndReplacementFenceEveryLateWindow" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="subtitleProbeRecomputesHeaderScopeForEveryRedirectedConnection" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.016"/>
+  <testcase name="resourceWaitRetainsExactGenerationAndCheckpointsWithoutResumingExplicitPauses" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="heldProviderWriteCannotReuseOrConsumeAnotherPickerRequestWithTheSameToken" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.003"/>
+  <testcase name="fullVideoMergeKeepsEarlyCuesBeyondTheLiveCaptionTailLimit" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.438"/>
+  <testcase name="bothAtomicExportsSurviveRestartAndCorruptionKeepsUsefulWindowsForRepair" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.004"/>
+  <testcase name="discontinuousDecodedTimelineCannotShiftLaterCuesAndKeepsTheCommittedPrefix" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.007"/>
+  <testcase name="returningToTheSameCompletedVideoReattachesItsGenerationAfterAnotherVideo" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.0"/>
+  <testcase name="failingControlPublishesAnErrorWithoutEscapingToAnUncaughtHandler" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="generationRequestCapturesHeadersBeforeHeldDispatchCanRun" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="replacingOwnershipRotatesTheGenerationAndFencesEveryCapturedOldControl" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="heldOldPublicationCannotAttachCuesOrCancelTheNewSourcesObserver" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="invalidOrOversizedWindowsCannotDestroyTheCommittedPrefix" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="unavailableFinalSourceProbeKeepsExactCompletedWindowsAndHidesUnverifiedCues" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="ownedReplayIsIdempotentForPausedAndTerminalTasksEvenWithTheOriginalForceFlag" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.005"/>
+  <testcase name="verifiedReceiptDetectsLiveExportCorruptionAndCannotRebaseOntoAReplacement" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="mutableRequestHeadersCannotChangeCapturedSourceIdentityInputs" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.0"/>
+  <testcase name="corruptSpoolCannotOpenAProviderOrReportExportSuccess" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="forceRegenerationClearsOnlySupersededManagedExportsAndPreservesOriginals" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="selfConsistentExportHashStillMustMatchTheJournalCues" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="ownerTokenNeverBypassesExactSourceModelOrNormalizedConfiguration" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="failedExportSpoolWriteDoesNotReturnAnUnrestorableToken" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="exportSpoolIsBoundedAndReleasesOnlyItsManagedReceipt" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.003"/>
+  <testcase name="heldOldControlFailureCannotPublishAnErrorForAnotherSource" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="silenceAndMissingModelAreHonestFailuresWithoutInventedCues" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="pendingOwnedControlDefersWorkWithoutOverwritingOrLosingItsCheckpoint" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="providerFailureReleasesItsLeaseAndKeepsAcceptedBytesForRetry" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.002"/>
+  <testcase name="legacyHeadOnlyOnlineReceiptIsHiddenOnReopenUntilItsDecodedBytesAreVerified" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.001"/>
+  <testcase name="heldOldOwnerGateCannotPermitWorkAfterTheReaderReplacesItsGeneration" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.003"/>
+  <testcase name="replayOwnershipGuardRejectsAReplacementAfterInputsWereCapturedWithoutAnyJournalMutation" classname="com.mangalens.ui.video.SubtitleGenerationStoreTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

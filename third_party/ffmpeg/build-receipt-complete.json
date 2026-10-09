@@ -1,0 +1,24 @@
+{
+  "startedAtUtc": "2026-10-09T11:52:36.807920+00:00",
+  "status": "BUILD_AND_ELF_ADMISSION_PASS",
+  "source": "/workspace/mangalens-original-media-quality-work/provenance/ffmpeg-7.1.1.tar.xz",
+  "sourceSha256": "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1",
+  "prototypeSha256": "18a1b30cc92d096f6a87c7aa07eb3800a015a60508286c0b038336121d2b6b68",
+  "buildRecipeSha256": "65372a01a494e388d3704170d59ab7e07055a7b32f67fc75a174453f56a9ad56",
+  "ndk": "/workspace/android-sdk/ndk/29.0.13113456",
+  "ndkProperties": "Pkg.Desc = Android NDK\nPkg.Revision = 29.0.13113456-beta1\nPkg.BaseRevision = 29.0.13113456\nPkg.ReleaseName = r29-beta1\n",
+  "compilerVersion": "Android (13065274, +pgo, +bolt, +lto, +mlgo, based on r547379) clang version 20.0.0 (https://android.googlesource.com/toolchain/llvm-project b718bcaf8c198c82f3021447d943401e3ab5bd54)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /workspace/android-sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin\n",
+  "abis": [
+    "arm64-v8a",
+    "x86_64"
+  ],
+  "androidApi": 24,
+  "licenseProfile": "LGPL-2.1-or-later; --disable-gpl --disable-nonfree --disable-version3; no external codec libraries",
+  "deviceValidation": "NOT_RUN",
+  "buildValidation": "TWO_ABI_COMPILE_ELF_16KiB_PASS",
+  "completedAtUtc": "2026-10-09T11:57:12.086652+00:00",
+  "productionPinsSha256": "e6da1e2c08a33e43cb3130028bec494f74094b2289d32fa24d27b33dea8a3ada",
+  "sourceOffer": "/workspace/android-setup/owned-copy-runtime-build/mangalens-ffmpeg-7.1.1-corresponding-source.tar.gz",
+  "sourceOfferSha256": "a324a0cfc51ecac7154d1fa96bc119c5501c7990249dd43886dce54ad4968476",
+  "sourceOfferBytes": 11255450
+}

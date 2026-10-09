@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezSubtitlePlanningTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.016">
+  <properties/>
+  <testcase name="modelCannotInventMediaWorkEvenWithAnOtherwiseValidSelection" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.0"/>
+  <testcase name="capturedImportedOriginCannotRunSubtitleInspectionAfterRestart" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.004"/>
+  <testcase name="explicitSelectionBuildsRealTwoStepEnglishWorkflowAndCapturesHeaders" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.001"/>
+  <testcase name="nativeSubtitleToolsAreCapturedScopeToolsAndExcludedFromModelCatalog" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.001"/>
+  <testcase name="completionRequiresOwnedHexGenerationAndBothVerifiedExportReceipts" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.003"/>
+  <testcase name="multipleDownloadSourcesAndMismatchedCurrentSelectionNeverBecomeAChatFallback" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.0"/>
+  <testcase name="mediaAuthorizationAndTypedGraphSurviveActualJournalRoundtrip" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.003"/>
+  <testcase name="unsupportedJapaneseSubtitleRequestFailsRatherThanClaimingEnglishAsJapanese" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.001"/>
+  <testcase name="absentSelectionDoesNotPromoteAUrlOrFilesystemTextToSourceAuthority" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.0"/>
+  <testcase name="downloadThenSubtitlePlanReferencesItsOwnExactDownloadAndPinnedMedia" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.001"/>
+  <testcase name="verifiedMediaReferenceResolvesOpaqueSourceAndActualPinnedModel" classname="com.mangalens.orez.agent.OrezSubtitlePlanningTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

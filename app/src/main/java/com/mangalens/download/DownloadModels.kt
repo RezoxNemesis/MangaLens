@@ -49,8 +49,8 @@ interface DownloadDao {
     suspend fun stopIfActive(id: String, state: DownloadState, message: String?): Int
     @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = 'DOWNLOADING', error = NULL WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED')")
     suspend fun progressIfActive(id: String, done: Long, total: Long): Int
-    @Query("UPDATE media_downloads SET destination = :uri, bytesDownloaded = :size, totalBytes = :size, state = 'COMPLETED', error = NULL WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED')")
-    suspend fun completeIfActive(id: String, uri: String, size: Long): Int
+    @Query("UPDATE media_downloads SET destination = :uri, bytesDownloaded = :size, totalBytes = :size, mimeType = COALESCE(:mime, mimeType), state = 'COMPLETED', error = NULL WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED')")
+    suspend fun completeIfActive(id: String, uri: String, size: Long, mime: String? = null): Int
     @Query("UPDATE media_downloads SET state = 'FAILED', error = :message WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING')")
     suspend fun failIfActive(id: String, message: String): Int
     @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = :state, error = :message WHERE id = :id AND state != 'CANCELLED' AND (:state != 'PAUSED' OR state = 'PAUSED') AND (state NOT IN ('PAUSED', 'COMPLETED', 'FAILED') OR state = :state)")

@@ -31,7 +31,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
 
         return try {
             setForeground(createForegroundInfo(title, 0L, -1L))
-            download(id, url, title, mime)
+            download(id, url, title, mime, item.requiresBoundMediaReceipt())
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -56,18 +56,19 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         }
     }
 
-    private suspend fun download(id: String, url: String, title: String, mime: String) {
+    private suspend fun download(id: String, url: String, title: String, mime: String, receiptRequired: Boolean) {
         if (dao.get(id) == null) throw CancellationException("Download was removed")
         val temp = File(applicationContext.filesDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
 
-        val metadata = DownloadRequestContextStore(applicationContext).readMedia(id)
+        val metadata = DownloadRequestContextStore(applicationContext).readForTransfer(id, url, receiptRequired)
         dao.stageIfActive(id, "Downloading video")
         val validatorFile = File(temp.parentFile, "$id.validator")
         var lastPersistAt = 0L
         var lastPersistBytes = -PROGRESS_BYTES
         var lastNotificationAt = 0L
-        val client = DownloadRequestContextStore(applicationContext).read(id)?.let { context ->
-            HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(context) { url -> android.webkit.CookieManager.getInstance().getCookie(url) }).build()
+        val client = metadata?.let { saved ->
+            val context = com.mangalens.ui.video.MediaRequestContext(saved.url, saved.sourcePageUrl, saved.headers)
+            HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(context) { actual -> android.webkit.CookieManager.getInstance().getCookie(actual) }).build()
         } ?: HTTP
         ResumableMediaTransfer(client).download(url, temp, validatorFile, mime) { done, total ->
             val now = SystemClock.elapsedRealtime()
@@ -84,10 +85,8 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
 
         currentCoroutineContext().ensureActive()
         check(temp.length() > 0L) { "The downloaded file is empty." }
-        var publication = temp
         val audio = File(temp.parentFile, "$id.audio.part")
         val audioValidator = File(temp.parentFile, "$id.audio.validator")
-        val muxed = File(temp.parentFile, "$id.muxed.mp4")
         metadata?.audioUrl?.let { audioUrl ->
             dao.stageIfActive(id, "Downloading audio")
             val audioClient = HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(
@@ -97,34 +96,45 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 persistProgress(id, temp.length() + done, if (total > 0) temp.length() + total else -1)
             }
             currentCoroutineContext().ensureActive()
-            dao.stageIfActive(id, "Muxing video and audio")
-            val jobContext = currentCoroutineContext()
-            LocalMediaMuxer.mux(temp, audio, muxed) { jobContext.ensureActive() }
-            publication = muxed
         }
-        dao.stageIfActive(id, "Checking media quality")
-        val actualHeight = if (mime.startsWith("video/")) LocalMediaMuxer.videoHeight(publication, metadata?.audioUrl != null) else null
-        metadata?.requestedHeight?.takeIf { it < 9_000 }?.let { ceiling ->
-            check(actualHeight == null || actualHeight <= ceiling) { "Source output is ${actualHeight}p, above the selected ${ceiling}p ceiling." }
-        }
-        val qualityNote = if (actualHeight != null && metadata?.requestedHeight != null && metadata.requestedHeight < 9_000 && actualHeight < metadata.requestedHeight)
-            "Completed at ${actualHeight}p; source selection was below the ${metadata.requestedHeight}p ceiling."
-        else if (actualHeight != null && metadata?.requestedHeight != null && metadata.requestedHeight >= 9_000)
-            "Completed at the highest accessible source quality (${actualHeight}p)."
-        else "Completed and media checked"
-        val uri = publish(publication, title, mime)
+        val remuxAttempt = OriginalMediaRemuxer.newAttemptBase(requireNotNull(temp.parentFile), id)
         try {
+            dao.stageIfActive(id, "Verifying and preserving original source streams")
+            val original = if (mime.startsWith("video/")) OriginalMediaRemuxer.assemble(
+                applicationContext, temp, audio.takeIf { metadata?.audioUrl != null }, mime,
+                remuxAttempt, metadata?.expectedDurationUs, metadata?.detectedHeight, metadata?.originalSelection,
+                requireCombinedAudio = metadata == null
+            ) else null
             currentCoroutineContext().ensureActive()
-            if (dao.completeIfActive(id, uri.toString(), publication.length()) == 0) {
-                throw CancellationException("Download stopped before publication")
+            val publication = original?.file ?: temp
+            val publicationMime = original?.mime ?: mime
+            val actualHeight = original?.media?.video?.height
+            metadata?.requestedHeight?.takeIf { it < 9_000 }?.let { ceiling ->
+                check(actualHeight == null || actualHeight <= ceiling) { "Source output is ${actualHeight}p, above the selected ${ceiling}p ceiling." }
             }
-        } catch (failure: Throwable) {
-            applicationContext.contentResolver.delete(uri, null, null)
-            throw failure
+            val qualityNote = if (actualHeight != null) OriginalMediaCompletionPolicy.note(
+                actualHeight, metadata?.requestedHeight, metadata?.originalSelection, original.codecPlaybackSupported,
+                hasAudio = original.media.audio != null
+            ) else "Completed and media checked"
+            val uri = publish(publication, title, publicationMime)
+            try {
+                currentCoroutineContext().ensureActive()
+                if (dao.completeIfActive(id, uri.toString(), publication.length(), publicationMime) == 0) {
+                    throw CancellationException("Download stopped before publication")
+                }
+            } catch (failure: Throwable) {
+                applicationContext.contentResolver.delete(uri, null, null)
+                throw failure
+            }
+            if (dao.completedDetails(id, actualHeight, qualityNote) > 0) {
+                MediaDownloadManager.notifyCommittedState(applicationContext, id)
+            }
+            temp.delete(); audio.delete(); audioValidator.delete()
+            validatorFile.delete()
+        } finally {
+            // Known before the suspend call, so cancellation also removes a rejected result.
+            OriginalMediaRemuxer.removeAttemptOutputs(remuxAttempt)
         }
-        dao.completedDetails(id, actualHeight, qualityNote)
-        temp.delete(); audio.delete(); muxed.delete(); audioValidator.delete()
-        validatorFile.delete()
     }
 
     private suspend fun refreshSource(id: String, failure: String): Boolean {
@@ -164,6 +174,8 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         listOf(
             "$id.part", "$id.validator", "$id.audio.part", "$id.audio.validator", "$id.muxed.mp4"
         ).forEach { File(root, it).delete() }
+        root.listFiles().orEmpty().filter { it.name.startsWith("$id.muxed-") &&
+            it.extension in setOf("mp4", "webm", "mkv") }.forEach(File::delete)
         return true
     }
 
@@ -172,7 +184,9 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
     }
 
     private suspend fun markFailed(id: String, message: String) {
-        dao.failIfActive(id, message)
+        if (dao.failIfActive(id, message) > 0) {
+            MediaDownloadManager.notifyCommittedState(applicationContext, id)
+        }
     }
 
     private fun publish(temp: File, title: String, mime: String): android.net.Uri {
@@ -216,7 +230,8 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             mime.contains("webp") -> ".webp"
             mime.contains("mp4") -> ".mp4"
             mime.contains("webm") -> ".webm"
-            mime.contains("mkv") -> ".mkv"
+            mime.contains("mkv") || mime == "video/x-matroska" -> ".mkv"
+            mime == "video/quicktime" -> ".mov"
             else -> ""
         }
         return if (ext.isNotEmpty() && clean.lowercase().endsWith(ext)) clean else clean + ext
@@ -279,3 +294,4 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             .build()
     }
 }
+

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.ChapterTranslationStoreTest" tests="40" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:12:47" hostname="53f09df5485f" time="1.557">
+  <properties/>
+  <testcase name="hinglishShortNounsKeepExactHindiEvidenceAcrossColdJournalReopen" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.1"/>
+  <testcase name="replacementRetainsAWorkerCommitThatArrivesDuringSourceValidation" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.021"/>
+  <testcase name="ownedReplayCannotReplaceReaderOwnershipCommittedDuringSourceValidation" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.018"/>
+  <testcase name="progressDeliveryFailureCannotDowngradeAllCommittedPageEvidence" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.006"/>
+  <testcase name="failedJournalDeletionKeepsTheChapterFencedUntilAnExplicitRetry" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.009"/>
+  <testcase name="aLegacyHinglishJournalWithoutEvidenceStillUsesTheStrictPlainGate" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.043"/>
+  <testcase name="rapidPauseResumeFencesTheInterruptedGenerationAndKeepsCommittedPages" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.016"/>
+  <testcase name="missingOrCorruptSurfaceCannotBeRestoredAsCompleted" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.069"/>
+  <testcase name="replacementRejectsAnOlderWorkersOutputWithoutChangingTheNewGeneration" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.011"/>
+  <testcase name="unprovenOrMismatchedShortNounsNeverEnterTheDurableJournal" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.009"/>
+  <testcase name="deletionFencesAStartAlreadyValidatingSourcesAndAllowsASeparateLaterReimport" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.018"/>
+  <testcase name="ownedRequestReplayKeepsExactGenerationStatusAndPagePhase" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.129"/>
+  <testcase name="ownerReplacementPreconditionAllowsAbsentAndSameOwnerButRejectsDifferentOwnerWithoutMutation" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.028"/>
+  <testcase name="refreshDuringOcrRejectsOnlyTheStalePageCommit" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.015"/>
+  <testcase name="partialPageRetainsItsSuccessfulBubbleAcrossPauseAndReopen" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.022"/>
+  <testcase name="scopedWorkerCannotBeginAnotherPageAndResumeKeepsItsCapturedScope" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.087"/>
+  <testcase name="requestedPageRepairInvalidatesItsChangedSourceAndKeepsVerifiedNeighbours" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.119"/>
+  <testcase name="failedRemovalJournalWriteStillFencesExplicitResume" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.021"/>
+  <testcase name="sameLengthSourceReplacementInvalidatesDespiteUnchangedTimestamp" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.05"/>
+  <testcase name="cancellationKeepsAcceptedOutputButRejectsAllLaterMutations" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.022"/>
+  <testcase name="explicitPageRetranslationCreatesFreshWorkAndRetainsOtherCompletedPages" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.067"/>
+  <testcase name="capturedConfigurationSeparatesStyleOcrAndRefinementJobs" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.009"/>
+  <testcase name="orphanCleanupPreservesSourceCommittedSurfacesAndTheActiveGeneration" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.017"/>
+  <testcase name="ordinaryHindiCannotUseRomanEvidenceAsAnException" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.011"/>
+  <testcase name="journalFailureLeavesLastCommittedPageObservableAndRecoverable" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.011"/>
+  <testcase name="forcedWholeChapterReprocessDoesNotReplayTheSameOwnersCompletedJournal" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.015"/>
+  <testcase name="chapterRemovalCleansManagedSurfacesAtomicRemnantsAndFencesLateEffects" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.067"/>
+  <testcase name="deletingOneChapterFreesAFullHistorySlotAndPreservesSharedOriginals" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.406"/>
+  <testcase name="outputEscapeAndOversizedLetteringNeverEnterJournal" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.003"/>
+  <testcase name="forcedReprocessCannotReplaceAnotherOwnersReservedGeneration" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.002"/>
+  <testcase name="replacingSameConfigurationRetriesIncompletePagesAndKeepsCompleteResults" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.026"/>
+  <testcase name="changedEvidenceCannotRestoreAnOtherwiseValidShortNounJournal" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.02"/>
+  <testcase name="ownershipAndLimitedScopeSurviveReopenAndExplicitResume" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.015"/>
+  <testcase name="heldStartCompletionCannotHandAnotherOwnersGenerationToPendingCancel" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.003"/>
+  <testcase name="pauseResumeAndCancelReceiptsCannotRebaseAfterAnotherCommandReplacesTheirRun" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.01"/>
+  <testcase name="invalidRequestedIndicesNeverReplaceOrExpandTheExistingTask" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.001"/>
+  <testcase name="freshAndUnownedRequestsReplaceOwnershipWithoutLettingOldControlsAct" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.007"/>
+  <testcase name="resourceWaitSurvivesRestartKeepsCompletedPagesAndCannotWakeUserPauseOrReplacement" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.013"/>
+  <testcase name="rejectsSourcePathAndSymlinkEscapeBeforeReadingUserFiles" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.001"/>
+  <testcase name="ownedReplayRequiresUnchangedScopeConfigAndSourceBytes" classname="com.mangalens.core.translation.ChapterTranslationStoreTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

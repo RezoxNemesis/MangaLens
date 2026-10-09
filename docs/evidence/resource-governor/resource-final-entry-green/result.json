@@ -1,0 +1,10 @@
+{
+  "compile_exit": 0,
+  "junit_exit": 0,
+  "test_classes": [
+    "com.mangalens.core.compute.ResourceGovernorTest",
+    "com.mangalens.core.compute.NativeComputeAdmissionTest",
+    "com.mangalens.ui.video.NativeLiveSpeechBudgetTest"
+  ],
+  "source_manifest": "source-manifest.json"
+}

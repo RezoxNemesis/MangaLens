@@ -18,7 +18,7 @@ class NativeModelTest {
     @Test fun verifiedOptionalModelGeneratesCancelsAndPreservesOwners() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val model = OrezModelManager(context).modelFile
-        // Ordinary local test runs do not install the optional 650 MB resource.
+        // Ordinary local test runs do not install the optional 491 MB Lite resource.
         if (InstrumentationRegistry.getArguments().getString("require_model") == "true") {
             assertTrue("CI resource preflight did not install the optional model", model.isFile)
         } else {
@@ -36,6 +36,19 @@ class NativeModelTest {
             val answer = engine.generate(prompt, 32)
             assertTrue("Model generated an empty answer", answer.isNotBlank())
             assertFalse("JNI returned invalid UTF-8", answer.contains('\uFFFD'))
+            val replacement = File.createTempFile("orez-peer-model-", ".gguf", context.cacheDir)
+            val refused = OrezNativeEngine()
+            try {
+                replacement.writeBytes(byteArrayOf(0x47, 0x47, 0x55, 0x46, 3, 0, 0, 0))
+                assertFalse("A different file borrowed the already mapped model", refused.load(replacement.path))
+                assertFalse("Refused feature acquired a model lease", refused.isLoaded)
+                assertEquals(model.canonicalPath, OrezNativeEngine.sharedModelPath)
+                refused.close()
+                assertTrue("Refused replacement unloaded the original owner", engine.generate(prompt, 8).isNotBlank())
+            } finally {
+                refused.close()
+                replacement.delete()
+            }
             val memory = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
             val report = "ABI=" + android.os.Build.SUPPORTED_ABIS.first() +
                 "\nmodel_bytes=" + model.length() + "\nelapsed_ms=" +

@@ -1,0 +1,14 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/translation/ChapterTranslationStore.kt",
+    "sha256": "e94c9503efeefdefea04fdf7ed9dcd799c40f2c19c2b165bc1d8d1177847dfc2"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/translation/OriginalMangaGeometry.kt",
+    "sha256": "cb42c302158006406bf3216489e18050ba7d4da6adb41b11d5c7f71fe916c7e6"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/translation/ChapterTranslationStoreTest.kt",
+    "sha256": "3c84d3c4c493212fab2c9e4d0c4d7970a20b62a529623566914a6085e2b90253"
+  }
+]

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.adblock.AdBlockRequestPolicyTest" tests="18" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:13" hostname="53f09df5485f" time="0.037">
+  <properties/>
+  <testcase name="ordinaryConsentResourcesAndCallbacksAreNotAdEndpoints" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.004"/>
+  <testcase name="explicitPixelTrackersKeepTheirPriorBlockingWhileOrdinaryGifMediaPasses" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.001"/>
+  <testcase name="SharedYouTubeAndInstagramMediaDeliveryStaysAllowed" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.0"/>
+  <testcase name="ordinaryMainFrameLoginConsentIsNotAPopunder" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.0"/>
+  <testcase name="signedEditorialVideoDoesNotBecomeAnAdBecauseOfItsCampaignParameter" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.0"/>
+  <testcase name="knownAdNetworkMediaIsStillBlocked" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.0"/>
+  <testcase name="boundedAdDomainMatchingDoesNotBlockLookalikes" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.001"/>
+  <testcase name="explicitFirstPartyAdMediaIsStillBlocked" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.001"/>
+  <testcase name="blockedResponseIsDecidedOnceBeforeAnyMediaObservation" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.006"/>
+  <testcase name="explicitAdTagQueryStillIdentifiesAnAd" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.003"/>
+  <testcase name="explicitClickunderNavigationRemainsBlocked" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.001"/>
+  <testcase name="ordinaryCreatorVideoCanUseASponsorCategory" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.0"/>
+  <testcase name="unrelatedQueryValuesCannotImpersonateAdParameterNames" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.001"/>
+  <testcase name="audioExemptionDoesNotBypassPinnedAdHostsOrExplicitAdPathsAndQueries" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.002"/>
+  <testcase name="ordinaryMediaIsObservedOnlyAfterTheSingleAllowDecision" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.0"/>
+  <testcase name="ordinaryStreamAndCloudflareVerificationRemainAllowed" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.001"/>
+  <testcase name="ordinaryAudioAndFragmentedVideoKeepTheSameEditorialMediaExemption" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.002"/>
+  <testcase name="ordinaryMainFrameEditorialNavigationRemainsAllowed" classname="com.mangalens.core.adblock.AdBlockRequestPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

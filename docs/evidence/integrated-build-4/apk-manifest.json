@@ -1,0 +1,62 @@
+{
+  "base_sha": "08ca908c35e0a3593c84b683ed967fed1a069715",
+  "dirty_source": true,
+  "source_snapshot": "integrated-4-source-frozen.json",
+  "files": [
+    {
+      "name": "app-arm64-v8a-debug.apk",
+      "bytes": 105531589,
+      "sha256": "63e1ee6f3b4bc5776902c4c8b29844a18f41d06d554ddec2bc8b1ac97c4dbf4c"
+    },
+    {
+      "name": "app-x86_64-debug.apk",
+      "bytes": 105823770,
+      "sha256": "472a7bc4e4ded3bbafe17b0476b958c7958bc23fe95ea7a280ec2a0930ed7bc2"
+    },
+    {
+      "name": "app-arm64-v8a-selfTest.apk",
+      "bytes": 105526570,
+      "sha256": "26ed3223b1c4c3646bbe0d7a3aea46a3f306e501a92ea08fa9b44f22a29e8f06"
+    },
+    {
+      "name": "app-x86_64-selfTest.apk",
+      "bytes": 105818751,
+      "sha256": "49c92fc11e592e1e13907502613ebcc4b238fa42ff5afc71827df6c91ade9ee1"
+    },
+    {
+      "name": "app-debug-androidTest.apk",
+      "bytes": 6032128,
+      "sha256": "a189bc22ded5178273a190e68e880d8f0570bf356983c97168e16000f45d2696"
+    }
+  ],
+  "full_build_exit": 0,
+  "full_build_tasks": [
+    "testDebugUnitTest",
+    "lintDebug",
+    "assembleDebug",
+    "assembleSelfTest",
+    "assembleDebugAndroidTest"
+  ],
+  "unit_results": {
+    "app": {
+      "tests": 1453,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "orez-native": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "unit_execution": "Gradle reused valid unchanged JVM source results from integrated3",
+  "lint": {
+    "errors": 0,
+    "warnings": 77
+  },
+  "debug_package_verification_exit": 0,
+  "selfTest_package_verification_exit": 0,
+  "device_acceptance": "This exact build4 has not been installed; actual tests running separately against sealed build3"
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.096">
+  <properties/>
+  <testcase name="invalidCapturedConfigProofDoesNotMutateEvenAnOwnedCorruptExport" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.011"/>
+  <testcase name="sourceConfirmationCannotAdoptTheSameOwnersNewerGenerationAfterLookup" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.01"/>
+  <testcase name="replacementDuringHeldScopeVerificationCannotRefreshOrRewriteTheNewOwnersCorruptExports" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.007"/>
+  <testcase name="theSameOwnersNewerGenerationCannotBeInspectedByAnOlderPersistedReceipt" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.026"/>
+  <testcase name="capturedOwnerCandidateThatWasReplacedBeforeLookupIsRejectedBeforeScopeOrExportInspection" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.014"/>
+  <testcase name="reopenedOwnedExportsOnlyLiftTheirSourceMaskAfterExactFreshSourceProof" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.012"/>
+  <testcase name="freshSourceProofCannotClearTheNativeRequirementToRevalidateDecodedPcm" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.003"/>
+  <testcase name="changedSourceProofCannotLiftTheOwnedRestorationMask" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.006"/>
+  <testcase name="exactOwnedLookupStillPerformsRealCorruptExportValidation" classname="com.mangalens.orez.agent.OrezOwnedSubtitleLookupTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

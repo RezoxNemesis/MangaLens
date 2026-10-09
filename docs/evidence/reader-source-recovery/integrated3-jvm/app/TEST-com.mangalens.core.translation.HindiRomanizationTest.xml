@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.HindiRomanizationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:17" hostname="53f09df5485f" time="0.002">
+  <properties/>
+  <testcase name="preservedLatinNamesGenreTermsAndPunctuationAreNotLowercasedOrRewritten" classname="com.mangalens.core.translation.HindiRomanizationTest" time="0.0"/>
+  <testcase name="allCapsOcrNamesRegainTheirSourceSpellingWithoutRewritingAnEnglishClause" classname="com.mangalens.core.translation.HindiRomanizationTest" time="0.0"/>
+  <testcase name="unknownHindiWordsUseConjunctNuktaAndNasalRulesAndRemainLatin" classname="com.mangalens.core.translation.HindiRomanizationTest" time="0.0"/>
+  <testcase name="romanHindiDetectionDoesNotMistakeAnEnglishNameOrAOneWordCoincidenceForHindi" classname="com.mangalens.core.translation.HindiRomanizationTest" time="0.0"/>
+  <testcase name="romanTargetIsDistinctFromHindiAndRegionalHindiTags" classname="com.mangalens.core.translation.HindiRomanizationTest" time="0.0"/>
+  <testcase name="commonDialogueUsesReadableHindiSpellingsWithoutSchwasOrDiacritics" classname="com.mangalens.core.translation.HindiRomanizationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,30 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/ResourceGovernor.kt",
+    "sha256": "8f99ba7b646aee9e4210b286cad32c1f54777e93242be356aeaae8d5511cbef5"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputeAdmission.kt",
+    "sha256": "1465d902a5f9ecc560cd7320224f30dfb5504f3bf274868d84bbb1085b9e9902"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputePrecondition.kt",
+    "sha256": "2b330c72b6167b5a87921128a58716c562ef94e2f317a396b0eb0479139fd2b2"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/translation/ChapterTranslationStore.kt",
+    "sha256": "0a4bb19ae0831d121cc6bfdfb0fb4505b466dcac6edd03d541f83f9a29b0f736"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/translation/ChapterNativeEntryGuard.kt",
+    "sha256": "cbaef95060fc1d972d2084558708f737179e23e17cc0363892b0ad7289639c16"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/translation/ReaderTranslationPresentation.kt",
+    "sha256": "49800fbe71dba3c282051542cc80c7ada6773cd6bd6552c76ab699d80ee670e5"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/translation/ChapterNativeEntryGuardTest.kt",
+    "sha256": "a00355868ce17f121d8389a2dcc23acccc68dc24a456a0f0550035b7cfed844f"
+  }
+]

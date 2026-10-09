@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T17:39:39" hostname="53f09df5485f" time="0.115">
+  <properties/>
+  <testcase name="defaultModuleThreadDoesNotBlockTheCallerDuringActualPhysicalRelease" classname="com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest" time="0.078"/>
+  <testcase name="acceptedExecutorHoldsActualCloseWhileCapturedOrezOwnersAreCancelledImmediately" classname="com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest" time="0.016"/>
+  <testcase name="rejectedExecutorKeepsTheCapturedOwnerForALaterScheduledClose" classname="com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest" time="0.01"/>
+  <testcase name="failedClosePreservesItsCauseAndDoesNotAbandonAnotherCapturedOwner" classname="com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest" time="0.004"/>
+  <testcase name="failedPhysicalCloseCanRetryWithoutClosingItsSuccessfulPeerAgain" classname="com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest" time="0.002"/>
+  <testcase name="laterDistinctOwnerSnapshotCannotDiscardAnEarlierPendingPhysicalClose" classname="com.mangalens.oreznative.NativeMemoryReleaseCoordinatorTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

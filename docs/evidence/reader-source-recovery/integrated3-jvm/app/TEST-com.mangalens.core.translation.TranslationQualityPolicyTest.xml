@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.TranslationQualityPolicyTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.017">
+  <properties/>
+  <testcase name="rejectsMixedHindiDraftEvenWhenMostLettersAreHindi" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.003"/>
+  <testcase name="persistedTranslationsMustPassTheSameGate" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <testcase name="keepsGoodRefinementAndRestoresSourceTerminalPunctuation" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <testcase name="punctuationInsideSourceDoesNotChangeStatementEnding" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <testcase name="permitsOnePreservedCharacterName" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <testcase name="hostileEnglishDialogueDropsFormalHindiPronouns" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.001"/>
+  <testcase name="validRefinementCanRepairAnInvalidDraft" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <testcase name="explicitRespectCueKeepsFormalRegister" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.001"/>
+  <testcase name="hindiRefinementWithHeavyEnglishLeakageFallsBackToHindiDraft" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <testcase name="rejectsRefinementThatLeaksSourceScriptIntoHindi" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.004"/>
+  <testcase name="neutralEnglishDialogueDoesNotInventHindiRespect" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.001"/>
+  <testcase name="rejectsLengthExplosionAndKeepsDraft" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.001"/>
+  <testcase name="uncheckedLongDraftCannotAuthorizeItsOwnLength" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <testcase name="rejectsUntranslatedDraftWhenRefinementAlsoFails" classname="com.mangalens.core.translation.TranslationQualityPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

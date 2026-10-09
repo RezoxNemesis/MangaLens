@@ -1,0 +1,40 @@
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -6852,6 +6852,10 @@
+     }
+     state->exp_n_audio_ctx = params.audio_ctx;
+ 
++    // Detection encodes offset zero with this same model, mel and audio context.
++    // Keep its cross-attention cache for that first transcription window only.
++    bool mangalens_first_encoder_ready = false;
++
+     // Apply the bounded audio context and cancellation to automatic language detection too.
+     // auto-detect language if not specified
+     if (params.language == nullptr || strlen(params.language) == 0 || strcmp(params.language, "auto") == 0 || params.detect_language) {
+@@ -6863,6 +6867,7 @@
+             return -3;
+         }
+         state->lang_id = lang_id;
++        mangalens_first_encoder_ready = true;
+         params.language = whisper_lang_str(lang_id);
+ 
+         WHISPER_LOG_INFO("%s: auto-detected language: %s (p = %f)\n", __func__, params.language, probs[whisper_lang_id(params.language)]);
+@@ -7038,8 +7043,15 @@
+             }
+         }
+ 
+-        // encode audio features starting at offset seek
+-        if (!whisper_encode_internal(*ctx, *state, seek, params.n_threads, params.abort_callback, params.abort_callback_user_data)) {
++        // Reuse only this invocation's successful detection encoder at offset zero.
++        // A nonzero seek, a later window or another full call must encode normally.
++        const bool mangalens_reuse_encoder = mangalens_first_encoder_ready && seek == 0;
++        mangalens_first_encoder_ready = false;
++        if (mangalens_reuse_encoder) {
++            if (params.abort_callback && params.abort_callback(params.abort_callback_user_data)) {
++                return -6;
++            }
++        } else if (!whisper_encode_internal(*ctx, *state, seek, params.n_threads, params.abort_callback, params.abort_callback_user_data)) {
+             WHISPER_LOG_ERROR("%s: failed to encode\n", __func__);
+             return -6;
+         }

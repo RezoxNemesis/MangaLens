@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.TranslationStyleProfileTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.003">
+  <properties/>
+  <testcase name="refinementPromptUsesSelectedStyleAndBoundsContextAndGlossary" classname="com.mangalens.core.translation.TranslationStyleProfileTest" time="0.001"/>
+  <testcase name="customStyleIsBoundedAndDifferentInstructionsDoNotShareMemory" classname="com.mangalens.core.translation.TranslationStyleProfileTest" time="0.001"/>
+  <testcase name="builtInProfilesHaveDistinctRulesAndMemoryKeys" classname="com.mangalens.core.translation.TranslationStyleProfileTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

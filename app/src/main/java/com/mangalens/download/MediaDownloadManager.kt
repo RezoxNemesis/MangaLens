@@ -39,8 +39,17 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         mimeType: String? = null,
         quality: DownloadQuality = DownloadQuality.BEST,
         sourcePageUrl: String? = null,
-        headers: Map<String, String> = emptyMap()
+        headers: Map<String, String> = emptyMap(),
+        requestId: String? = null
     ): String = withContext(Dispatchers.IO) {
+        require(requestId == null || requestId.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid download request ID" }
+        // Durable Orez retries reuse the same request rather than creating another transfer.
+        if (requestId != null) dao.get(requestId)?.let { existing ->
+            if (existing.state == DownloadState.QUEUED) {
+                start(existing.id, existing.sourceUrl, existing.title, existing.mimeType, ExistingWorkPolicy.KEEP)
+            }
+            return@withContext requestId
+        }
         val clean = url.trim()
         require(clean.startsWith("http://") || clean.startsWith("https://")) {
             "Only HTTP(S) media links can be downloaded."
@@ -48,7 +57,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         val resolved = resolver.resolveCancellable(clean, quality)
             ?: throw IllegalArgumentException("The page did not expose an accessible media source.")
         val mediaUrl = resolved.url
-        val id = UUID.randomUUID().toString()
+        val id = requestId ?: UUID.randomUUID().toString()
         val explicitTitle = title?.takeIf(String::isNotBlank)
         val resolvedTitle = resolved.title?.takeIf(String::isNotBlank)
         val finalTitle = when {
@@ -60,7 +69,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         val mime = mimeType ?: resolved.mimeType ?: "application/octet-stream"
         contexts.write(id, resolved.copy(
             sourcePageUrl = sourcePageUrl ?: resolved.sourcePageUrl,
-            headers = resolved.headers + headers
+            headers = resolvedDownloadHeaders(clean, resolved.url, resolved.headers, headers)
         ))
         val pageUrl = sourcePageUrl ?: resolved.sourcePageUrl ?: clean
         dao.upsert(
@@ -198,6 +207,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
     }
 
     suspend fun cancel(id: String) = withContext(Dispatchers.IO) {
+        com.mangalens.orez.agent.OrezDownloadTaskLink.cancelOwningTask(context, id)
         dao.stopIfActive(id, DownloadState.CANCELLED, "Cancelled by user")
         WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         adaptive.remove(id)
@@ -209,7 +219,7 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         contexts.remove(id)
     }
 
-    private fun start(id: String, url: String, title: String, mime: String) {
+    private fun start(id: String, url: String, title: String, mime: String, policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE) {
         if (isAdaptiveMediaSource(url, mime)) {
             adaptive.add(id, url, mime)
             return
@@ -235,11 +245,18 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             workName(id),
-            ExistingWorkPolicy.REPLACE,
+            policy,
             request
         )
     }
 
     private fun workName(id: String) = "mangalens-download-$id"
 
+    companion object {
+        /** Called by native producers only after an accepted committed terminal write. */
+        internal suspend fun notifyCommittedState(context: Context, id: String) {
+            com.mangalens.orez.agent.OrezTaskEventPublisher.committedDownload(context, id)
+        }
+    }
 }
+

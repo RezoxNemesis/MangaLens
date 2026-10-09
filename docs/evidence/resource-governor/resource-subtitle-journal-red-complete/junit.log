@@ -1,0 +1,14 @@
+JUnit version 4.13.2
+...................E...........................
+Time: 5.304
+There was 1 failure:
+1) resourceWaitRetainsExactGenerationAndCheckpointsWithoutResumingExplicitPauses(com.mangalens.ui.video.SubtitleGenerationStoreTest)
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:87)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at org.junit.Assert.assertTrue(Assert.java:53)
+	at com.mangalens.ui.video.SubtitleGenerationStoreTest.resourceWaitRetainsExactGenerationAndCheckpointsWithoutResumingExplicitPauses(SubtitleGenerationStoreTest.kt:20)
+
+FAILURES!!!
+Tests run: 46,  Failures: 1
+

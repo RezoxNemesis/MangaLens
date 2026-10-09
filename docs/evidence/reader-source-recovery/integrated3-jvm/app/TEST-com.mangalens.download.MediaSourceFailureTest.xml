@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.MediaSourceFailureTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:22" hostname="53f09df5485f" time="0.002">
+  <properties/>
+  <testcase name="youtubeVerificationIsPreservedThroughTheExtractorWrapper" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="cancellationAndInterruptionRemainCancellation" classname="com.mangalens.download.MediaSourceFailureTest" time="0.001"/>
+  <testcase name="tlsChainFailureNeverSuggestsDisablingVerification" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="nativePythonCertificateFailureUsesTheSameTlsCategory" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="socketTimeoutHasADistinctRetryMessage" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="actualLoginRequirementIsActionableWithoutInventingDrm" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="instagramAudienceRestrictionIsDistinctFromAuthentication" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="nativeUnavailableVideoIsNotAssumedToBeAuthentication" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="connectProxyDenialIsANetworkOutcome" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="raw403DoesNotProveBotOrAudienceRestriction" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="unknownErrorMessageAndHeadersNeverReachTheUser" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="typedFailureSurvivesNestedWrappers" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <testcase name="explicitProviderReasonWinsOverALaterGenericClientFailure" classname="com.mangalens.download.MediaSourceFailureTest" time="0.001"/>
+  <testcase name="genericProtectedLoginOnlyBoilerplateDoesNotProveProviderRestriction" classname="com.mangalens.download.MediaSourceFailureTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

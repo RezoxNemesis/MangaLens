@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.compute.ResourceGovernorTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:14" hostname="53f09df5485f" time="0.014">
+  <properties/>
+  <testcase name="criticalMemoryDuringSuspendingProofBlocksTheFinalEffectAndRetainsCleanup" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.01"/>
+  <testcase name="anUnknownInitialDeviceDoesNotPretendToHaveCriticalSignals" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.001"/>
+  <testcase name="severeThermalAndPowerSavingLimitBackgroundButAllowForeground" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.0"/>
+  <testcase name="briefMemoryRecoveryCannotFlapTheGateAndBatteryCannotOverrideMemory" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.0"/>
+  <testcase name="finalEntryDoesNotAddANewDutyCycleWhileHoldingAnAdmittedLease" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.001"/>
+  <testcase name="displayedResourceStatusMatchesTheActualAdmissionPressureAndDoesNotInventThermalReports" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.0"/>
+  <testcase name="thermalRecoveryRequiresStableKnownRecoveryAndEscalatesImmediately" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.0"/>
+  <testcase name="unknownThermalCannotClearAnObservedCriticalCondition" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.0"/>
+  <testcase name="chargingAndBatteryRecoveryUseHysteresisWithoutBlockingForegroundProgress" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.001"/>
+  <testcase name="criticalMemoryStopsNewComputationButAlwaysAllowsCleanup" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.0"/>
+  <testcase name="lowMemoryActuallyDefersBackgroundWithoutDelayingInteractiveOrLive" classname="com.mangalens.core.compute.ResourceGovernorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
