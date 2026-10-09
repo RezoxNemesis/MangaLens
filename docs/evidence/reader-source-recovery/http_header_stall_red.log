@@ -1,0 +1,4 @@
+Actual HTTP NO_RESPONSE received; cancelAndJoin <=2500ms=false; elapsedMs=2527; pages=0; ownedPartialFiles=0; exception=java.io.InterruptedIOException
+PASS scope=actual HTTP header-stall/coroutine cancellation; Android bitmap/document/rename stubs all throw if reached; no decoder/UI claim
+Oct 09, 2026 7:37:05 PM okhttp3.mockwebserver.MockWebServer$SocketHandler handle
+WARNING: MockWebServer[41541] connection from /127.0.0.1 didn't make a request

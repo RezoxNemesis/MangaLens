@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.OrezModelTransferIOTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.504">
+  <properties/>
+  <testcase name="ownerFenceRejectsLateReadEvenBeforeCoroutineCancellationArrives" classname="com.mangalens.orez.OrezModelTransferIOTest" time="0.034"/>
+  <testcase name="cancellationAfterHeldReadPreservesResumeBytesAndNewProgress" classname="com.mangalens.orez.OrezModelTransferIOTest" time="0.013"/>
+  <testcase name="cancelledQueuedResumeNeverOpensOrResetsThePartial" classname="com.mangalens.orez.OrezModelTransferIOTest" time="0.012"/>
+  <testcase name="cancellationDisconnectsConnectionButRetainsWriterUntilReadReturns" classname="com.mangalens.orez.OrezModelTransferIOTest" time="0.225"/>
+  <testcase name="resumeCannotOpenPartialUntilCancelledReadersInputAndOutputAreClosed" classname="com.mangalens.orez.OrezModelTransferIOTest" time="0.213"/>
+  <testcase name="ownedResumeWritesExactRemainingBytesAndPublishesCompletion" classname="com.mangalens.orez.OrezModelTransferIOTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

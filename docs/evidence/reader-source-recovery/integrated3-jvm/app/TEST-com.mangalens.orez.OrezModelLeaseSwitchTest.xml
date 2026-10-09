@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.OrezModelLeaseSwitchTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.014">
+  <properties/>
+  <testcase name="unchangedOwnedModelNeedsNoNativeLoadOrRelease" classname="com.mangalens.orez.OrezModelLeaseSwitchTest" time="0.001"/>
+  <testcase name="nativeFailureRestoresPreviousModelAndRemainsHonestAboutRequestedPath" classname="com.mangalens.orez.OrezModelLeaseSwitchTest" time="0.0"/>
+  <testcase name="missingPriorLeaseCannotClaimAnUnloadedModelIsReady" classname="com.mangalens.orez.OrezModelLeaseSwitchTest" time="0.001"/>
+  <testcase name="cancellationPropagatesAfterRestoringThePreviousLease" classname="com.mangalens.orez.OrezModelLeaseSwitchTest" time="0.0"/>
+  <testcase name="successfulSwitchClosesOnlyItsOwnLeaseBeforeLoading" classname="com.mangalens.orez.OrezModelLeaseSwitchTest" time="0.001"/>
+  <testcase name="thrownNativeFailureAlsoRestoresPreviousLease" classname="com.mangalens.orez.OrezModelLeaseSwitchTest" time="0.0"/>
+  <testcase name="busyPeerRestoresPreviousLeaseWithoutTreatingCandidateAsBroken" classname="com.mangalens.orez.OrezModelLeaseSwitchTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

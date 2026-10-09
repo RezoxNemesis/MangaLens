@@ -2,6 +2,7 @@ package com.mangalens.ui.video
 
 import android.app.Application
 import android.net.Uri
+import com.mangalens.download.ProviderCaptionInventory
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -123,13 +124,19 @@ internal class PlaybackSession(private val app: Application) {
         headers: Map<String, String> = emptyMap(),
         audioUrl: String? = null,
         audioHeaders: Map<String, String> = emptyMap(),
-        refreshFromRevision: Long? = null
+        refreshFromRevision: Long? = null,
+        sourceResolutionId: String? = null,
+        providerCaptions: ProviderCaptionInventory? = null
     ): Boolean {
         checkMain()
         if (!policy.ownsPresentation(epoch)) return false
         if (refreshFromRevision != null && refreshFromRevision != sourceRevision) return false
         val videoHeaders = headers.toMap()
         val soundHeaders = audioHeaders.toMap()
+        val captionInventory = providerCaptions?.captureSnapshot()
+        if (captionInventory != null && (sourceResolutionId?.matches(Regex("[a-f0-9]{32}")) != true ||
+            !runCatching { captionInventory.validate(); true }.getOrDefault(false))) return false
+        val captionResolution = sourceResolutionId.takeIf { captionInventory != null }
         val requestKey = buildString {
             append(value).append('\n')
             append(referer.orEmpty()).append('\n')
@@ -140,6 +147,8 @@ internal class PlaybackSession(private val app: Application) {
             soundHeaders.entries.sortedBy { it.key.lowercase() }.forEach { (name, headerValue) ->
                 append("audio-").append(name.lowercase()).append('=').append(headerValue).append('\n')
             }
+            if (captionInventory != null) append("provider-resolution=").append(captionResolution).append('\n')
+                .append("provider-inventory=").append(captionInventory.fingerprint()).append('\n')
         }
         if (httpRequestKey == requestKey && player.mediaItemCount > 0) return true
 
@@ -174,7 +183,7 @@ internal class PlaybackSession(private val app: Application) {
         uri = Uri.parse(value)
         httpRequestKey = requestKey
         check(policy.acceptSource(epoch))
-        val nextSource = PlaybackSessionSource(value, referer, videoHeaders, audioUrl, soundHeaders)
+        val nextSource = PlaybackSessionSource(value, referer, videoHeaders, audioUrl, soundHeaders, captionResolution, captionInventory)
         capturedSource = nextSource
         val revision = sourceRevision
         captionPublication.invalidate(); currentCaptionTrack = null
@@ -299,12 +308,13 @@ internal class PlaybackSession(private val app: Application) {
     private fun matchesGeneratedSource(epoch: Long, task: SubtitleGenerationTask): Boolean {
         val source = capturedSource ?: return false
         if (!policy.ownsPresentation(epoch) || player.currentMediaItem?.localConfiguration?.uri?.toString() != source.uri ||
-            task.validationPending || task.pcmValidationRequired || !hasSubtitleSourceProof(task.source) || task.cues.isEmpty()) return false
+            task.validationPending || task.pcmValidationRequired || !hasSubtitlePlaybackProof(task) || task.cues.isEmpty()) return false
         if (SubtitleGenerationStore.shared(app).get(task.id) != task) return false
         val audio = source.audioUrl?.takeIf { it.isNotBlank() }
         val input = if (audio != null) audio else source.uri
         val headers = if (audio != null) source.audioHeaders else source.headers
-        return task.source.source.uri == input && task.source.source.headers == headers
+        return task.source.source.uri == input && task.source.source.headers == headers &&
+            matchesProviderPlaybackSource(task, source.sourceResolutionId, source.providerCaptions)
     }
 
     fun addClient() { checkMain(); policy.addClient() }
@@ -413,9 +423,11 @@ internal data class PlaybackSessionSource(
     val referer: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val audioUrl: String? = null,
-    val audioHeaders: Map<String, String> = emptyMap()
+    val audioHeaders: Map<String, String> = emptyMap(),
+    val sourceResolutionId: String? = null,
+    val providerCaptions: ProviderCaptionInventory? = null
 ) {
-    fun captured() = copy(headers = headers.toMap(), audioHeaders = audioHeaders.toMap())
+    fun captured() = copy(headers = headers.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
     val online get() = uri.startsWith("https://", true) || uri.startsWith("http://", true)
 }
 

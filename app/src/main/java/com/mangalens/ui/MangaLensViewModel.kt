@@ -69,6 +69,7 @@ data class MangaLensUiState(
     val videoResolutionId: String? = null,
     val videoAudioResolutionId: String? = null,
     val videoExpectedDurationUs: Long? = null,
+    val videoProviderCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
     val loading: Boolean = false,
     val translating: Boolean = false,
     val translationPaused: Boolean = false,
@@ -96,7 +97,7 @@ internal fun MangaLensUiState.capturedVideoSelection(): VideoPlaybackSelection? 
     if (mode != ContentType.VIDEO_STREAM || videoUrl.isNullOrBlank() || videoResolutionId == null ||
         videoAudioUrl != null && videoAudioResolutionId != videoResolutionId) return null
     return VideoPlaybackSelection(videoResolutionId, videoUrl, videoHeaders.toMap(), videoPageUrl,
-        videoAudioUrl, videoAudioHeaders.toMap(), videoExpectedDurationUs)
+        videoAudioUrl, videoAudioHeaders.toMap(), videoExpectedDurationUs, videoProviderCaptions?.captureSnapshot())
 }
 
 private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelection?): MangaLensUiState = copy(
@@ -104,7 +105,7 @@ private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelectio
     videoHeaders = selection?.videoHeaders.orEmpty(), videoAudioUrl = selection?.audioUrl,
     videoAudioHeaders = selection?.audioHeaders.orEmpty(), videoResolutionId = selection?.resolutionId,
     videoAudioResolutionId = selection?.resolutionId?.takeIf { selection.audioUrl != null },
-    videoExpectedDurationUs = selection?.durationUs
+    videoExpectedDurationUs = selection?.durationUs, videoProviderCaptions = selection?.providerCaptions?.captureSnapshot()
 )
 
 internal fun MangaLensUiState.withLibraryChapter(chapter: SavedChapter): MangaLensUiState = withVideoSelection(null).copy(
@@ -134,6 +135,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val translationSelectionEpoch = MutableStateFlow(0L)
     private var displayedTranslation: ChapterTranslationTask? = null
     private var translationReceipt: ReaderTranslationReceipt? = null
+    val readerMemory = com.mangalens.core.translation.ReaderMemoryController(app.filesDir, viewModelScope,
+        storeProvider = { withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app) } })
     private class PendingTranslation(val selection: TranslationSelection) {
         val request = ChapterTranslationRequest()
         val ownerRequestId = "reader-" + java.util.UUID.randomUUID()
@@ -169,13 +172,15 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private data class TranslationSelection(
         val chapterId: String, val language: String, val style: String, val custom: String,
         val enabled: Boolean, val epoch: Long, val sources: List<Pair<Int, String?>>,
+        val sourceRevisions: List<Pair<Int, String?>>,
         val configuration: ChapterTranslationConfig
     )
 
     private fun translationSelection(value: MangaLensUiState = _state.value) = TranslationSelection(
         value.activeChapter?.id.orEmpty(), value.targetLanguage, value.translationStyle,
         value.customTranslationStyle, value.mangaTranslationEnabled, translationSelectionEpoch.value,
-        value.pages.map { it.index to it.localPath }, capturedTranslationConfig(value.targetLanguage, value)
+        value.pages.map { it.index to it.localPath }, value.pages.map { it.index to it.contentRevision },
+        capturedTranslationConfig(value.targetLanguage, value)
     )
 
     init {
@@ -190,7 +195,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
         viewModelScope.launch { repository.pages.collect { pages ->
-            _state.value = _state.value.copy(pages = pages)
+            if (_state.value.pages.map { Triple(it.index, it.localPath, it.contentRevision) } != pages.map { Triple(it.index, it.localPath, it.contentRevision) }) readerMemory.retire()
+        _state.value = _state.value.copy(pages = pages)
             if (pages.isNotEmpty()) persistCurrentChapter()
         } }
         viewModelScope.launch { statsStore.stats.collect { stats -> _state.value = _state.value.copy(adBlockStats = stats) } }
@@ -232,6 +238,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun displayTranslation(task: ChapterTranslationTask?) {
+        readerMemory.bindAccepted(task, translationReceipt)
         displayedTranslation = task?.takeUnless { it.validationPending }
         if (task == null || task.validationPending) {
             _state.update { it.copy(translating = false, translationPaused = false, translationDone = 0,
@@ -289,7 +296,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             videoAudioHeaders = if (changed) emptyMap() else _state.value.videoAudioHeaders,
             videoResolutionId = if (changed) null else _state.value.videoResolutionId,
             videoAudioResolutionId = if (changed) null else _state.value.videoAudioResolutionId,
-            videoExpectedDurationUs = if (changed) null else _state.value.videoExpectedDurationUs
+            videoExpectedDurationUs = if (changed) null else _state.value.videoExpectedDurationUs,
+            videoProviderCaptions = if (changed) null else _state.value.videoProviderCaptions
         )
     }
     fun setMode(mode: ContentType) {
@@ -352,7 +360,11 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         audioUrl: String?,
         audioHeaders: Map<String, String>
     ) {
-        val selected = try { VideoPlaybackPublication.capture(url, headers, pageUrl, audioUrl, audioHeaders) }
+        acceptResolvedVideo(com.mangalens.ui.video.SniffedMedia(url, headers, "RESOLVED", audioUrl, audioHeaders), pageUrl)
+    }
+
+    fun acceptResolvedVideo(media: com.mangalens.ui.video.SniffedMedia, pageUrl: String) {
+        val selected = try { com.mangalens.ui.web.captureBrowserVideoSelection(media, pageUrl) }
         catch (failure: IllegalArgumentException) {
             _state.value = _state.value.copy(error = failure.message); return
         }
@@ -397,7 +409,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 try {
                 val key = "local:" + uris.joinToString("|")
                 _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(key), imported.title, "", emptyList()))
-                val pages = repository.persistLocalImages(imported.images, app)
+                val pages = repository.persistLocalImages(imported.images, app, imported.documentSources)
                 _state.value = _state.value.copy(
                     pages = pages,
                     mode = ContentType.IMAGE_CHAPTER,
@@ -421,6 +433,35 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         ingest()
     }
 
+    fun retryReaderPage(page: ChapterPage) {
+        val selected = _state.value
+        val chapter = selected.activeChapter ?: return
+        val chapterId = chapter.id
+        if (selected.pages.none { it == page }) return
+        val previousIngestion = ingestionJob
+        previousIngestion?.cancel()
+        ingestionJob = viewModelScope.launch {
+            previousIngestion?.join()
+            fun stillSelected(): Boolean = _state.value.activeChapter?.id == chapterId &&
+                _state.value.pages.any { it.index == page.index && it.sourceUrl == page.sourceUrl && it.localPath == page.localPath }
+            if (!stillSelected()) return@launch
+            _state.update { it.copy(loading = true, error = null,
+                overlays = it.overlays - page.index, translatedBackgrounds = it.translatedBackgrounds - page.index) }
+            try {
+                repository.repairPage(page, app, chapter.sourceUrl)
+                ensureActive()
+                if (stillSelected()) {
+                    _state.update { it.copy(loading = false, error = null) }
+                    persistCurrentChapter()
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                if (stillSelected()) _state.update { it.copy(loading = false,
+                    error = failure.message ?: "The page source could not be read. Open it in Web mode or import the original again.") }
+            }
+        }
+    }
+
     fun cancelIngestion() {
         ingestionJob?.cancel()
         ingestionJob = null
@@ -434,6 +475,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         clearTranslations()
         val target = _state.value.url
         val selectedMode = _state.value.mode
+        val videoDeadline = com.mangalens.ui.video.VideoResolutionDeadline()
         if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(target)) {
             _state.value = _state.value.copy(error = "Enter a complete HTTP or HTTPS URL.", loading = false)
             return
@@ -444,32 +486,32 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             videoPageUrl = if (selectedMode == ContentType.VIDEO_STREAM) target else null
         )
         ingestionJob = viewModelScope.launch {
-            previousIngestion?.join()
             var videoSourceFailure: com.mangalens.download.MediaSourceFailure? = null
             try {
+                if (selectedMode != ContentType.VIDEO_STREAM) previousIngestion?.join()
                 when (selectedMode) {
-                    ContentType.VIDEO_STREAM -> kotlinx.coroutines.withTimeout(45_000L) {
+                    ContentType.VIDEO_STREAM -> videoDeadline.run(previousIngestion) videoResolution@ {
                         if (!VideoSourcePolicy.isSourcePage(target)) {
-                            ensureActive()
-                            if (_state.value.url != target || _state.value.mode != selectedMode) return@withTimeout
+                            checkActive()
+                            if (_state.value.url != target || _state.value.mode != selectedMode) return@videoResolution
                             val selected = VideoPlaybackPublication.capture(target, emptyMap(), null, null, emptyMap())
                             _state.value = _state.value.withVideoSelection(selected).copy(
                                 mode = ContentType.VIDEO_STREAM,
                                 loading = false
                             )
                         } else {
-                            val staticResolved = withContext(Dispatchers.IO) {
-                                try { mediaLinkResolver.resolveCancellable(target) }
-                                catch (cancelled: CancellationException) { throw cancelled }
-                                catch (failure: Exception) {
-                                    videoSourceFailure = com.mangalens.download.MediaSourceFailure.from(failure)
-                                    null
-                                }
-                            }?.takeIf { com.mangalens.ui.video.isPlayableRefresh(it) }
-
-                            val resolved = staticResolved ?: run {
+                            val resolved = resolve(static = { stageBudget ->
+                                withContext(Dispatchers.IO) {
+                                    try { mediaLinkResolver.resolveCancellable(target, budgetMs = stageBudget) }
+                                    catch (cancelled: CancellationException) { throw cancelled }
+                                    catch (failure: Exception) {
+                                        videoSourceFailure = com.mangalens.download.MediaSourceFailure.from(failure)
+                                        null
+                                    }
+                                }?.takeIf { com.mangalens.ui.video.isPlayableRefresh(it) }
+                            }, rendered = { stageBudget ->
                                 val existingCookie = CookieManager.getInstance().getCookie(target)
-                                val rendered = acquirer.discoverWithCookie(target, 12_000L, existingCookie)
+                                val rendered = acquirer.discoverWithCookie(target, stageBudget, existingCookie)
                                 VideoSourcePolicy.preferredMediaUrl(rendered.videoStreamUrls)?.let { mediaUrl ->
                                     val mediaCookie = CookieManager.getInstance().getCookie(mediaUrl)
                                     com.mangalens.download.ResolvedMediaLink(
@@ -485,7 +527,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                         }
                                     )
                                 }
-                            }
+                            })
 
                             if (resolved != null) {
                                 val pageUrl = resolved.sourcePageUrl ?: target
@@ -507,9 +549,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                         if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
                                     }
                                 }.orEmpty()
-                                ensureActive()
-                                if (_state.value.url != target || _state.value.mode != selectedMode) return@withTimeout
-                                val selected = VideoPlaybackPublication.capture(resolved.url, playbackHeaders, pageUrl, resolved.audioUrl, audioHeaders)
+                                checkActive()
+                                if (_state.value.url != target || _state.value.mode != selectedMode) return@videoResolution
+                                val selected = VideoPlaybackPublication.capture(resolved.url, playbackHeaders, pageUrl, resolved.audioUrl, audioHeaders,
+                                    providerCaptions = resolved.providerCaptions)
                                 _state.value = _state.value.withVideoSelection(selected).copy(
                                     mode = ContentType.VIDEO_STREAM,
                                     loading = false,
@@ -645,6 +688,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(mangaTranslationEnabled = true, translating = true, translationPaused = false,
             translationTotal = chapter.pages.size, translationMessage = null, translationError = false) }
         val requestedSelection = translationSelection()
+        readerMemory.retire()
         val pending = PendingTranslation(requestedSelection)
         pendingTranslation = pending
         ChapterTranslationCommandScope.scope.launch {
@@ -796,6 +840,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun pauseTranslation(paused: Boolean) {
+        readerMemory.retire()
         pendingTranslation?.takeIf { it.selection == translationSelection() }?.let {
             it.request.setPaused(paused)
             _state.update { state -> state.copy(translationPaused = paused) }
@@ -812,6 +857,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun cancelTranslation() {
+        readerMemory.retire()
         pendingTranslation?.takeIf { it.selection == translationSelection() }?.let {
             it.request.cancel()
             _state.update { state -> state.copy(translating = false, translationPaused = false,
@@ -827,6 +873,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearTranslations() {
         // Switching reader/configuration detaches its presentation. Durable work remains
         // owned by WorkManager until the user explicitly pauses or cancels that task.
+        readerMemory.retire()
         displayedTranslation = null
         translationReceipt = null
         translationSelectionEpoch.value += 1
@@ -871,6 +918,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         presentationOpen = false
+        readerMemory.retire()
         ingestionJob?.cancel()
         ocrPrefs.unregisterOnSharedPreferenceChangeListener(ocrPreferenceListener)
         // Durable workers own their resources and continue independently of this reader.

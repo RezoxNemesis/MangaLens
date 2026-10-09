@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.SubtitleWindowProcessorTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:31" hostname="53f09df5485f" time="0.052">
+  <properties/>
+  <testcase name="queuedCancelledProviderDoesNoLateInferenceAndReleasesWithoutWaitingForOtherProvider" classname="com.mangalens.ui.video.SubtitleWindowProcessorTest" time="0.009"/>
+  <testcase name="pauseDuringTargetProviderWaitRejectsItsLateResultWithoutLosingOriginalSpeech" classname="com.mangalens.ui.video.SubtitleWindowProcessorTest" time="0.009"/>
+  <testcase name="positivelyDifferentDecodedPcmInvalidatesOriginalAndTargetCheckpoints" classname="com.mangalens.ui.video.SubtitleWindowProcessorTest" time="0.008"/>
+  <testcase name="originalSpeechCommitsBeforeTranslationAndFailedCueRetryKeepsItsSuccessfulNeighbour" classname="com.mangalens.ui.video.SubtitleWindowProcessorTest" time="0.013"/>
+  <testcase name="changingOnlyTargetReusesProvenOriginalSpeechButClearsOldTargetCheckpoints" classname="com.mangalens.ui.video.SubtitleWindowProcessorTest" time="0.009"/>
+  <testcase name="providerCloseWaitsForActualPlatformCompletionAfterCallerCancellation" classname="com.mangalens.ui.video.SubtitleWindowProcessorTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -2,6 +2,7 @@ package com.mangalens.ui.video
 
 import android.content.Context
 import com.mangalens.core.translation.TranslationStyleProfile
+import com.mangalens.download.ProviderCaptionDiscovery
 import android.util.AtomicFile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,7 +54,8 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         tasks[identity(source, config.normalized())]?.let(::validateExports)?.let { checked ->
             // A previous decode verified that request, not a later reopen of a URL
             // without a stable validator. Keep its windows but require fresh PCM checks.
-            if (!canTrustSubtitleSource(checked.source, source) && checked.windows.isNotEmpty())
+            if (checked.providerCaptionReceipt != null) checked.copy(validationPending = true, pcmValidationRequired = false)
+            else if (!canTrustSubtitleSource(checked.source, source) && checked.windows.isNotEmpty())
                 checked.copy(validationPending = true, pcmValidationRequired = true) else checked
         }?.also { checked -> if (checked != tasks[checked.id]) save(checked) }
     /** A generation precondition is checked before any verification or journal mutation. */
@@ -62,7 +64,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     }?.let(::validateExports)?.also { if (it != tasks[id]) save(it) }
     @Synchronized fun exportVerified(id: String, generation: String): SubtitleGenerationTask? = refresh(id, generation)?.takeIf {
         it.status == SubtitleGenerationStatus.COMPLETED && !it.validationPending && !it.pcmValidationRequired &&
-            hasSubtitleSourceProof(it.source) && it.srtPath != null && it.vttPath != null
+            hasSubtitlePlaybackProof(it) && it.srtPath != null && it.vttPath != null
     }
     fun start(source: SubtitleSourceIdentity, config: SubtitleGenerationConfig, force: Boolean = false,
         ownerRequestId: String? = null, allowOwnerReplacement: Boolean = true): SubtitleGenerationTask =
@@ -85,8 +87,9 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         val ownedReplay = ownerRequestId != null && old != null && old.ownerRequestId == ownerRequestId && old.source == source && old.config == config
         if (old != null && old.ownerRequestId == ownerRequestId && (ownedReplay || !force && old.source == source &&
             (trusted || old.status != SubtitleGenerationStatus.COMPLETED))) {
-            val verified = old.copy(validationPending = old.pcmValidationRequired || !trusted && old.windows.isNotEmpty(),
-                pcmValidationRequired = old.pcmValidationRequired || !trusted && old.windows.isNotEmpty())
+            val provider = old.providerCaptionReceipt != null
+            val verified = old.copy(validationPending = provider || old.pcmValidationRequired || !trusted && old.windows.isNotEmpty(),
+                pcmValidationRequired = !provider && (old.pcmValidationRequired || !trusted && old.windows.isNotEmpty()))
             if (verified != tasks[id]) save(verified)
             return SubtitleStartResult(verified, null)
         }
@@ -100,15 +103,19 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
                 candidate.config.windowSeconds == config.windowSeconds && candidate.config.overlapSeconds == config.overlapSeconds &&
                 candidate.config.threads == config.threads }.maxByOrNull { it.updatedAt }
         val retainedWindows = if (force) emptyList() else old?.windows ?: donor?.windows?.map { it.copy(translations = emptyList()) }.orEmpty()
+        val providerCandidate = config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
+            source.source.providerCaptions?.let { ProviderCaptionDiscovery.select(it, config.sourceLanguage) } != null
+        val modelRequired = config.modelSha256 == null && !providerCandidate
         val task = SubtitleGenerationTask(id, token(), source.copy(source = source.source.copy(headers = source.source.headers.toMap())), config,
-            if (config.modelSha256 == null) SubtitleGenerationStatus.FAILED else SubtitleGenerationStatus.QUEUED,
+            if (modelRequired) SubtitleGenerationStatus.FAILED else SubtitleGenerationStatus.QUEUED,
             windows = retainedWindows,
             durationMs = if (force) 0 else old?.durationMs ?: donor?.durationMs ?: 0,
             detectedLanguage = if (force) null else old?.detectedLanguage ?: donor?.detectedLanguage,
             audioComplete = !force && (old?.audioComplete == true || donor?.audioComplete == true),
-            validationPending = !force && old?.windows?.isNotEmpty() == true && (!trusted || old.pcmValidationRequired),
-            pcmValidationRequired = !force && old?.windows?.isNotEmpty() == true && (!trusted || old.pcmValidationRequired),
-            error = if (config.modelSha256 == null) "Install or import a multilingual Whisper model first." else null, ownerRequestId = ownerRequestId)
+            validationPending = !force && old?.windows?.isNotEmpty() == true && (old.providerCaptionReceipt != null || !trusted || old.pcmValidationRequired),
+            pcmValidationRequired = !force && old?.providerCaptionReceipt == null && old?.windows?.isNotEmpty() == true && (!trusted || old.pcmValidationRequired),
+            error = if (modelRequired) "Install or import a multilingual Whisper model first." else null, ownerRequestId = ownerRequestId,
+            providerCaptionReceipt = if (force) null else old?.providerCaptionReceipt)
         save(task); cleanGeneratedExports(task.id); return SubtitleStartResult(task, existing)
     }
     @Synchronized internal fun running(id: String, generation: String): SubtitleGenerationTask? = active(id, generation)
@@ -116,6 +123,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     @Synchronized internal fun checkpoint(id: String, generation: String, window: SubtitleWindow, durationMs: Long,
         detectedLanguage: String? = null): Boolean {
         val task = active(id, generation) ?: return false
+        require(task.providerCaptionReceipt == null && window.providerCueSha256 == null) { "Provider captions need their own timing checkpoint." }
         val savedWindow = window.copy(cues = window.cues.toList(), sourceCues = window.sourceCues.toList(), translations = window.translations.toList())
         validateWindow(savedWindow, task.config, task.copy(windows = task.windows + savedWindow))
         require(window.index == task.windows.size && window.index < 4000) { "Speech windows must be checkpointed once in order." }
@@ -128,7 +136,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     @Synchronized internal fun checkpointTarget(id: String, generation: String, windowIndex: Int, pcmSha256: String,
         target: SubtitleTranslatedCue): Boolean {
         val task = active(id, generation) ?: return false
-        require(task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
+        require(task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && task.providerCaptionReceipt == null && pcmSha256.matches(HASH))
         val window = task.windows.getOrNull(windowIndex) ?: error("Original speech has not been checkpointed.")
         require(window.pcmSha256 == pcmSha256) { "Source audio changed before target checkpoint." }
         require(acceptsSubtitleTarget(task, window, target)) { "Subtitle translation failed language, quality or refinement proof checks." }
@@ -141,15 +149,62 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         save(task.copy(windows = windows.toList(), updatedAt = System.currentTimeMillis())); return true
     }
     @Synchronized internal fun completeAudio(id: String, generation: String, decodedWindows: Int): SubtitleGenerationTask? = active(id, generation)?.let { task ->
+        require(task.providerCaptionReceipt == null && task.windows.none { it.providerCueSha256 != null }) { "Caption timings cannot complete decoded audio." }
         require(decodedWindows == task.windows.size && task.windows.isNotEmpty()) { "Not all source windows reached their checkpoint." }
         check(task.durationMs == 0L || task.processedMs + 1500 >= task.durationMs) { "Audio has not reached the end." }
         task.copy(audioComplete = true, updatedAt = System.currentTimeMillis()).also(::save)
     }
+    /** A complete fetched provider document is checkpointed atomically, with no PCM/audio claim. */
+    @Synchronized internal fun checkpointProviderDocument(id: String, generation: String, receipt: ProviderCaptionReceipt,
+        windows: List<SubtitleWindow>): SubtitleGenerationTask? = active(id, generation)?.let { task ->
+        providerCandidate(task, receipt, windows).copy(status = SubtitleGenerationStatus.RUNNING).also(::save)
+    }
+    @Synchronized internal fun confirmProviderDocument(id: String, generation: String, receipt: ProviderCaptionReceipt,
+        windows: List<SubtitleWindow>): SubtitleGenerationTask? = tasks[id]?.takeIf {
+        it.generation == generation && it.status != SubtitleGenerationStatus.CANCELLED
+    }?.let { providerCandidate(it, receipt, windows).also(::save) }
+    private fun providerCandidate(task: SubtitleGenerationTask, receipt: ProviderCaptionReceipt,
+        windows: List<SubtitleWindow>): SubtitleGenerationTask {
+        require(task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && !task.audioComplete &&
+            receipt.taskId == task.id && receipt.generation == task.generation)
+        val saved = windows.map { it.copy(sourceCues = it.sourceCues.toList(), translations = emptyList()) }
+        task.providerCaptionReceipt?.let { previous ->
+            if (!previous.sameDocument(receipt) || task.windows.map { it.copy(translations = emptyList()) } != saved)
+                throw ProviderCaptionChangedException()
+        } ?: require(task.windows.isEmpty()) { "Original ASR checkpoints cannot be replaced by captions." }
+        val retained = if (task.providerCaptionReceipt == null) saved else task.windows
+        val candidate = task.copy(windows = retained, providerCaptionReceipt = receipt,
+            durationMs = task.source.source.providerCaptions?.expectedDurationMs ?: receipt.lastEndMs,
+            detectedLanguage = receipt.language.substringBefore('-'), validationPending = false, pcmValidationRequired = false,
+            error = null, updatedAt = System.currentTimeMillis())
+        require(validProviderCaptionTask(candidate)) { "Provider caption source/timing receipt is invalid." }
+        return candidate
+    }
+    @Synchronized internal fun checkpointProviderTarget(id: String, generation: String, windowIndex: Int,
+        receipt: ProviderCaptionReceipt, target: SubtitleTranslatedCue): Boolean {
+        val task = active(id, generation) ?: return false
+        require(task.providerCaptionReceipt == receipt && validProviderCaptionTask(task) && !task.validationPending)
+        val window = task.windows.getOrNull(windowIndex) ?: error("Provider dialogue has not been checkpointed.")
+        require(acceptsSubtitleTarget(task, window, target)) { "Caption translation failed language, meaning or refinement proof checks." }
+        window.translations.firstOrNull { it.sourceIndex == target.sourceIndex }?.let { old ->
+            require(old == target) { "A verified caption target cannot be silently replaced." }; return true
+        }
+        val replacement = window.copy(translations = (window.translations + target).sortedBy { it.sourceIndex })
+        val all = task.windows.toMutableList().also { it[windowIndex] = replacement }
+        save(task.copy(windows = all.toList(), updatedAt = System.currentTimeMillis())); return true
+    }
+    @Synchronized internal fun providerVerificationFailed(id: String, generation: String): SubtitleGenerationTask? = tasks[id]?.takeIf {
+        it.generation == generation && it.providerCaptionReceipt != null && it.status != SubtitleGenerationStatus.CANCELLED
+    }?.let { task -> task.copy(status = if (task.status == SubtitleGenerationStatus.COMPLETED) SubtitleGenerationStatus.PARTIAL else task.status,
+        validationPending = true, pcmValidationRequired = false, srtPath = null, srtSha256 = null, vttPath = null, vttSha256 = null,
+        error = "Saved provider captions could not be verified. Retry when they are available, or regenerate for the current source.",
+        updatedAt = System.currentTimeMillis()).also(::save) }
     @Synchronized internal fun pause(id: String, generation: String): SubtitleGenerationTask? = active(id, generation)
         ?.copy(status = SubtitleGenerationStatus.PAUSED, updatedAt = System.currentTimeMillis())?.also(::save)
     @Synchronized internal fun resume(id: String, generation: String): SubtitleGenerationTask? = tasks[id]?.takeIf {
         it.generation == generation && it.status in setOf(SubtitleGenerationStatus.PAUSED, SubtitleGenerationStatus.PARTIAL, SubtitleGenerationStatus.FAILED)
-    }?.copy(generation = token(), status = SubtitleGenerationStatus.QUEUED, error = null, updatedAt = System.currentTimeMillis())?.also {
+    }?.let { task -> task.copy(generation = token(), status = SubtitleGenerationStatus.QUEUED, error = null,
+        validationPending = task.validationPending || task.providerCaptionReceipt != null, updatedAt = System.currentTimeMillis()) }?.also {
         save(it); cleanGeneratedExports(it.id)
     }
     @Synchronized internal fun cancel(id: String, generation: String): SubtitleGenerationTask? = tasks[id]?.takeIf {
@@ -160,7 +215,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         tasks[captured.id]?.takeIf { it.generation == captured.generation } ?: captured
     @Synchronized internal fun confirmValidated(id: String, generation: String, pcmVerified: Boolean = false): SubtitleGenerationTask? =
         tasks[id]?.takeIf { it.generation == generation }?.let { task ->
-            if (task.pcmValidationRequired && !pcmVerified) task
+            if (task.providerCaptionReceipt != null || task.pcmValidationRequired && !pcmVerified) task
             else task.copy(validationPending = false, pcmValidationRequired = false).also(::save)
         }
     @Synchronized internal fun fail(id: String, generation: String, message: String, invalidate: Boolean = false,
@@ -168,7 +223,8 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         it.copy(status = if (!invalidate && it.windows.any { window -> window.cues.isNotEmpty() || window.sourceCues.isNotEmpty() }) SubtitleGenerationStatus.PARTIAL else SubtitleGenerationStatus.FAILED,
             windows = if (invalidate) emptyList() else it.windows, audioComplete = !invalidate && it.audioComplete,
             validationPending = if (invalidate) false else it.validationPending || requireValidation,
-            pcmValidationRequired = !invalidate && (it.pcmValidationRequired || requireValidation), error = message.take(300),
+            pcmValidationRequired = !invalidate && it.providerCaptionReceipt == null && (it.pcmValidationRequired || requireValidation),
+            providerCaptionReceipt = if (invalidate) null else it.providerCaptionReceipt, error = message.take(300),
             srtPath = null, srtSha256 = null, vttPath = null, vttSha256 = null, updatedAt = System.currentTimeMillis()).also(::save)
     }
     @Synchronized internal fun noteTargetFailure(id: String, generation: String, message: String) {
@@ -176,13 +232,22 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     }
     @Synchronized internal fun interrupted(id: String, generation: String) { active(id, generation)?.copy(status = SubtitleGenerationStatus.QUEUED)?.let(::save) }
 
+    /** Resource waits retain ownership and generation, unlike an explicit user pause/resume. */
+    @Synchronized internal fun deferForResources(id: String, generation: String, reason: String): Boolean {
+        val task = active(id, generation) ?: return false
+        save(task.copy(status = SubtitleGenerationStatus.QUEUED, error = reason.take(300), updatedAt = System.currentTimeMillis()))
+        return true
+    }
+
     /** Both exports are durable before their checksums enter the atomic task manifest. */
     @Synchronized internal fun finish(id: String, generation: String): SubtitleGenerationTask? {
         val task = active(id, generation) ?: return null
-        check(task.durationMs == 0L || task.processedMs + 1500 >= task.durationMs) { "Audio has not reached the end. Completed windows have been kept." }
+        if (task.providerCaptionReceipt != null) {
+            check(validProviderCaptionTask(task) && !task.validationPending && !task.pcmValidationRequired) { "Provider caption timing proof needs fresh verification." }
+        } else check(task.durationMs == 0L || task.processedMs + 1500 >= task.durationMs) { "Audio has not reached the end. Completed windows have been kept." }
         if (task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
-            (!task.audioComplete || task.windows.any { !it.targetComplete(task.config) }))
-            return fail(id, generation, task.error ?: if (!task.audioComplete) "Original speech has not reached the end. Saved speech and translations have been kept."
+            (!(task.audioComplete || validProviderCaptionTask(task)) || task.windows.any { !it.targetComplete(task.config) }))
+            return fail(id, generation, task.error ?: if (!task.audioComplete && task.providerCaptionReceipt == null) "Original speech has not reached the end. Saved speech and translations have been kept."
                 else "${task.pendingTargetCues} speech cues still need successful translation. Saved speech and translations have been kept.")
         val verified = task.copy(validationPending = false, pcmValidationRequired = false)
         val cues = verified.cues
@@ -215,7 +280,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     private fun validateExports(task: SubtitleGenerationTask): SubtitleGenerationTask {
         if (task.srtPath == null && task.vttPath == null && task.status != SubtitleGenerationStatus.COMPLETED) return task
         val valid = runCatching {
-            require(task.config.pipeline == SubtitlePipeline.WHISPER_ENGLISH || task.audioComplete && task.windows.all { it.targetComplete(task.config) })
+            require(task.config.pipeline == SubtitlePipeline.WHISPER_ENGLISH || (task.audioComplete || validProviderCaptionTask(task)) && task.windows.all { it.targetComplete(task.config) })
             val cues = task.copy(validationPending = false, pcmValidationRequired = false).cues
             listOf(Triple(task.srtPath, task.srtSha256, "srt"), Triple(task.vttPath, task.vttSha256, "vtt")).all { (path, hash, extension) ->
                 val file = managedExport(path ?: error("Missing subtitle export"), task.id)
@@ -232,6 +297,9 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         require(it.parentFile == File(directory.canonicalFile, id) && it.name.matches(Regex("[a-f0-9]{32}\\.(srt|vtt)")))
     }
     private fun validateSource(source: SubtitleSourceIdentity) {
+        source.source.providerCaptions?.validate()
+        require(source.source.sourceResolutionId == null || source.source.sourceResolutionId.matches(ID))
+        require(source.source.providerCaptions == null || source.source.sourceResolutionId != null)
         require(source.fingerprint.matches(HASH) && source.source.uri.length in 1..16000 && source.source.cacheKey.length in 1..16000)
         require(source.source.label.length <= 250 && source.source.headers.size <= 32 && source.source.headers.all {
             it.key.length in 1..128 && it.value.length <= 8192 && it.key.none(Char::isISOControl) && it.value.none { char -> char == '\n' || char == '\r' }
@@ -246,11 +314,12 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         if (config.pipeline == SubtitlePipeline.WHISPER_ENGLISH) {
             require(config.targetLanguage == "en" && config.style == "whisper-english" && config.outputMode == SubtitleOutputMode.TRANSLATED &&
                 config.customStyle.isEmpty() && !config.localRefinement && config.translationPolicy == "whisper-english-v1" &&
-                config.capturedStyle == null && config.refinementPin == null) { "Legacy Whisper jobs produce translated English only." }
+                config.capturedStyle == null && config.refinementPin == null && config.sceneContext.isEmpty()) { "Legacy Whisper jobs produce translated English only." }
         } else {
             require(config.targetLanguage in setOf("en", "hi", "hi-latn") && config.translationPolicy == "mlkit-dialogue-v1") { "Unsupported subtitle target or provider policy." }
             require(config.style in setOf("natural", "faithful", "casual", "formal", "webtoon", "custom")) { "Unsupported subtitle style." }
-            require(config.customStyle.length <= TranslationStyleProfile.MAX_CUSTOM_INSTRUCTION_CHARS)
+            require(config.customStyle.length <= TranslationStyleProfile.MAX_CUSTOM_INSTRUCTION_CHARS && config.sceneContext.length <= 1200 &&
+                config.sceneContext.none { it == '\u0000' || it == '\r' })
             val captured = requireNotNull(config.capturedStyle) { "Capture the subtitle style before scheduling." }
             require(captured.id == config.style && captured.name.length in 1..100 && captured.instruction.length in 1..1200)
             require(config.style != "custom" || config.customStyle.isNotBlank() && captured.instruction == config.customStyle)
@@ -265,6 +334,17 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         require(owner == null || owner.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,99}"))) { "Subtitle request owner is invalid." }
     }
     private fun validateWindow(window: SubtitleWindow, config: SubtitleGenerationConfig, task: SubtitleGenerationTask? = null) {
+        if (window.providerCueSha256 != null) {
+            require(task?.providerCaptionReceipt != null && config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
+                window.pcmSha256.isEmpty() && window.cues.isEmpty() && !window.silent && window.sourceCues.size in 1..64 &&
+                window.providerCueSha256 == providerWindowHash(window.index, window.sourceCues) &&
+                window.startMs == window.sourceCues.minOf { it.startMs } && window.endMs == window.sourceCues.maxOf { it.endMs } &&
+                window.sourceCues.all { it.startMs >= 0 && it.endMs > it.startMs && it.endMs <= MAX_DURATION && it.text.length in 1..4000 && it.text.isNotBlank() } &&
+                window.translations.map { it.sourceIndex }.distinct().size == window.translations.size &&
+                window.translations.all { acceptsSubtitleTarget(requireNotNull(task), window, it) })
+            return
+        }
+        require(task?.providerCaptionReceipt == null) { "Decoded audio cannot enter a provider caption task." }
         require(window.index >= 0 && window.startMs >= 0 && window.endMs > window.startMs && window.endMs <= MAX_DURATION &&
             window.endMs - window.startMs <= config.windowSeconds * 1000L + 1 && window.pcmSha256.matches(HASH) &&
             window.cues.size <= 64 && window.sourceCues.size <= 64 && window.translations.size <= 64)
@@ -295,14 +375,16 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     }.distinctBy { it.name }
     private fun encode(task: SubtitleGenerationTask): JSONObject = JSONObject().put("version", 2).put("id", task.id).put("generation", task.generation)
         .put("uri", task.source.source.uri).put("headers", JSONObject(task.source.source.headers)).put("cacheKey", task.source.source.cacheKey)
-        .put("label", task.source.source.label).put("fingerprint", task.source.fingerprint).put("verifiable", task.source.verifiable)
+        .put("label", task.source.source.label).put("providerCaptions", task.source.source.providerCaptions?.let(ProviderCaptionJournal::inventory))
+        .put("sourceResolutionId", task.source.source.sourceResolutionId)
+        .put("fingerprint", task.source.fingerprint).put("verifiable", task.source.verifiable)
         .put("strongEtag", task.source.strongEtag).put("networkSize", task.source.networkSize)
         .put("networkUrl", task.source.networkUrl)
         .put("config", JSONObject().put("sourceLanguage", task.config.sourceLanguage).put("targetLanguage", task.config.targetLanguage)
             .put("style", task.config.style).put("modelSha256", task.config.modelSha256).put("windowSeconds", task.config.windowSeconds)
             .put("overlapSeconds", task.config.overlapSeconds).put("threads", task.config.threads)
             .put("outputMode", task.config.outputMode.name).put("pipeline", task.config.pipeline.name)
-            .put("customStyle", task.config.customStyle).put("localRefinement", task.config.localRefinement)
+            .put("customStyle", task.config.customStyle).put("sceneContext", task.config.sceneContext).put("localRefinement", task.config.localRefinement)
             .put("translationPolicy", task.config.translationPolicy).put("capturedStyle", task.config.capturedStyle?.let { style ->
                 JSONObject().put("id", style.id).put("name", style.name).put("instruction", style.instruction)
                     .put("preserveHonorifics", style.preserveHonorifics).put("preserveNames", style.preserveNames).put("naturalDialogue", style.naturalDialogue)
@@ -314,8 +396,10 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         .put("vttFile", task.vttPath?.let { File(it).name }).put("vttSha256", task.vttSha256).put("updatedAt", task.updatedAt).put("error", task.error)
         .put("pcmValidationRequired", task.pcmValidationRequired)
         .put("ownerRequestId", task.ownerRequestId).put("audioComplete", task.audioComplete)
+        .put("providerCaptionReceipt", task.providerCaptionReceipt?.let(ProviderCaptionJournal::receipt))
         .put("windows", JSONArray().apply { task.windows.forEach { window -> put(JSONObject().put("index", window.index)
             .put("startMs", window.startMs).put("endMs", window.endMs).put("pcmSha256", window.pcmSha256).put("silent", window.silent)
+            .put("providerCueSha256", window.providerCueSha256)
             .put("cues", encodeCues(window.cues)).put("sourceCues", encodeCues(window.sourceCues)).put("detectedLanguage", window.detectedLanguage)
             .put("translations", JSONArray().apply { window.translations.forEach { target -> put(JSONObject().put("sourceIndex", target.sourceIndex)
                 .put("text", target.text).put("hindiDraft", target.hindiDraft).put("refinementDraft", target.refinementDraft)
@@ -336,7 +420,8 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         validateOwner(json.optional("ownerRequestId"))
         val headers = json.getJSONObject("headers"); require(headers.length() <= 32)
         val source = SubtitleSourceIdentity(SubtitleMediaSource(json.getString("uri"), headers.keys().asSequence().associateWith { headers.getString(it) },
-            json.getString("cacheKey"), json.getString("label")), json.getString("fingerprint"), json.getBoolean("verifiable"),
+            json.getString("cacheKey"), json.getString("label"), json.optJSONObject("providerCaptions")?.let(ProviderCaptionJournal::inventory),
+            json.optional("sourceResolutionId")), json.getString("fingerprint"), json.getBoolean("verifiable"),
             json.optional("strongEtag"), if (!json.has("networkSize") || json.isNull("networkSize")) null else json.getLong("networkSize"), json.optional("networkUrl"))
         validateSource(source)
         val c = json.getJSONObject("config")
@@ -348,7 +433,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
             translationPolicy = c.optString("translationPolicy", "whisper-english-v1"),
             capturedStyle = c.optJSONObject("capturedStyle")?.let { style -> TranslationStyleProfile(style.getString("id"), style.getString("name"),
                 style.getString("instruction"), style.getBoolean("preserveHonorifics"), style.getBoolean("preserveNames"), style.getBoolean("naturalDialogue")) },
-            refinementPin = c.optJSONObject("refinementPin")?.let { pin -> SubtitleRefinementPin(pin.getString("modelId"), pin.getString("sha256"), pin.getLong("bytes")) }); validateConfig(config)
+            refinementPin = c.optJSONObject("refinementPin")?.let { pin -> SubtitleRefinementPin(pin.getString("modelId"), pin.getString("sha256"), pin.getLong("bytes")) }, sceneContext = c.optString("sceneContext", "")); validateConfig(config)
         require(id == identity(source, config))
         val rows = json.getJSONArray("windows"); require(rows.length() <= 4000)
         val windows = (0 until rows.length()).map { index ->
@@ -360,17 +445,21 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
                         target.optJSONObject("refinement")?.let { evidence -> SubtitleSavedRefinement(SubtitleRefinementPin(evidence.getString("modelId"),
                             evidence.getString("sha256"), evidence.getLong("bytes")), evidence.getString("promptSha256"), evidence.getString("outputSha256")) },
                         target.optional("refinementDraft"), target.optional("refinementCandidate"), target.optional("refinementHindiDraft"))
-                }).also { require(it.index == index) }
+                }, providerCueSha256 = row.optional("providerCueSha256")).also { require(it.index == index) }
         }
-        val evidenceTask = SubtitleGenerationTask(id, generation, source, config, SubtitleGenerationStatus.PAUSED, windows)
+        val provider = json.optJSONObject("providerCaptionReceipt")?.let(ProviderCaptionJournal::receipt)
+        val evidenceTask = SubtitleGenerationTask(id, generation, source, config, SubtitleGenerationStatus.PAUSED, windows,
+            durationMs = json.getLong("durationMs"), validationPending = true, providerCaptionReceipt = provider,
+            audioComplete = json.optBoolean("audioComplete", false))
         windows.forEach { validateWindow(it, config, evidenceTask) }
+        require(provider == null || validProviderCaptionTask(evidenceTask, allowUnvalidatedGeneration = true)) { "Invalid provider caption receipt." }
         require(windows.sumOf { if (config.pipeline == SubtitlePipeline.WHISPER_ENGLISH) it.cues.size else it.sourceCues.size } <= SubtitleFormats.MAX_CUES)
         fun export(key: String): String? = json.optional(key)?.let { name -> require(File(name).name == name); managedExport(File(File(directory, id), name).path, id).path }
         return SubtitleGenerationTask(id, generation, source, config, SubtitleGenerationStatus.valueOf(json.getString("status")), windows,
             json.getLong("durationMs").also { require(it in 0..MAX_DURATION) }, json.optional("detectedLanguage"), export("srtFile"), json.optional("srtSha256"),
             export("vttFile"), json.optional("vttSha256"), json.getLong("updatedAt"), json.optional("error")?.take(300),
             pcmValidationRequired = json.optBoolean("pcmValidationRequired", false), ownerRequestId = json.optional("ownerRequestId"),
-            audioComplete = json.optBoolean("audioComplete", false))
+            audioComplete = json.optBoolean("audioComplete", false), providerCaptionReceipt = provider)
     }
     private fun JSONObject.optional(key: String): String? = if (!has(key) || isNull(key)) null else getString(key)
     private fun publish() { mutable.value = tasks.values.toList() }

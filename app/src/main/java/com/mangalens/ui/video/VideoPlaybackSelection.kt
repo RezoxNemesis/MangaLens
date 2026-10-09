@@ -13,16 +13,17 @@ data class VideoPlaybackSelection(
     val pageUrl: String?,
     val audioUrl: String?,
     val audioHeaders: Map<String, String>,
-    val durationUs: Long? = null
+    val durationUs: Long? = null,
+    val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null
 ) {
-    fun captured() = copy(videoHeaders = videoHeaders.toMap(), audioHeaders = audioHeaders.toMap())
+    fun captured() = copy(videoHeaders = videoHeaders.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
 
     fun toOrezSelection(): OrezMediaSelection? {
         if (audioUrl != null && durationUs !in 1..VideoPlaybackPublication.MAX_DURATION_US) return null
         return OrezMediaSelection(videoUrl, pageUrl ?: videoUrl, "Video", videoHeaders.toMap(),
             resolutionId = resolutionId,
             audio = audioUrl?.let { OrezAudioSelection(it, resolutionId, audioHeaders.toMap()) },
-            expectedDurationUs = durationUs)
+            expectedDurationUs = durationUs, providerCaptions = providerCaptions?.captureSnapshot())
     }
 }
 
@@ -34,11 +35,12 @@ internal object VideoPlaybackPublication {
     private val allowedHeaders = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
 
     fun capture(videoUrl: String, videoHeaders: Map<String, String>, pageUrl: String?,
-        audioUrl: String?, audioHeaders: Map<String, String>): VideoPlaybackSelection {
+        audioUrl: String?, audioHeaders: Map<String, String>,
+        providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null): VideoPlaybackSelection {
         require(safeUrl(videoUrl) && (audioUrl == null || safeUrl(audioUrl))) { "A detected media source is not a safe HTTP or HTTPS address." }
         return VideoPlaybackSelection(UUID.randomUUID().toString().replace("-", ""), videoUrl,
             headers(videoHeaders), pageUrl?.takeIf(::safeUrl), audioUrl,
-            if (audioUrl == null) emptyMap() else headers(audioHeaders))
+            if (audioUrl == null) emptyMap() else headers(audioHeaders), providerCaptions = providerCaptions?.captureSnapshot())
     }
 
     fun sameTuple(left: VideoPlaybackSelection, right: VideoPlaybackSelection): Boolean =

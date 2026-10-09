@@ -34,12 +34,13 @@ class OrezToolRegistry {
         val nativeChapter = call.name in setOf("inspect_saved_chapter", "translate_saved_chapter")
         val nativeMedia = call.name in setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles")
         val keys = if (nativeChapter) setOf("chapterId", "sourceFingerprint", "targetLanguage")
-            else if (nativeMedia) setOf("sourceId", "downloadId", "sourceFingerprint", "speechModelSha256", "targetLanguage")
+            else if (nativeMedia) setOf("sourceId", "downloadId", "sourceFingerprint", "speechModelSha256", "captionInventorySha256", "targetLanguage")
             else setOf("value", "targetLanguage", "quality")
         require(call.arguments.keys.all { it in keys }) { "Unknown tool argument" }
         call.arguments["chapterId"]?.let { require(it.matches(Regex("[a-f0-9]{32}"))) { "Invalid saved chapter identity" } }
         call.arguments["sourceFingerprint"]?.let { require(it.matches(Regex("[a-f0-9]{64}"))) { "Invalid chapter source receipt" } }
-        call.arguments["speechModelSha256"]?.let { require(it.matches(Regex("[a-f0-9]{64}"))) { "Installed speech-model evidence is missing." } }
+        call.arguments["speechModelSha256"]?.let { require(it.matches(Regex("[a-f0-9]{64}")) || it.isEmpty() && call.arguments["captionInventorySha256"]?.matches(Regex("[a-f0-9]{64}")) == true) { "Installed speech-model evidence or captured provider inventory is missing." } }
+        call.arguments["captionInventorySha256"]?.let { require(it.matches(Regex("[a-f0-9]{64}"))) { "Invalid captured caption inventory." } }
         call.arguments["sourceId"]?.let { require(it.matches(Regex("(?:selected-[a-f0-9]{32}|download-[A-Za-z0-9-]{1,140})"))) { "Invalid captured media identity." } }
         call.arguments["downloadId"]?.let { require(it.matches(Regex("[A-Za-z0-9-]{1,140}"))) { "Invalid owned download identity." } }
         if (call.name == "inspect_saved_chapter") {

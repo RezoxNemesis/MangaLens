@@ -135,7 +135,9 @@ fun LiveAudioSubtitleSettings(
         }
         if (state.inferenceMs > 0) Text("Last audio processing: ${state.inferenceMs} ms", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(enabled = !state.busy, onClick = { scope.launch { engine.installTiny() } }) { Text("Download model (74 MiB)") }
+            TextButton(enabled = !state.busy, onClick = { scope.launch { engine.installTiny() } }) {
+                Text(if (state.ready) "Replace with tiny (74 MiB)" else "Download model (74 MiB)")
+            }
             TextButton(enabled = !state.busy, onClick = { import.launch(arrayOf("application/octet-stream", "*/*")) }) { Text("Import model") }
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -185,7 +187,7 @@ fun SubtitleToolsPanel(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Subtitle Tools", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Live speech captions and complete-video generation use the same offline multilingual Whisper model. Visual OCR remains a separate feature.",
+            "Live speech uses the offline multilingual Whisper model. Complete-video subtitles first check genuine provider captions, then recognise audio when needed.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -231,7 +233,7 @@ fun FullSubtitleGeneratorCard(
                 Column(Modifier.weight(1f)) {
                     Text("Generate Full Subtitles", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Recognise the original speech, then translate it on device. Work continues in the background; saved speech and translations survive pause and restart. Translation models may need an initial download.",
+                        "Use genuine original provider captions first, then recognise audio when captions are unavailable. Work continues in the background; saved dialogue and translations survive pause and restart. Translation models may need an initial download.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -1,0 +1,61 @@
+{
+  "base_sha": "08ca908c35e0a3593c84b683ed967fed1a069715",
+  "dirty_source": true,
+  "source_snapshot": "integrated-3-source-test-corrections.json",
+  "production_source_snapshot": "integrated-3-source-frozen.json",
+  "test_only_source_delta": [
+    "app/src/androidTest/java/com/mangalens/ReaderPersonalCorrectionUiTest.kt",
+    "app/src/androidTest/java/com/mangalens/SeriesMemoryUiTest.kt"
+  ],
+  "files": [
+    {
+      "name": "app-arm64-v8a-debug.apk",
+      "bytes": 105526486,
+      "sha256": "5b90844db8923ad4b1709260a68d2c734ffac9efb05e15fd130ac78c4ab40993"
+    },
+    {
+      "name": "app-x86_64-debug.apk",
+      "bytes": 105818667,
+      "sha256": "1f863e501cff7fc1173e99cc289f571340e4426b85948e723765d935727c8be2"
+    },
+    {
+      "name": "app-arm64-v8a-selfTest.apk",
+      "bytes": 105521467,
+      "sha256": "b2ef808822bb01e3282737c59277b971e2a62991046b137681ea998162f20515"
+    },
+    {
+      "name": "app-x86_64-selfTest.apk",
+      "bytes": 105813648,
+      "sha256": "605a091fc131f6470a30df4112d0f5271977d9d94871e621549f8450245b7b5c"
+    },
+    {
+      "name": "app-debug-androidTest.apk",
+      "bytes": 6031420,
+      "sha256": "dd382916c50eb28929e9e85796da4e9622a639d0bc23556ef8a97a2b7630d4b7"
+    }
+  ],
+  "unit_results": {
+    "app": {
+      "tests": 1453,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "orez-native": {
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 77
+  },
+  "full_build_exit": 1,
+  "full_build_failure": "Two Android-test API mismatches, fixed with test-only source changes",
+  "android_test_rebuild_exit": 0,
+  "debug_package_verification_exit": 0,
+  "selfTest_package_verification_exit": 0,
+  "device_acceptance": "not executed for these APKs; earlier candidate blocked by software emulator install/start/SystemUI failures"
+}

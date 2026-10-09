@@ -7,18 +7,18 @@ import com.mangalens.ui.video.SubtitlePipeline
 
 /** These mappings deliberately enumerate every native policy field, including immutable style/model evidence. */
 internal fun OrezSubtitleOptions.nativeConfig(model: String) = SubtitleGenerationConfig(sourceLanguage, targetLanguage, style,
-    model, windowSeconds, overlapSeconds, threads, outputMode, pipeline, customStyle, localRefinement,
-    translationPolicy, capturedStyle, refinementPin)
+    model.takeIf { it.isNotEmpty() }, windowSeconds, overlapSeconds, threads, outputMode, pipeline, customStyle, localRefinement,
+    translationPolicy, capturedStyle, refinementPin, sceneContext)
 
 internal fun SubtitleGenerationConfig.orezOptions() = OrezSubtitleOptions(sourceLanguage, targetLanguage, style,
     windowSeconds, overlapSeconds, threads, outputMode, pipeline, customStyle, localRefinement,
-    translationPolicy, capturedStyle, refinementPin)
+    translationPolicy, capturedStyle, refinementPin, sceneContext)
 
 internal object OrezSubtitleContract {
     fun isLegacy(options: OrezSubtitleOptions) = options.pipeline == SubtitlePipeline.WHISPER_ENGLISH &&
         options.targetLanguage == "en" && options.style == "whisper-english" && options.outputMode == SubtitleOutputMode.TRANSLATED &&
         options.customStyle.isEmpty() && !options.localRefinement && options.translationPolicy == "whisper-english-v1" &&
-        options.capturedStyle == null && options.refinementPin == null
+        options.capturedStyle == null && options.refinementPin == null && options.sceneContext.isEmpty()
 
     fun validate(options: OrezSubtitleOptions) {
         require(options == options.normalized() && (options.sourceLanguage == "auto" || options.sourceLanguage.matches(Regex("[a-z]{2,3}"))) &&
@@ -30,6 +30,7 @@ internal object OrezSubtitleContract {
         require(options.targetLanguage in setOf("en", "hi", "hi-latn") && options.translationPolicy == "mlkit-dialogue-v1") {
             "Unsupported captured subtitle target or translation policy."
         }
+        require(options.sceneContext.length <= 1200 && options.sceneContext.none { it == '\u0000' || it == '\r' })
         require(options.style in setOf("natural", "faithful", "casual", "formal", "webtoon", "custom") &&
             options.customStyle.length <= TranslationStyleProfile.MAX_CUSTOM_INSTRUCTION_CHARS) { "Unsupported captured subtitle style." }
         val profile = requireNotNull(options.capturedStyle) { "Capture the complete subtitle style before scheduling." }

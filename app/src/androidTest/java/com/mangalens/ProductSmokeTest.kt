@@ -38,6 +38,7 @@ class ProductSmokeTest {
         }
         image.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         bitmap.recycle()
+        val browserFixture = BrowserWorkspaceFixtureIsolation(context)
         try {
             prefs.edit().putString("last_url", "").putBoolean("translation_web", false).commit()
             library.save(SavedChapter(fixtureId, "QA offline chapter", "", listOf(ChapterPage(1, "local:qa", image.absolutePath))))
@@ -86,10 +87,12 @@ class ProductSmokeTest {
             runCatching { recordFailure(failure) }
             throw failure
         } finally {
-            finishActivity()
-            library.remove(fixtureId)
-            image.delete()
-            restore()
+            try {
+                finishActivity()
+                library.remove(fixtureId)
+                image.delete()
+                restore()
+            } finally { browserFixture.close() }
         }
     }
 }

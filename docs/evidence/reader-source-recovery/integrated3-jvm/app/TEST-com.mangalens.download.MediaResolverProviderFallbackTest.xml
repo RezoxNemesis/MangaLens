@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.MediaResolverProviderFallbackTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:22" hostname="53f09df5485f" time="0.012">
+  <properties/>
+  <testcase name="shortSocialSharePathAlsoPreservesItsNativeFailure" classname="com.mangalens.download.MediaResolverProviderFallbackTest" time="0.008"/>
+  <testcase name="genericChapterImagesRemainResolvable" classname="com.mangalens.download.MediaResolverProviderFallbackTest" time="0.002"/>
+  <testcase name="suppliedYoutubeShortUrlCannotTurnItsProviderFailureIntoAThumbnailDownload" classname="com.mangalens.download.MediaResolverProviderFallbackTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

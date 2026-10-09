@@ -97,7 +97,11 @@ fun MangaContinuousReader(
     translationTotal: Int = 0,
     translationPaused: Boolean = false,
     onTranslationPaused: (Boolean) -> Unit = {},
-    onTranslationCancelled: () -> Unit = {}
+    onTranslationCancelled: () -> Unit = {},
+    onRetryPage: (ChapterPage) -> Unit = { onRetry() },
+    onVisiblePage: (Int?) -> Unit = {},
+    onCorrectPage: ((Int) -> Unit)? = null,
+    personalOverlays: Map<Int, Map<Int, com.mangalens.core.translation.PersonalMangaLettering>> = emptyMap()
 ) {
     val density = LocalDensity.current
     val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("mangalens_reader", android.content.Context.MODE_PRIVATE)
@@ -121,7 +125,7 @@ fun MangaContinuousReader(
     // Metadata belongs to the chapter, so a layout-mode switch cannot recreate zero-height pages.
     // Only bounds/managed-surface checks run here; bitmap decoding stays with visible images.
     val pageSurfaces = pages.associate { page ->
-        page.index to key(chapterId, page.sourceUrl) {
+        page.index to key(chapterId, page.index, page.sourceUrl) {
             rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalVisible)
         }
     }
@@ -228,6 +232,9 @@ fun MangaContinuousReader(
                 if (position.restoring || !currentGeometryChecked) position.offset else offset)
         }
     } }
+    val visiblePageCallback by rememberUpdatedState(onVisiblePage)
+    LaunchedEffect(chapterId, activePage, pages.map { it.index }) { visiblePageCallback(pages.getOrNull(activePage)?.index) }
+
     LaunchedEffect(autoScroll, speed) {
         while (autoScroll && readingMode == "vertical") {
             listState.scrollBy(3.5f * speed)
@@ -250,6 +257,7 @@ fun MangaContinuousReader(
             detectTapGestures(onTap = { hudVisible = !hudVisible; observeReader("surface_hud_tap") })
         }
     ) {
+        SideEffect { observeReader("content_composed_" + readingMode, physicalMode = readingMode) }
         val navigationHeight = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
         val toolsHeight = readerHudToolsHeight(maxHeight.value, headerHeight.value, navigationHeight.value).dp
         if (readingMode == "vertical") {
@@ -259,9 +267,10 @@ fun MangaContinuousReader(
                     .transformable(transformState)
                     .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
             ) {
-                items(pages, key = { it.sourceUrl }) { page ->
-                    if (page.error != null) {
-                        PageLoadError(page, onRetry)
+                items(pages, key = { it.index }) { page ->
+                    val surface = pageSurfaces.getValue(page.index)
+                    if (page.error != null || surface.sourceUnreadable) {
+                        PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) { onRetryPage(page) }
                         return@items
                     }
                     val promoHidden = hidePromos && page.index in promoPages && page.index !in revealedPromoPages
@@ -272,8 +281,7 @@ fun MangaContinuousReader(
                         )
                         return@items
                     }
-                    val surface = pageSurfaces.getValue(page.index)
-                    Box(Modifier.fillMaxWidth().pointerInput(page.sourceUrl) {
+                    Box(Modifier.fillMaxWidth().pointerInput(page.index, page.sourceUrl, page.contentRevision) {
                         detectTapGestures(onTap = { hudVisible = !hudVisible; observeReader("vertical_hud_tap") },
                             onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
                             onLongPress = { onLongPressPage(page) })
@@ -281,9 +289,10 @@ fun MangaContinuousReader(
                         val imageModifier = surface.aspectRatio?.let { Modifier.fillMaxWidth().aspectRatio(it) } ?: Modifier.fillMaxWidth()
                         ReaderMangaImage(model = surface.model,
                             description = "Page ${page.index}", modifier = imageModifier,
-                            contentScale = ContentScale.FillWidth, viewportTransform = Triple(scale, panX, panY))
+                            contentScale = ContentScale.FillWidth, viewportTransform = Triple(scale, panX, panY),
+                            contentRevision = page.contentRevision, onLoadError = surface.onDecodeError)
                         if (translated && !originalVisible) MangaTranslationOverlay(
-                            overlays = overlays[page.index].orEmpty().filter { surface.cleaned || it.lettering == null },
+                            overlays = applyPersonalReaderOverlays(overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty()).filter { surface.cleaned || it.lettering == null },
                             textScale = textScale, modifier = Modifier.matchParentSize())
                     }
                 }
@@ -291,10 +300,15 @@ fun MangaContinuousReader(
         } else {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 HorizontalPager(state = pagerState, reverseLayout = readingMode == "rtl", beyondViewportPageCount = 1,
-                    userScrollEnabled = scale <= 1f, modifier = Modifier.fillMaxSize()) { position ->
+                    userScrollEnabled = scale <= 1f, modifier = Modifier.fillMaxSize().onSizeChanged {
+                        observeReader("pager_measured_" + readingMode, physicalMode = readingMode)
+                    }) { position ->
                     val page = pages[position]
-                    if (page.error != null) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { PageLoadError(page, onRetry) }
+                    val surface = pageSurfaces.getValue(page.index)
+                    if (page.error != null || surface.sourceUnreadable) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) { onRetryPage(page) }
+                        }
                         return@HorizontalPager
                     }
                     val promoHidden = hidePromos && page.index in promoPages && page.index !in revealedPromoPages
@@ -308,11 +322,10 @@ fun MangaContinuousReader(
                         }
                         return@HorizontalPager
                     }
-                    val surface = pageSurfaces.getValue(page.index)
                     FittedMangaPage(page, surface, modifier = Modifier.fillMaxSize().clipToBounds()
                         .transformable(transformState)
                         .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
-                        .pointerInput(page.sourceUrl, readingMode) {
+                        .pointerInput(page.index, page.sourceUrl, page.contentRevision, readingMode) {
                             detectTapGestures(onTap = { tap ->
                                 if (scale > 1f || tap.x in size.width * .25f..size.width * .75f) {
                                     hudVisible = !hudVisible
@@ -325,7 +338,7 @@ fun MangaContinuousReader(
                                 onLongPress = { onLongPressPage(page) })
                         }) {
                         if (translated && !originalVisible) MangaTranslationOverlay(
-                            overlays = overlays[page.index].orEmpty().filter { surface.cleaned || it.lettering == null },
+                            overlays = applyPersonalReaderOverlays(overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty()).filter { surface.cleaned || it.lettering == null },
                             textScale = textScale, modifier = Modifier.matchParentSize())
                     }
                 }
@@ -432,10 +445,12 @@ fun MangaContinuousReader(
                     }
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(pages, key = { it.index }) { page ->
-                            AsyncImage(rememberMangaThumbnailRequest(page.localPath ?: page.sourceUrl), "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page), "thumbnail") }, contentScale = ContentScale.Crop)
+                            AsyncImage(rememberMangaThumbnailRequest(page.localPath ?: page.sourceUrl, page.contentRevision), "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page), "thumbnail") }, contentScale = ContentScale.Crop)
                         }
                     }
                     if (controls) {
+                        if (onCorrectPage != null) TextButton({ pages.getOrNull(activePage)?.index?.let(onCorrectPage) }, enabled = pages.isNotEmpty(),
+                            modifier = Modifier.semantics { contentDescription = "Correct current page" }) { Text("Personal corrections") }
                         Text("Reading mode", style = MaterialTheme.typography.titleSmall)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL").forEach { (mode, label) ->
@@ -550,27 +565,36 @@ private fun FittedMangaPage(page: ChapterPage, surface: ReaderPageSurface, modif
         val width = minOf(maxWidth, maxHeight * ratio)
         val height = width / ratio
         Box(Modifier.size(width, height)) {
-            ReaderMangaImage(surface.model, "Page ${page.index}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            ReaderMangaImage(surface.model, "Page ${page.index}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
+                contentRevision = page.contentRevision, onLoadError = surface.onDecodeError)
             overlay()
         }
     }
 }
 
 private data class ReaderPageSurface(val model: String, val aspectRatio: Float?, val cleaned: Boolean = false,
-    val geometryChecked: Boolean = false)
+    val geometryChecked: Boolean = false, val sourceUnreadable: Boolean = false,
+    val onDecodeError: () -> Unit = {})
 
 /** The caller supplies checksum-verified journal paths; IO rechecks decodability and geometry. */
 @Composable
 private fun rememberReaderPageSurface(page: ChapterPage, cleanedPath: String?, showTranslation: Boolean): ReaderPageSurface {
     val original = page.localPath ?: page.sourceUrl
-    var sourceRatio by remember(original) { mutableStateOf<Float?>(null) }
-    var usableCleaned by remember(original, cleanedPath) { mutableStateOf<Pair<String, Float>?>(null) }
-    var geometryChecked by remember(original, cleanedPath) { mutableStateOf(false) }
-    LaunchedEffect(original, cleanedPath) {
+    val originalDecodeFailed = remember(original, page.contentRevision) { mutableStateOf(false) }
+    val cleanedDecodeFailed = remember(original, page.contentRevision, cleanedPath) { mutableStateOf(false) }
+    var sourceRatio by remember(original, page.contentRevision) { mutableStateOf<Float?>(null) }
+    var usableCleaned by remember(original, page.contentRevision, cleanedPath) { mutableStateOf<Pair<String, Float>?>(null) }
+    var geometryChecked by remember(original, page.contentRevision, cleanedPath) { mutableStateOf(false) }
+    LaunchedEffect(original, page.contentRevision, cleanedPath) {
         val checked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val sourceBounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            page.localPath?.let { android.graphics.BitmapFactory.decodeFile(it, sourceBounds) }
-            val ratio = if (sourceBounds.outWidth > 0 && sourceBounds.outHeight > 0) sourceBounds.outWidth.toFloat() / sourceBounds.outHeight else null
+            page.localPath?.let { path ->
+                if (java.io.File(path).length() in 1..40L * 1024 * 1024)
+                    android.graphics.BitmapFactory.decodeFile(path, sourceBounds)
+            }
+            val ratio = if (sourceBounds.outWidth > 0 && sourceBounds.outHeight > 0 &&
+                sourceBounds.outWidth.toLong() * sourceBounds.outHeight <= 100_000_000L)
+                sourceBounds.outWidth.toFloat() / sourceBounds.outHeight else null
             val usable = runCatching {
                 val candidate = cleanedPath?.let { java.io.File(it) } ?: return@runCatching null
                 if (!candidate.isFile || candidate.length() !in 1..com.mangalens.core.translation.ChapterTranslationStore.MAX_SURFACE_BYTES ||
@@ -588,9 +612,12 @@ private fun rememberReaderPageSurface(page: ChapterPage, cleanedPath: String?, s
         usableCleaned = checked.second
         geometryChecked = true
     }
-    val translatedSurface = usableCleaned.takeIf { showTranslation }
+    val translatedSurface = usableCleaned.takeIf { showTranslation && !cleanedDecodeFailed.value }
+    val failedSurface = if (translatedSurface != null) cleanedDecodeFailed else originalDecodeFailed
     return ReaderPageSurface(translatedSurface?.first ?: original, translatedSurface?.second ?: sourceRatio,
-        translatedSurface != null, geometryChecked)
+        translatedSurface != null, geometryChecked,
+        sourceUnreadable = originalDecodeFailed.value || (geometryChecked && page.localPath != null && sourceRatio == null),
+        onDecodeError = { failedSurface.value = true })
 }
 
 @Composable

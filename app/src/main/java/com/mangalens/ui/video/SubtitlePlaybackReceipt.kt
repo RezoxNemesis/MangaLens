@@ -8,7 +8,7 @@ internal fun sameSubtitlePlaybackReceipt(task: SubtitleGenerationTask, captured:
 internal fun attachAutomaticSubtitleTrack(task: SubtitleGenerationTask, captured: SubtitleGenerationTask,
     allowed: (SubtitleGenerationTask) -> Boolean, attach: (SubtitleGenerationTask) -> Unit): Boolean {
     if (!sameSubtitlePlaybackReceipt(task, captured) || task.status != SubtitleGenerationStatus.COMPLETED ||
-        task.validationPending || task.pcmValidationRequired || !hasSubtitleSourceProof(task.source) ||
+        task.validationPending || task.pcmValidationRequired || !hasSubtitlePlaybackProof(task) ||
         task.srtPath == null || task.vttPath == null || task.cues.isEmpty()) return false
     if (!allowed(task)) return false
     attach(task)

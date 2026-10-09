@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.VideoSourcePolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:32" hostname="53f09df5485f" time="0.026">
+  <properties/>
+  <testcase name="webpageMediaDiscoveryPrefersManifestOverSegments" classname="com.mangalens.ui.video.VideoSourcePolicyTest" time="0.025"/>
+  <testcase name="htmlWatchPagesUseWebsitePlayer" classname="com.mangalens.ui.video.VideoSourcePolicyTest" time="0.0"/>
+  <testcase name="recognisesExtensionlessInstagramCdnVideo" classname="com.mangalens.ui.video.VideoSourcePolicyTest" time="0.0"/>
+  <testcase name="treatsInstagramAndYouTubePagesAsSourcePages" classname="com.mangalens.ui.video.VideoSourcePolicyTest" time="0.0"/>
+  <testcase name="rejectsYouTubeAudioOnlyRequestAsPrimaryVideo" classname="com.mangalens.ui.video.VideoSourcePolicyTest" time="0.0"/>
+  <testcase name="directAndSignedOpaqueMediaStillUseMedia3" classname="com.mangalens.ui.video.VideoSourcePolicyTest" time="0.0"/>
+  <testcase name="recognisesExtensionlessYouTubePlaybackRequest" classname="com.mangalens.ui.video.VideoSourcePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

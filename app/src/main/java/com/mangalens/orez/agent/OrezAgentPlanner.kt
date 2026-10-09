@@ -24,7 +24,7 @@ class OrezAgentPlanner(
             val registry = OrezToolRegistry()
             return OrezTaskPlan(objective = clean, steps = listOf(
                 OrezPlanStep(0, registry.call("inspect_selected_media", mapOf("sourceId" to selection.sourceId))),
-                subtitleStep(1, 0, OrezSubtitleRequest.target(clean, context.subtitleOptions.targetLanguage))
+                subtitleStep(1, 0, OrezSubtitleRequest.target(clean, context.subtitleOptions.targetLanguage), selection.providerCaptions != null)
             ))
         }
 
@@ -190,13 +190,14 @@ class OrezAgentPlanner(
         return task(clean, listOf(withTarget(call, lower)))
     }
 
-    private fun subtitleStep(index: Int, sourceIndex: Int, target: String) = OrezPlanStep(index,
+    private fun subtitleStep(index: Int, sourceIndex: Int, target: String, providerCaptions: Boolean = false) = OrezPlanStep(index,
         OrezToolRegistry().call("generate_subtitles", mapOf("targetLanguage" to "en")).let {
             it.copy(arguments = mapOf("targetLanguage" to target))
         }, dependsOn = setOf(sourceIndex), references = mapOf(
             "sourceId" to OrezOutputReference(sourceIndex, OrezOutputField.MEDIA_SOURCE_ID),
             "sourceFingerprint" to OrezOutputReference(sourceIndex, OrezOutputField.SOURCE_FINGERPRINT),
-            "speechModelSha256" to OrezOutputReference(sourceIndex, OrezOutputField.SPEECH_MODEL_SHA256)))
+            "speechModelSha256" to OrezOutputReference(sourceIndex, OrezOutputField.SPEECH_MODEL_SHA256)) +
+            if (providerCaptions) mapOf("captionInventorySha256" to OrezOutputReference(sourceIndex, OrezOutputField.CAPTION_INVENTORY_SHA256)) else emptyMap())
 
     private fun withTarget(call: OrezToolCall, input: String): OrezToolCall {
         if (call.capability != OrezCapability.TRANSLATION) return call

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.verification.CaptchaBridgeTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.014">
+  <properties/>
+  <testcase name="requestVerification_entersRequiredState" classname="com.mangalens.core.verification.CaptchaBridgeTest" time="0.009"/>
+  <testcase name="completeVerification_publishesSession" classname="com.mangalens.core.verification.CaptchaBridgeTest" time="0.002"/>
+  <testcase name="completeVerification_requiresCookie" classname="com.mangalens.core.verification.CaptchaBridgeTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

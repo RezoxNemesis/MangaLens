@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.ProviderCaptionDiscoveryTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.025">
+  <properties/>
+  <testcase name="ambiguousOriginalLanguageDoesNotDefaultToEnglish" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.014"/>
+  <testcase name="regionPreferenceAndSupportedFormatAreDeterministic" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.0"/>
+  <testcase name="overLimitInventoriesAreRejectedInsteadOfPublishingAPartialSelection" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.008"/>
+  <testcase name="anotherVideoCredentialsAndProviderLookalikeHostsCannotSupplyCaptions" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.001"/>
+  <testcase name="capturedTrackListCannotBeChangedByTheCallerAfterDispatch" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.0"/>
+  <testcase name="translatedAutomaticTracksAndChatOrUnsupportedPayloadsAreNotAdmitted" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.0"/>
+  <testcase name="selectedAudioLanguagePreventsUsingCaptionsFromADifferentDub" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.001"/>
+  <testcase name="manualOriginalLanguageWinsOverAutomaticAndUnrelatedTranslations" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.001"/>
+  <testcase name="aSingleExplicitOriginalAutomaticLanguageCanResolveMissingMetadataLanguage" classname="com.mangalens.download.ProviderCaptionDiscoveryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -126,7 +126,9 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 applicationContext.contentResolver.delete(uri, null, null)
                 throw failure
             }
-            dao.completedDetails(id, actualHeight, qualityNote)
+            if (dao.completedDetails(id, actualHeight, qualityNote) > 0) {
+                MediaDownloadManager.notifyCommittedState(applicationContext, id)
+            }
             temp.delete(); audio.delete(); audioValidator.delete()
             validatorFile.delete()
         } finally {
@@ -182,7 +184,9 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
     }
 
     private suspend fun markFailed(id: String, message: String) {
-        dao.failIfActive(id, message)
+        if (dao.failIfActive(id, message) > 0) {
+            MediaDownloadManager.notifyCommittedState(applicationContext, id)
+        }
     }
 
     private fun publish(temp: File, title: String, mime: String): android.net.Uri {

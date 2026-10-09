@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.engine.OcrRegionSourceQualityTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.019">
+  <properties/>
+  <testcase name="aFailedCropKeepsItsOriginalAndOtherRegionsForAnActionablePartialResult" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="namesForeignWordsBrandsAndEffectsAreNotGuessedOrDiscarded" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="highConfidenceApostropheAndWordAmbiguityStillGetsAPixelRetry" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="nativeRetryMustRecoverTheChangedWordInsteadOfAConfidentNameOnly" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.001"/>
+  <testcase name="supportedSpacingRepairsGeneralizeToOtherQuestionsAndClauses" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.008"/>
+  <testcase name="restoresOnlyTheSupportedApostropheAndRequestsPixelsForTheChangedWord" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="uppercasingTheSameCorruptedWordsIsNotARecovery" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.001"/>
+  <testcase name="highConfidenceCorruptionStillGetsARegionRetry" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="nativeRetryFragmentsCanRecoverOneOriginalLineWithoutMergingNeighbors" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.001"/>
+  <testcase name="recoversTheObservedAuxiliaryPronounSpaceWithoutChangingDialogueWords" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="recoversTheObservedConjunctionPronounSpaceAcrossAnOcrLineBreak" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.001"/>
+  <testcase name="aConfidentOneWordFragmentCannotReplaceTheWholeAnnotation" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="aHigherConfidenceCropCannotSilentlyLoseAKnownNegation" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.0"/>
+  <testcase name="suspiciousAnnotationIsRetriedRatherThanInventingTheVisualSource" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.006"/>
+  <testcase name="uncertaintyUpscaleRetainsTheExistingAllocationLimits" classname="com.mangalens.engine.OcrRegionSourceQualityTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

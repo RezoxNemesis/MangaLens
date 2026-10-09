@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.LiveSpeechWindowSnapshotTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.032">
+  <properties/>
+  <testcase name="pcmChannelAndEngineQueueShareTheOriginalTwentySecondDeadline" classname="com.mangalens.ui.video.LiveSpeechWindowSnapshotTest" time="0.015"/>
+  <testcase name="modelLoadingDisabledAndClosedControlsRefuseNewWindows" classname="com.mangalens.ui.video.LiveSpeechWindowSnapshotTest" time="0.001"/>
+  <testcase name="replacementModelRetiresOnlyItsOldQueuedWindowAndAdmitsNewEpoch" classname="com.mangalens.ui.video.LiveSpeechWindowSnapshotTest" time="0.013"/>
+  <testcase name="expiredPcmChannelWindowNeverEntersNativeEvenWithFreeAdmission" classname="com.mangalens.ui.video.LiveSpeechWindowSnapshotTest" time="0.002"/>
+  <testcase name="capturedLanguageNeverAdoptsLaterControlOrDetectionSelections" classname="com.mangalens.ui.video.LiveSpeechWindowSnapshotTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

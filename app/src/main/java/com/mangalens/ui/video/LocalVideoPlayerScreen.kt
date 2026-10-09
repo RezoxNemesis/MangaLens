@@ -252,11 +252,12 @@ fun LocalVideoPlayerScreen(
             TextButton(onClick = { locked = false; interact() }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding()) { Text("Unlock") }
         }
         if (showTools && !playbackLifecycle.inPictureInPicture) {
-            ModalBottomSheet(onDismissRequest = { showTools = false }) {
+            ModalBottomSheet(onDismissRequest = { showTools = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
                 Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PlaybackTrackControlsPanel(vm.player)
-                    HorizontalDivider()
                     PlayerLifecycleControlsPanel(vm)
+                    HorizontalDivider()
+                    PlaybackTrackControlsPanel(vm.player)
                     HorizontalDivider()
                     SubtitleToolsPanel(vm.speech, fullSubtitleGenerator, subtitleMediaSource)
                     HorizontalDivider()

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.home.HomeLayoutStoreTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.012">
+  <properties/>
+  <testcase name="visibilityAndOrderSurviveAColdPreferenceStoreInstance" classname="com.mangalens.ui.home.HomeLayoutStoreTest" time="0.011"/>
+  <testcase name="readingCorruptPreferencesDoesNotSilentlyOverwriteThem" classname="com.mangalens.ui.home.HomeLayoutStoreTest" time="0.0"/>
+  <testcase name="resetIsAnExplicitPersistedUserActionRatherThanAnAutomaticStartupMigration" classname="com.mangalens.ui.home.HomeLayoutStoreTest" time="0.001"/>
+  <testcase name="anUnsuccessfulSaveKeepsTheLastPersistedLayout" classname="com.mangalens.ui.home.HomeLayoutStoreTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

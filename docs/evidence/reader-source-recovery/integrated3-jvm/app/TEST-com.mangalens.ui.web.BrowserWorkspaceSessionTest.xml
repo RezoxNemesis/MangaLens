@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.web.BrowserWorkspaceSessionTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:32" hostname="53f09df5485f" time="0.114">
+  <properties/>
+  <testcase name="cancellingTheUiWaiterDoesNotDiscardAnAlreadyAcceptedSessionCommand" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.012"/>
+  <testcase name="failedDiskMutationKeepsThePublishedSnapshotAndProvidesARetryMessage" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.035"/>
+  <testcase name="callbacksFromAnInactiveTabCannotChangeThatTabAfterSelection" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.003"/>
+  <testcase name="anotherSelectedTabCannotBeMovedByACapturedOldBackCommand" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.012"/>
+  <testcase name="titleAndDesktopChangesDoNotInvalidateACapturedSourceHistoryCursor" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.013"/>
+  <testcase name="orderedApplicationCommandsPublishOnlyTheRealSavedSnapshot" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.019"/>
+  <testcase name="callbackQueueIsBoundedAndOverflowNeverBecomesAnInvisibleAcceptedCommand" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.011"/>
+  <testcase name="replacedSourceCursorRejectsOldBackWithoutMovingTheNewIntent" classname="com.mangalens.ui.web.BrowserWorkspaceSessionTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

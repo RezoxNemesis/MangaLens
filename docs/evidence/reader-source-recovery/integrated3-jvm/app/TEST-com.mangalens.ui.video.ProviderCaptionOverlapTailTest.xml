@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ProviderCaptionOverlapTailTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:29" hostname="53f09df5485f" time="0.277">
+  <properties/>
+  <testcase name="completeOverlappingDocumentAcrossBatchesUsesItsActualMaximumCueEnd" classname="com.mangalens.ui.video.ProviderCaptionOverlapTailTest" time="0.277"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

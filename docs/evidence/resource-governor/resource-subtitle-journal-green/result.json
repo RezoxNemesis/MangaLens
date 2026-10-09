@@ -1,0 +1,8 @@
+{
+  "compile_exit": 0,
+  "junit_exit": 0,
+  "test_classes": [
+    "com.mangalens.ui.video.SubtitleGenerationStoreTest"
+  ],
+  "source_manifest": "source-manifest.json"
+}

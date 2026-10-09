@@ -1,6 +1,7 @@
 package com.mangalens.orez.agent
 
 import com.mangalens.ui.video.SubtitleMediaSource
+import com.mangalens.ui.video.validate
 import java.net.URI
 import java.util.Locale
 
@@ -15,6 +16,10 @@ internal fun OrezMediaSelection.validateCapturedSource() {
         cacheKey.none(Char::isISOControl) && label.none(Char::isISOControl) && headers(this.headers)) { "The explicit playable source or headers are invalid." }
     resolutionId?.let { require(it.matches(Regex("[A-Za-z0-9-]{1,80}"))) { "The captured source resolution identity is invalid." } }
     expectedDurationUs?.let { require(it in 1..21_600_000_000L) { "The captured source duration is invalid." } }
+    providerCaptions?.let {
+        require(resolutionId?.matches(Regex("[a-f0-9]{32}")) == true) { "Provider captions require one accepted video resolution." }
+        it.validate()
+    }
     audio?.let { track ->
         require(resolutionId != null && track.resolutionId == resolutionId && uri(track.uri) && headers(track.headers)) {
             "The audio track must belong to the same captured playable resolution."
@@ -26,8 +31,8 @@ internal fun OrezMediaSelection.validateCapturedSource() {
 internal fun OrezMediaSelection.nativeSubtitleSource(): SubtitleMediaSource {
     validateCapturedSource()
     val track = audio
-    return if (track == null) SubtitleMediaSource(uri, headers.toMap(), cacheKey, label)
-    else SubtitleMediaSource(track.uri, track.headers.toMap(), "orez-audio-pair:$sourceId", label)
+    return if (track == null) SubtitleMediaSource(uri, headers.toMap(), cacheKey, label, providerCaptions?.captureSnapshot(), resolutionId.takeIf { providerCaptions != null })
+    else SubtitleMediaSource(track.uri, track.headers.toMap(), "orez-audio-pair:$sourceId", label, providerCaptions?.captureSnapshot(), resolutionId.takeIf { providerCaptions != null })
 }
 
 internal fun OrezMediaSelection.verifySubtitleTail(durationMs: Long, processedMs: Long) {
@@ -37,4 +42,8 @@ internal fun OrezMediaSelection.verifySubtitleTail(durationMs: Long, processedMs
     }
 }
 
-internal fun OrezMediaSelection.hasExtendedScope() = resolutionId != null || audio != null || expectedDurationUs != null
+internal fun OrezMediaSelection.hasExtendedScope() = resolutionId != null || audio != null || expectedDurationUs != null || providerCaptions != null
+
+/** Captured inventory admission is distinct from a fetched and verified completed caption document. */
+internal fun OrezMediaSelection.hasProviderCaptionCandidate(): Boolean = providerCaptions != null &&
+    runCatching { validateCapturedSource(); true }.getOrDefault(false)

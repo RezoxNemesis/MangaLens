@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ProviderCaptionAlternativeFetcherTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:29" hostname="53f09df5485f" time="0.017">
+  <properties/>
+  <testcase name="expiredPreferredFormatStillUsesAnotherCapturedOriginalFormatBeforeAsr" classname="com.mangalens.ui.video.ProviderCaptionAlternativeFetcherTest" time="0.012"/>
+  <testcase name="savedExactDocumentNeverSwitchesFormatWhenItsOriginalTrackDisappears" classname="com.mangalens.ui.video.ProviderCaptionAlternativeFetcherTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

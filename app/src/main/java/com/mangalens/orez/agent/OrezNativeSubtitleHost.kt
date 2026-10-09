@@ -9,6 +9,9 @@ import com.mangalens.ui.video.SubtitleGenerationStore
 import com.mangalens.ui.video.SubtitleGenerationTask
 import com.mangalens.ui.video.SubtitleInputs
 import com.mangalens.ui.video.hasSubtitleSourceProof
+import com.mangalens.ui.video.SubtitlePipeline
+import com.mangalens.ui.video.revalidateProviderCaptions
+import com.mangalens.ui.video.hasVerifiedProviderCaptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -38,8 +41,12 @@ class OrezNativeSubtitleHost(
     private suspend fun inspect(sourceId: String, descriptor: OrezMediaSelection, pin: String?): OrezSubtitleSnapshot = withContext(Dispatchers.IO) {
         val captured = descriptor.captured()
         val source = SubtitleInputs.capture(app, captured.nativeSubtitleSource())
-        require(hasSubtitleSourceProof(source)) { "Select a saved file or a playable source with a stable version before generating subtitles." }
-        val model = requireNotNull(SubtitleInputs.config(app, "auto").modelSha256) { "Install or import a multilingual Whisper model first." }
+        val captionCandidate = captured.hasProviderCaptionCandidate()
+        require(hasSubtitleSourceProof(source) || captionCandidate) { "Select a saved file, stable playable source or verified provider caption selection." }
+        val installed = SubtitleInputs.config(app, "auto").modelSha256
+        val model = if (pin == "" && captionCandidate) "" else installed ?: "".also {
+            require(captionCandidate) { "Install or import a multilingual Whisper model first." }
+        }
         require(pin == null || pin == model) { "The installed speech model changed. Start a new subtitle request." }
         require(source.source == captured.nativeSubtitleSource()) { "The selected playable descriptor changed during inspection." }
         OrezSubtitleSnapshot(sourceId, captured, source.fingerprint, model)
@@ -48,16 +55,20 @@ class OrezNativeSubtitleHost(
     override suspend fun start(media: OrezSubtitleSnapshot, options: OrezSubtitleOptions, requestId: String,
         allowReplacement: Boolean): OrezSubtitleReceipt = withContext(Dispatchers.IO) {
         val source = SubtitleInputs.capture(app, media.descriptor.nativeSubtitleSource())
-        require(hasSubtitleSourceProof(source) && source.fingerprint == media.sourceFingerprint) { "The selected media changed after inspection." }
+        require((hasSubtitleSourceProof(source) || options.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && media.descriptor.hasProviderCaptionCandidate()) &&
+            source.fingerprint == media.sourceFingerprint) { "The selected media changed after inspection." }
         val savedSpeech = if (allowReplacement) null else native.states.value.firstOrNull { task ->
             task.ownerRequestId == requestId && task.source.source == source.source && task.source.fingerprint == media.sourceFingerprint &&
                 task.config == options.nativeConfig(media.speechModelSha256)
         }?.let { candidate -> native.refresh(candidate.id, candidate.generation)?.let { current ->
             val owned = OrezSubtitleNativeEvidence.metadataReceipt(current, media.sourceId, media.descriptor)
             OrezSubtitleTools.verify(owned, media, options, requestId)
-            OrezSubtitleNativeEvidence.savedSpeechSnapshot(owned, current, source)
+            if (current.providerCaptionReceipt != null) revalidateProviderCaptions(native, current)?.let { verified ->
+                receipt(verified, media.sourceId, media.descriptor).also { OrezSubtitleTools.verify(it, media, options, requestId) }.media
+            } else OrezSubtitleNativeEvidence.savedSpeechSnapshot(owned, current, source)
         } }
-        require(savedSpeech != null || SubtitleInputs.config(app, options.sourceLanguage).modelSha256 == media.speechModelSha256) {
+        require(savedSpeech != null || media.speechModelSha256.isEmpty() && options.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && media.descriptor.hasProviderCaptionCandidate() ||
+            SubtitleInputs.config(app, options.sourceLanguage).modelSha256 == media.speechModelSha256) {
             "The pinned speech model changed after inspection."
         }
         val task = SubtitleGenerationJobs.start(app, source, options.nativeConfig(media.speechModelSha256),
@@ -83,8 +94,12 @@ class OrezNativeSubtitleHost(
         val before = OrezOwnedSubtitleLookup.refresh(native, taskId, requestId, expectedGeneration, ::verify) ?: return@withContext null
         // Observation confirms fresh source proof without redispatching or adopting a newer same-owner generation.
         // The native confirmation retains any requirement to verify PCM through its actual worker.
-        val fresh = SubtitleInputs.capture(app, media.descriptor.nativeSubtitleSource())
-        val confirmed = OrezOwnedSubtitleLookup.confirmSource(native, before, fresh, ::verify) ?: return@withContext null
+        val confirmed = (if (before.providerCaptionReceipt != null) revalidateProviderCaptions(native, before)?.also { verify(it) }
+        else if (before.source.source.providerCaptions != null && !hasSubtitleSourceProof(before.source)) before
+        else {
+            val fresh = SubtitleInputs.capture(app, media.descriptor.nativeSubtitleSource())
+            OrezOwnedSubtitleLookup.confirmSource(native, before, fresh, ::verify)
+        }) ?: return@withContext null
         receipt(confirmed, media.sourceId, media.descriptor)
     }
 
@@ -107,6 +122,12 @@ class OrezNativeSubtitleHost(
 
     override suspend fun revalidateOwned(receipt: OrezSubtitleReceipt): OrezSubtitleSnapshot? = withContext(Dispatchers.IO) {
         val before = native.get(receipt.taskId)?.takeIf { it.generation == receipt.generation } ?: return@withContext null
+        if (before.providerCaptionReceipt != null) {
+            val verified = revalidateProviderCaptions(native, before)?.takeIf(::hasVerifiedProviderCaptions) ?: return@withContext null
+            return@withContext receipt(verified, receipt.media.sourceId, receipt.media.descriptor).also {
+                OrezSubtitleTools.verify(it, receipt.media, receipt.options, requireNotNull(receipt.ownerRequestId))
+            }.media
+        }
         if (!before.audioComplete || before.pcmValidationRequired) return@withContext null
         val fresh = SubtitleInputs.capture(app, receipt.media.descriptor.nativeSubtitleSource())
         val current = native.refresh(receipt.taskId, receipt.generation) ?: return@withContext null

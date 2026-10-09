@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.ChapterNativeEntryGuardTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:15" hostname="53f09df5485f" time="0.215">
+  <properties/>
+  <testcase name="sourceBytesChangedWithSameLengthAndTimestampCannotEnterQueuedNativeWork" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.08"/>
+  <testcase name="actualOwnerControlChangeWithoutReplacingTheNativeJournalStillBlocksEntry" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.022"/>
+  <testcase name="authorityReplacementDuringHeldFinalHashCannotEnterNativeWork" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.016"/>
+  <testcase name="changedTargetCannotEnterAnOldNativeRequest" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.036"/>
+  <testcase name="sameConfigurationReplacedOwnerAndGenerationCannotEnterOldNativeWork" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.016"/>
+  <testcase name="pauseWhileQueuedCannotEnterOldNativeWork" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.016"/>
+  <testcase name="explicitChapterRemovalWhileQueuedCannotEnterOrResurrectOldWork" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.01"/>
+  <testcase name="sourceHashRunsOnlyAtFinalWaitedEntryAndFreshGenerationStillRuns" classname="com.mangalens.core.translation.ChapterNativeEntryGuardTest" time="0.018"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.ChapterTranslationDisplayTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:15" hostname="53f09df5485f" time="0.004">
+  <properties/>
+  <testcase name="newerTaskWithDifferentOcrOptionsCannotStealControls" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.003"/>
+  <testcase name="languageSwitchCannotRestoreOlderLanguageSurface" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.0"/>
+  <testcase name="disabledRefinementCannotRestoreAnotherConfigurationsResult" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.0"/>
+  <testcase name="missingChapterDoesNotExposeAnotherChaptersOutput" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.001"/>
+  <testcase name="styleSwitchCannotRestoreIncompatibleLettering" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.0"/>
+  <testcase name="ordinaryStyleIgnoresDormantCustomInstruction" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.0"/>
+  <testcase name="newerUnrelatedChapterCannotStealReaderProgress" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.0"/>
+  <testcase name="customStyleRequiresMatchingInstruction" classname="com.mangalens.core.translation.ChapterTranslationDisplayTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

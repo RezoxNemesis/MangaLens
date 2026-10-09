@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.OrezModelTransferOwnerTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.007">
+  <properties/>
+  <testcase name="retriesKeepTheirOwnIdentityButOnlyItsFinalResultCanClearIt" classname="com.mangalens.orez.OrezModelTransferOwnerTest" time="0.001"/>
+  <testcase name="duplicateOlderAcknowledgementCannotReleaseANewPause" classname="com.mangalens.orez.OrezModelTransferOwnerTest" time="0.0"/>
+  <testcase name="pauseInvalidatesAnUncancelledOldReadBeforeItCanWriteOrQuarantine" classname="com.mangalens.orez.OrezModelTransferOwnerTest" time="0.001"/>
+  <testcase name="lateProgressFailureAndCancellationCannotOverwriteResumedTransfer" classname="com.mangalens.orez.OrezModelTransferOwnerTest" time="0.005"/>
+  <testcase name="latestPauseSurvivesAnOlderQueuedPauseAcknowledgement" classname="com.mangalens.orez.OrezModelTransferOwnerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

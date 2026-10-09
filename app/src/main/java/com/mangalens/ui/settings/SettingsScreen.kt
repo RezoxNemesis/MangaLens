@@ -59,6 +59,7 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                 }
             }
         }
+        item { DeviceResourceCard() }
         item {
             com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()) {
                 Text("Device storage", style = MaterialTheme.typography.titleMedium)

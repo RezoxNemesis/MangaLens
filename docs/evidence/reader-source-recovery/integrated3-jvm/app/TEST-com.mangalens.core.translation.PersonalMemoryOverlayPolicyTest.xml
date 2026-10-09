@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:18" hostname="53f09df5485f" time="0.005">
+  <properties/>
+  <testcase name="differentNativeOwnerGenerationSourceOutputOrConfigurationCannotProject" classname="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" time="0.002"/>
+  <testcase name="removedOrRestoredOriginalCorrectionNeverRevivesAnEarlierPersonalOverlay" classname="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" time="0.0"/>
+  <testcase name="validatedPersonalLetteringKeepsEveryNativeCoordinateAndOriginalValue" classname="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" time="0.001"/>
+  <testcase name="explicitChapterOrderAllowsZeroAndUnknownWhileRejectingInvalidOrUnboundedInput" classname="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" time="0.0"/>
+  <testcase name="legacySampledCoordinatesCannotBePromotedToOriginalProof" classname="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" time="0.0"/>
+  <testcase name="wrongTargetUserTextIsNeitherProjectedNorAcceptedBySave" classname="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" time="0.0"/>
+  <testcase name="personalOverlayDoesNotRequireAnOldProcessPresentationEpoch" classname="com.mangalens.core.translation.PersonalMemoryOverlayPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

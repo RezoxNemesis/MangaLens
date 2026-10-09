@@ -54,7 +54,8 @@ fun NativeVideoPlayer(
     audioHeaders: Map<String, String> = emptyMap(),
     resolutionId: String? = null,
     onSourceRefreshed: (VideoPlaybackSelection, VideoPlaybackSelection, () -> Boolean) -> Boolean = { _, _, commit -> commit() },
-    onReadySource: (VideoReadyObservation) -> Unit = {}
+    onReadySource: (VideoReadyObservation) -> Unit = {},
+    providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null
 ) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -88,6 +89,7 @@ fun NativeVideoPlayer(
     var activeAudioUrl by remember(url, sourcePageUrl, audioUrl) { mutableStateOf(audioUrl) }
     var activeAudioHeaders by remember(url, sourcePageUrl, audioHeaders) { mutableStateOf(audioHeaders) }
     var activeResolutionId by remember(url, sourcePageUrl, resolutionId) { mutableStateOf(resolutionId) }
+    var activeProviderCaptions by remember(url, sourcePageUrl, resolutionId, providerCaptions) { mutableStateOf(providerCaptions?.captureSnapshot()) }
     var readyBinding by remember(player) { mutableStateOf<Pair<VideoPlaybackSelection, Long>?>(null) }
     var refreshingStream by remember(url, sourcePageUrl) { mutableStateOf(false) }
     var refreshAttempts by remember(url, sourcePageUrl) { mutableIntStateOf(0) }
@@ -103,18 +105,19 @@ fun NativeVideoPlayer(
         FullVideoSubtitleGenerator(context.applicationContext, playerVm.speech, scope,
             attachmentAllowed = playerVm::canAttachGenerated, attachManually = playerVm::selectGeneratedCaption)
     }
-    val subtitleSource = remember(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, sourcePageUrl) {
+    val subtitleSource = remember(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, sourcePageUrl, activeResolutionId, activeProviderCaptions) {
         SubtitleMediaSource(
             uri = activeAudioUrl ?: activeUrl,
             headers = if (activeAudioUrl != null) activeAudioHeaders else activeHeaders,
             cacheKey = sourcePageUrl ?: url,
-            label = "Online video"
+            label = "Online video", providerCaptions = activeProviderCaptions, sourceResolutionId = activeResolutionId.takeIf { activeProviderCaptions != null }
         )
     }
     LaunchedEffect(subtitleSource) { fullSubtitleGenerator.bind(subtitleSource) }
 
     fun activeSelection(): VideoPlaybackSelection? = activeResolutionId?.let { id ->
-        VideoPlaybackSelection(id, activeUrl, activeHeaders.toMap(), sourcePageUrl, activeAudioUrl, activeAudioHeaders.toMap())
+        VideoPlaybackSelection(id, activeUrl, activeHeaders.toMap(), sourcePageUrl, activeAudioUrl, activeAudioHeaders.toMap(),
+            providerCaptions = activeProviderCaptions?.captureSnapshot())
     }
 
     fun publishReadySource() {
@@ -192,7 +195,7 @@ fun NativeVideoPlayer(
                 }.orEmpty()
                 val expectedRoot = refreshFromSelection
                 val replacement = VideoPlaybackPublication.capture(resolved.url, resolvedHeaders, sourcePageUrl,
-                    resolved.audioUrl, resolvedAudioHeaders)
+                    resolved.audioUrl, resolvedAudioHeaders, providerCaptions = resolved.providerCaptions)
                 refreshRequests.publish(
                     request,
                     PlaybackStreamIdentity(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders),
@@ -203,6 +206,7 @@ fun NativeVideoPlayer(
                         activeAudioUrl = replacement.audioUrl
                         activeAudioHeaders = replacement.audioHeaders
                         activeResolutionId = if (expectedRoot == null) null else replacement.resolutionId
+                        activeProviderCaptions = replacement.providerCaptions?.captureSnapshot()?.takeIf { activeResolutionId != null }
                         playbackError = null
                     },
                     restartUnchanged = { player.prepare(); player.play() },
@@ -210,7 +214,9 @@ fun NativeVideoPlayer(
                         val commit = {
                             playerVm.openHttp(replacement.videoUrl, referer = replacement.pageUrl, headers = replacement.videoHeaders,
                                 audioUrl = replacement.audioUrl, audioHeaders = replacement.audioHeaders,
-                                refreshFromRevision = refreshFromRevision).also { accepted ->
+                                refreshFromRevision = refreshFromRevision,
+                                sourceResolutionId = replacement.resolutionId.takeIf { expectedRoot != null },
+                                providerCaptions = replacement.providerCaptions.takeIf { expectedRoot != null }).also { accepted ->
                                 if (accepted) readyBinding = if (expectedRoot == null) null else replacement to playerVm.sourceRevision
                             }
                         }
@@ -241,14 +247,16 @@ fun NativeVideoPlayer(
         }
     }
 
-    LaunchedEffect(activeUrl, sourcePageUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, activeResolutionId) {
+    LaunchedEffect(activeUrl, sourcePageUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, activeResolutionId, activeProviderCaptions) {
         playbackError = null
         val accepted = playerVm.openHttp(
             activeUrl,
             referer = sourcePageUrl,
             headers = activeHeaders,
             audioUrl = activeAudioUrl,
-            audioHeaders = activeAudioHeaders
+            audioHeaders = activeAudioHeaders,
+            sourceResolutionId = activeResolutionId,
+            providerCaptions = activeProviderCaptions
         )
         readyBinding = if (accepted) activeSelection()?.let { it to playerVm.sourceRevision } else null
         if (accepted) publishReadySource()
@@ -374,14 +382,15 @@ fun NativeVideoPlayer(
                 .padding(bottom = if (playbackLifecycle.inPictureInPicture) 8.dp else if (hudVisible) 154.dp else 26.dp)
         )
         if (showPlaybackSettings && !playbackLifecycle.inPictureInPicture) {
-            ModalBottomSheet(onDismissRequest = { showPlaybackSettings = false }) {
+            ModalBottomSheet(onDismissRequest = { showPlaybackSettings = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
                 Column(
                     Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                         .padding(20.dp).padding(bottom = 24.dp)
                 ) {
-                    PlaybackTrackControlsPanel(player)
-                    HorizontalDivider()
                     PlayerLifecycleControlsPanel(playerVm)
+                    HorizontalDivider()
+                    PlaybackTrackControlsPanel(player)
                 }
             }
         }

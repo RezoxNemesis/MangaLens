@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.012">
+  <properties/>
+  <testcase name="nativeAudioUsesOnlyItsHeadersAndFullCapturedPairCacheBinding" classname="com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest" time="0.001"/>
+  <testcase name="actualNativeAudioCanBeMappedOnlyBackToTheExactCapturedPresentationPair" classname="com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest" time="0.007"/>
+  <testcase name="capturedResolverDurationRejectsTruncatedOrUnrelatedAudioBeforeFullVideoClaim" classname="com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest" time="0.002"/>
+  <testcase name="wrongNativeAudioUriAndHeadersNeverGainRightsFromMatchingOpaqueIdOrCacheKey" classname="com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest" time="0.001"/>
+  <testcase name="aNativePairCacheKeyAloneCannotManufactureSelectedVideoAuthority" classname="com.mangalens.orez.agent.OrezPairedSubtitleEvidenceTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

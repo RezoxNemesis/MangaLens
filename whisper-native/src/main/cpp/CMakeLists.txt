@@ -28,6 +28,12 @@ if(NOT WHISPER_AUTO_PATCH_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to prepare the pinned cancellable Whisper automatic detection source")
 endif()
 execute_process(COMMAND ${CMAKE_COMMAND} "-DWHISPER_SOURCE_DIR=${whisper_cpp_SOURCE_DIR}"
+    -P "${CMAKE_CURRENT_LIST_DIR}/patch_encoder_reuse.cmake"
+    RESULT_VARIABLE WHISPER_REUSE_PATCH_RESULT)
+if(NOT WHISPER_REUSE_PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Unable to prepare the pinned single first-encoder Whisper source")
+endif()
+execute_process(COMMAND ${CMAKE_COMMAND} "-DWHISPER_SOURCE_DIR=${whisper_cpp_SOURCE_DIR}"
     -P "${CMAKE_CURRENT_LIST_DIR}/patch_f16_loop_unroll.cmake"
     RESULT_VARIABLE WHISPER_VEC_PATCH_RESULT)
 if(NOT WHISPER_VEC_PATCH_RESULT EQUAL 0)

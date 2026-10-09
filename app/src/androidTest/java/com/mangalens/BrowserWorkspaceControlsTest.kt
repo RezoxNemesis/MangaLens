@@ -18,6 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import com.mangalens.ui.web.*
@@ -77,7 +78,7 @@ class BrowserWorkspaceControlsTest {
     @Test fun actualFindAndDesktopModeUseWebViewResultsAndTheReloadedRequest() = fixture { f ->
         f.page("Fixture one")
         f.tools(); f.tap(By.text("Find on page"))
-        f.node(By.desc("Find text on page")).text = "needle"
+        typeIntoEditableUi(f.device, "Find text on page", "needle")
         f.tap(By.text("Find")); f.node(By.text("Match 1 of 2"))
         f.tap(By.text("Next")); f.node(By.text("Match 2 of 2")); f.tap(By.text("Close"))
         f.tools(); f.tap(By.text("Use desktop site")); f.page("Fixture one")
@@ -112,6 +113,14 @@ class BrowserWorkspaceControlsTest {
     }
 
     private fun fixture(check: (Fixture) -> Unit) {
+        val configurator = Configurator.getInstance()
+        val previousIdleTimeout = configurator.waitForIdleTimeout
+        configurator.setWaitForIdleTimeout(100)
+        try { fixtureWithBoundedQueries(check) }
+        finally { configurator.setWaitForIdleTimeout(previousIdleTimeout) }
+    }
+
+    private fun fixtureWithBoundedQueries(check: (Fixture) -> Unit) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.filesDir, "browser-qa-${UUID.randomUUID()}")
         val upload = File(context.filesDir, "downloads/browser-upload-${UUID.randomUUID()}.txt").apply {
@@ -195,8 +204,8 @@ class BrowserWorkspaceControlsTest {
         fun tools() { revealChrome(); tap(By.desc("Browser tools")) }
         fun tabs() { revealChrome(); tap(By.desc("Browser tabs")) }
         fun openAddress(url: String) {
-            node(By.desc("Website URL or search")).text = url
-            tap(By.text("Open"))
+            typeIntoEditableUi(device, "Website URL or search", url)
+            clickSettledUi(device, By.text("Open"), 12_000)
         }
         fun deliverDocument() {
             val pending = registry.pending.getAndSet(null) ?: error("Missing chooser")

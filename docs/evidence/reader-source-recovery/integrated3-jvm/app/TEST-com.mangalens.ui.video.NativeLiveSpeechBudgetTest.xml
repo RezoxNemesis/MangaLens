@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" tests="20" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.892">
+  <properties/>
+  <testcase name="oldCompletedWindowCannotAppendIntoNewGeneratedTrack" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.005"/>
+  <testcase name="sourceChangedDuringSharedQueueIsRejectedBeforeNativeAdmission" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.03"/>
+  <testcase name="invalidatedActiveGenerationAbortsButFreshRequestStillWorks" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.013"/>
+  <testcase name="generationChangedDuringSharedQueueIsRejectedBeforeNativeAdmission" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.016"/>
+  <testcase name="callerCancellationMonitorSurvivesHeldNativeReturnAndCleanup" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.216"/>
+  <testcase name="oldTimeoutCannotChangeNewGenerationLatencyOrStatus" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.005"/>
+  <testcase name="invalidatedGenerationWhileQueuedNeverEntersNative" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.008"/>
+  <testcase name="expiredWindowQueuedBehindModelLoadReturnsWithoutAnyNativeEntry" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.011"/>
+  <testcase name="oldCompletedWindowCannotAppendAfterSeekClear" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.0"/>
+  <testcase name="delayedOldAbortCannotCancelReplacedHandle" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.008"/>
+  <testcase name="delayedOldAbortCannotCancelNewCallOnSameHandle" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.001"/>
+  <testcase name="resetOnNativeEntryCannotLoseTheBudgetAbort" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.026"/>
+  <testcase name="modelChangedDuringSharedQueueIsRejectedBeforeNativeAdmission" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.012"/>
+  <testcase name="callerCancellationWhileQueuedDoesNotEnterNativeAndLeavesGateUsable" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.006"/>
+  <testcase name="confirmedCriticalPressureDuringFeatureProofCannotEnterNativeInference" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.006"/>
+  <testcase name="oldErrorCannotOverwriteNewGeneratedTrackStatus" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.007"/>
+  <testcase name="generationMutationCannotInterleaveWithAcceptedPublication" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.109"/>
+  <testcase name="expiryDuringAdmissionFinishesTheTokenWithoutEnteringNative" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.007"/>
+  <testcase name="twoEngineLocksCannotOverlapTheirPhysicalNativeInference" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.285"/>
+  <testcase name="sharedLaneWaitUsesTheLiveWallBudgetWithoutAbortingAnActivePeer" classname="com.mangalens.ui.video.NativeLiveSpeechBudgetTest" time="0.12"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

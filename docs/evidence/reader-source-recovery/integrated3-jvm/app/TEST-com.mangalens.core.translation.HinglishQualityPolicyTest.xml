@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.HinglishQualityPolicyTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:17" hostname="53f09df5485f" time="0.084">
+  <properties/>
+  <testcase name="readableRomanHindiIsUsableOnlyForTheRomanTarget" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.011"/>
+  <testcase name="sourceHindiCanBeRomanizedAndAlreadyRomanHindiDoesNotNeedEnglishTranslation" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.01"/>
+  <testcase name="directHindiNounsRemainUsableWithoutInventingHindiGrammar" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.001"/>
+  <testcase name="copiedEnglishClausesAndExplanatoryOrRepeatedOutputsAreRejected" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.011"/>
+  <testcase name="hindiIntermediateAllowsRetainedNamesAndGenreTermsWhileRejectingCopiedClauses" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.003"/>
+  <testcase name="shortHindiOutputsAreUsableWithoutAcceptingUnchangedEnglishWords" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.008"/>
+  <testcase name="namesAndEnglishGenreTermsSurviveAlongsideHindiGrammar" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.004"/>
+  <testcase name="hindiSourceDoesNotMakeAnEnglishRefinementUsable" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.001"/>
+  <testcase name="titleCaseEnglishActionsAreNotProtectedAsCharacterNames" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.001"/>
+  <testcase name="romanPunctuationRetainsTheSourceQuestionOrShout" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.031"/>
+  <testcase name="romanRefinementCannotInventPolitenessButExplicitFormalCuesRemain" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.002"/>
+  <testcase name="refinementsInEnglishOrDevanagariFallBackToTheGoodRomanDraft" classname="com.mangalens.core.translation.HinglishQualityPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

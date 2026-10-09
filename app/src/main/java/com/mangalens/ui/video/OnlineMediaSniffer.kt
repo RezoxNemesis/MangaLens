@@ -15,7 +15,8 @@ data class SniffedMedia(
     val audioUrl: String? = null,
     val audioHeaders: Map<String, String> = emptyMap(),
     val title: String? = null,
-    val provider: String? = null
+    val provider: String? = null,
+    val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null
 )
 
 class OnlineMediaSniffer(private val context: Context) {

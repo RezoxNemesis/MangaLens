@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.HinglishTranslationOutputTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:17" hostname="53f09df5485f" time="0.083">
+  <properties/>
+  <testcase name="aNameOrEstablishedGenreTermCanStayLatinWithoutBeingTreatedAsAnEnglishClause" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.002"/>
+  <testcase name="devanagariSourceAndAlreadyRomanSourceBothHaveUsableRomanOutput" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.03"/>
+  <testcase name="unsupportedGlyphsCannotProducePartlyDevanagariRomanOutput" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.001"/>
+  <testcase name="hindiFirstOutputKeepsNamesAndGenreTermsWithoutBorrowingWholeEnglishClauses" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.003"/>
+  <testcase name="punctuationAndNumericDialogueKeepTheirMeaningAndHindiDigitsBecomeLatinDigits" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.015"/>
+  <testcase name="upperCaseManhwaSourceNamesSurviveTheHindiIntermediate" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.002"/>
+  <testcase name="powerUsesItsValidatedHindiDraftWithoutInventingGrammar" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.001"/>
+  <testcase name="hindiFirstOutputNormalizesInventedPolitenessBeforeRomanization" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.017"/>
+  <testcase name="fireUsesItsValidatedHindiDraftWithoutInventingGrammar" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.009"/>
+  <testcase name="commonShortHindiNounsDoNotRequireAnInventedPronounOrVerb" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.002"/>
+  <testcase name="swordUsesItsValidatedHindiDraftWithoutInventingGrammar" classname="com.mangalens.core.translation.HinglishTranslationOutputTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

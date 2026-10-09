@@ -252,5 +252,11 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
 
     private fun workName(id: String) = "mangalens-download-$id"
 
+    companion object {
+        /** Called by native producers only after an accepted committed terminal write. */
+        internal suspend fun notifyCommittedState(context: Context, id: String) {
+            com.mangalens.orez.agent.OrezTaskEventPublisher.committedDownload(context, id)
+        }
+    }
 }
 

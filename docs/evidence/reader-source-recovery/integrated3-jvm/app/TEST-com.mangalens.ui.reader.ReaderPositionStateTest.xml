@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.reader.ReaderPositionStateTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.002">
+  <properties/>
+  <testcase name="invalidPreferenceAndNegativeInitialPositionAreNormalized" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="pageCommandsAreBoundedAndAnEmptyChapterHasNoAcceptedCommand" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="viewportObservationUpdatesTheUiBeforeThePersistenceDebounce" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.001"/>
+  <testcase name="queuedPersistenceCannotWriteAnOldPageAfterNextOrModeChange" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="oldLayoutObservationCannotCrossARequestOrModeBoundary" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="checkedGeometryStillAcceptsTheRealTailClampAndKeepsGenerationFence" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="selectingTheCurrentModeDoesNotDisableObservation" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="consecutiveNextCommandsAdvanceBeforeEitherAnimationFinishes" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="heldInitialRestorationCannotOverwriteAnAcceptedNext" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="leavingVerticalCapturesItsLatestUndebouncedViewport" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="cancelledScrollBeforeGeometryCompletesDoesNotPublishAFalseCheckpoint" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="returningToVerticalCannotAcceptTheTemporaryZeroHeightViewport" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="directionChangeDuringNextPreservesTheAcceptedLogicalPage" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="coldSavedPageAndOffsetWaitForMetadataBeforeAcceptingLayout" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="nextIsAcceptedBeforeTheScrollSuspends" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <testcase name="completedScrollPublishesTheActualViewportWhenTheTailCannotAlign" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.001"/>
+  <testcase name="validSavedVerticalOffsetSurvivesUntilRealRestoration" classname="com.mangalens.ui.reader.ReaderPositionStateTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.MangaGlyphReconstructionTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:17" hostname="53f09df5485f" time="0.482">
+  <properties/>
+  <testcase name="gradientAndTextureReconstructionMatchesEveryLegacyPixel" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.047"/>
+  <testcase name="fullyMaskedRasterUsesFallbackIncludingEdges" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.019"/>
+  <testcase name="diagonalSamplesAndMissingAxesRetainLegacyRounding" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.002"/>
+  <testcase name="uniformSamplesRejectGreyPanelAndBlackBalloonOutline" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.013"/>
+  <testcase name="knownWhitePaperInsideMaskPreservesExactPixels" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.071"/>
+  <testcase name="conflictingAxesRetainNearestFallbackColorChoice" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.0"/>
+  <testcase name="glyphsOnTintedPaperKeepBorderAndOpaqueSurface" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.012"/>
+  <testcase name="randomizedMasksTexturesAlphaAndSearchLimitsMatchLegacyExactly" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.295"/>
+  <testcase name="representativeBalloonAllocatesOnlyBoundedImageArrays" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.022"/>
+  <testcase name="singlePixelAndNarrowRastersDoNotSampleOutsideImage" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.001"/>
+  <testcase name="unmaskedRasterPreservesAlphaAndEveryColorChannel" classname="com.mangalens.core.translation.MangaGlyphReconstructionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

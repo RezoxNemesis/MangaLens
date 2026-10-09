@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.engine.OcrContextualSourceRecoveryTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.024">
+  <properties/>
+  <testcase name="preservesActualStableNameLettersRatherThanAcceptingHigherConfidenceDeslant" classname="com.mangalens.engine.OcrContextualSourceRecoveryTest" time="0.01"/>
+  <testcase name="alternativeRealSourceNamesAndStableWordsCannotChangeInAnyHigherConfidenceRetry" classname="com.mangalens.engine.OcrContextualSourceRecoveryTest" time="0.001"/>
+  <testcase name="acceptsActualContextualScaleClauseAndEquivalentStutterLetters" classname="com.mangalens.engine.OcrContextualSourceRecoveryTest" time="0.004"/>
+  <testcase name="contextualReadingCannotAbsorbTextFromAnUnchangedNeighbor" classname="com.mangalens.engine.OcrContextualSourceRecoveryTest" time="0.001"/>
+  <testcase name="ageAmountCodeAndForeignNameControlsArePreserved" classname="com.mangalens.engine.OcrContextualSourceRecoveryTest" time="0.001"/>
+  <testcase name="onlyClassifierMarkedComparativeWordMayChangeWhileClearTemporalWordStaysObserved" classname="com.mangalens.engine.OcrContextualSourceRecoveryTest" time="0.001"/>
+  <testcase name="numericRotationComplementRemainsUncertainWithoutInventingSo" classname="com.mangalens.engine.OcrContextualSourceRecoveryTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -65,6 +65,18 @@ fun LocalVideoGalleryScreen(onOpenPlayer:(Uri)->Unit,onOpenSystem:()->Unit,onOpe
      }
     }
    }
+   if(videos.isEmpty())item(span={GridItemSpan(maxLineSpan)}){
+    com.mangalens.ui.components.Panel(Modifier.fillMaxWidth().padding(vertical=12.dp)){
+     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+      Icon(Icons.Outlined.FolderOpen,null,tint=MaterialTheme.colorScheme.secondary,modifier=Modifier.size(38.dp))
+      Column(Modifier.weight(1f)){
+       Text("No indexed videos",style=MaterialTheme.typography.titleLarge,fontWeight=androidx.compose.ui.text.font.FontWeight.Bold)
+       Text("Open a local file or let the media catalog populate.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+      }
+     }
+     Button(onClick=onOpenSystem,shape=RoundedCornerShape(14.dp)){Text("Choose video")}
+    }
+   }
    items(videos,key={it.id}){video->
     Card(
      Modifier.fillMaxWidth().clickable{onOpenPlayer(video.uri)},
@@ -91,16 +103,6 @@ fun LocalVideoGalleryScreen(onOpenPlayer:(Uri)->Unit,onOpenSystem:()->Unit,onOpe
      }
     }
    }
-  }
-  if(videos.isEmpty())com.mangalens.ui.components.Panel(Modifier.align(Alignment.Center).padding(24.dp).widthIn(max=380.dp)){
-   Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
-    Icon(Icons.Outlined.FolderOpen,null,tint=MaterialTheme.colorScheme.secondary,modifier=Modifier.size(38.dp))
-    Column{
-     Text("No indexed videos",style=MaterialTheme.typography.titleLarge,fontWeight=androidx.compose.ui.text.font.FontWeight.Bold)
-     Text("Open a local file or let the media catalog populate.",color=MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-   }
-   Button(onClick=onOpenSystem,shape=RoundedCornerShape(14.dp)){Text("Choose video")}
   }
  }
 }

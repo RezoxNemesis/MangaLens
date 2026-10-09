@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.MediaResolutionDeadlineTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:21" hostname="53f09df5485f" time="1.106">
+  <properties/>
+  <testcase name="cancelledSessionCleansUpLaterResources" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.0"/>
+  <testcase name="extractorAndHtmlFallbackShareOneDeadline" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.531"/>
+  <testcase name="processRegisteredAfterCancellationIsStillDestroyed" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.001"/>
+  <testcase name="closingOldProcessGuardNeverStopsANewProcess" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.001"/>
+  <testcase name="cancellingOldRequestAndItsLateFinalizerCannotCancelReplacement" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.005"/>
+  <testcase name="blockedProcessCleanupDoesNotStarveOtherDeadlines" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.256"/>
+  <testcase name="deadlineReturnsWithoutWaitingForAnUncooperativeNativeCall" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.306"/>
+  <testcase name="blockedCleanupCannotDelayCancellationCaller" classname="com.mangalens.download.MediaResolutionDeadlineTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[Oct 09, 2026 7:57:22 PM okhttp3.mockwebserver.MockWebServer$SocketHandler handle
+WARNING: MockWebServer[58357] connection from /127.0.0.1 didn't make a request
+]]></system-err>
+</testsuite>

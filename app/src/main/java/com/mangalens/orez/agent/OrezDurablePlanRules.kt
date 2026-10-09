@@ -1,5 +1,10 @@
 package com.mangalens.orez.agent
 
+import com.mangalens.ui.video.ProviderCaptionReceipt
+import com.mangalens.ui.video.fingerprint
+import com.mangalens.download.ProviderCaptionKind
+import com.mangalens.download.ProviderCaptionFormat
+
 /** Bounded, sequential DAG: edges only point to earlier verified steps. No route is an effect receipt. */
 object OrezDurablePlanRules {
     const val MAX_STEPS = 8
@@ -76,7 +81,11 @@ object OrezDurablePlanRules {
                 "inspect_downloaded_media" -> require(step.call.arguments.isEmpty() && step.references.keys == setOf("downloadId") &&
                     step.references.getValue("downloadId").field == OrezOutputField.DOWNLOAD_ID) { "Media inspection needs this plan's typed completed download." }
                 "generate_subtitles" -> {
-                    require(step.references.keys == setOf("sourceId", "sourceFingerprint", "speechModelSha256") &&
+                    val producer = step.references["sourceId"]?.stepIndex?.let { plan.steps.getOrNull(it) }
+                    val captionScope = producer?.call?.name == "inspect_selected_media" && authorization?.selectedMedia?.providerCaptions != null
+                    val expectedReferences = setOf("sourceId", "sourceFingerprint", "speechModelSha256") +
+                        if (captionScope) setOf("captionInventorySha256") else emptySet()
+                    require(step.references.keys == expectedReferences &&
                         step.references.values.map { it.stepIndex }.distinct().size == 1 &&
                         outputKind(plan.steps[step.references.getValue("sourceId").stepIndex].call.name) == OrezOutputKind.MEDIA_SOURCE) {
                         "Subtitle generation requires one typed inspected media/model source."
@@ -100,7 +109,7 @@ object OrezDurablePlanRules {
         OrezOutputField.CHAPTER_ID -> setOf(OrezOutputKind.SAVED_CHAPTER)
         OrezOutputField.SOURCE_FINGERPRINT -> setOf(OrezOutputKind.SAVED_CHAPTER, OrezOutputKind.MEDIA_SOURCE)
         OrezOutputField.DOWNLOAD_ID -> setOf(OrezOutputKind.DOWNLOAD_RECEIPT)
-        OrezOutputField.MEDIA_SOURCE_ID, OrezOutputField.SPEECH_MODEL_SHA256 -> setOf(OrezOutputKind.MEDIA_SOURCE)
+        OrezOutputField.MEDIA_SOURCE_ID, OrezOutputField.SPEECH_MODEL_SHA256, OrezOutputField.CAPTION_INVENTORY_SHA256 -> setOf(OrezOutputKind.MEDIA_SOURCE)
     }
 
     private fun validateSubtitleOptions(options: OrezSubtitleOptions) {
@@ -131,7 +140,7 @@ object OrezDurablePlanRules {
     }
 
     fun validateReceipt(plan: OrezTaskPlan, resolved: OrezPlanStep, outputs: Map<String, String>, completed: Boolean) {
-        require(outputs.size <= 32 && outputs.all { it.key.length <= 80 && it.value.length <= 8192 }) { "Tool receipt exceeds its safe limit." }
+        require(outputs.size <= 40 && outputs.all { it.key.length <= 80 && it.value.length <= 8192 }) { "Tool receipt exceeds its safe limit." }
         val id = requestId(plan.id, resolved.index)
         if (resolved.call.name == "enqueue_download") {
             if (completed) {
@@ -179,13 +188,21 @@ object OrezDurablePlanRules {
             }
             else -> resolved.call.arguments.getValue("sourceId")
         }
+        val descriptor = plan.authorization?.selectedMedia?.takeIf { it.sourceId == sourceId }
+        val inventory = descriptor?.providerCaptions
+        val captionPin = inventory?.fingerprint()
+        require(outputs["captionInventorySha256"] == captionPin) { "The provider caption inventory differs from captured source scope." }
         require(outputs["sourceId"] == sourceId && outputs["sourceFingerprint"]?.matches(Regex("[a-f0-9]{64}")) == true &&
-            outputs["speechModelSha256"]?.matches(Regex("[a-f0-9]{64}")) == true) { "Verified source/model evidence is missing." }
+            (outputs["speechModelSha256"]?.matches(Regex("[a-f0-9]{64}")) == true || outputs["speechModelSha256"] == "" &&
+                descriptor?.hasProviderCaptionCandidate() == true && plan.authorization?.subtitle?.pipeline == com.mangalens.ui.video.SubtitlePipeline.SOURCE_TRANSLATION)) {
+            "Verified source/model or captured provider inventory evidence is missing."
+        }
         if (resolved.call.name != "generate_subtitles") return
         val scope = requireNotNull(plan.authorization?.subtitle)
         val id = requestId(plan.id, resolved.index)
         require(outputs["sourceFingerprint"] == resolved.call.arguments["sourceFingerprint"] &&
             outputs["speechModelSha256"] == resolved.call.arguments["speechModelSha256"] &&
+            outputs["captionInventorySha256"] == resolved.call.arguments["captionInventorySha256"] &&
             outputs["ownerRequestId"] == id && outputs["subtitleTaskId"]?.matches(Regex("[a-f0-9]{32}")) == true &&
             outputs["generation"]?.matches(Regex("[a-f0-9]{32}")) == true && outputs["targetLanguage"] == scope.targetLanguage &&
             outputs["sourceLanguage"] == scope.sourceLanguage) { "Subtitle receipt exceeds captured native source/configuration/owner scope." }
@@ -202,7 +219,7 @@ object OrezDurablePlanRules {
             val duration = outputs["durationMs"]?.toLongOrNull()
             val processed = outputs["processedMs"]?.toLongOrNull()
             require(outputs["status"] == "COMPLETED" && duration != null && duration in 0..21_600_000 &&
-                processed != null && processed in 1..21_600_000 && processed + 1500 >= duration &&
+                processed != null && processed in 1..21_600_000 && (outputs["providerPayloadSha256"] != null || processed + 1500 >= duration) &&
                 outputs["cueCount"]?.toIntOrNull()?.let { it in 1..30_000 } == true &&
                 outputs["windowCount"]?.toIntOrNull()?.let { it in 1..4000 } == true &&
                 outputs["srtSha256"]?.matches(Regex("[a-f0-9]{64}")) == true && outputs["vttSha256"]?.matches(Regex("[a-f0-9]{64}")) == true &&
@@ -211,11 +228,26 @@ object OrezDurablePlanRules {
                 outputs["destination"] == "subtitle-track:${outputs["subtitleTaskId"]}") {
                 "Subtitle completion requires a full verified native track and saved SRT/VTT receipts."
             }
+            if (outputs["providerPayloadSha256"] != null) {
+                val captured = requireNotNull(descriptor) { "Provider completion has no selected source scope." }
+                val proof = ProviderCaptionReceipt(outputs.getValue("subtitleTaskId"), outputs.getValue("generation"),
+                    outputs.getValue("sourceFingerprint"), outputs.getValue("configFingerprint"), requireNotNull(captionPin),
+                    outputs.getValue("providerTrackSha256"), outputs.getValue("providerLanguage"), ProviderCaptionKind.valueOf(outputs.getValue("providerKind")),
+                    ProviderCaptionFormat.valueOf(outputs.getValue("providerFormat")), outputs.getValue("providerPayloadSha256"),
+                    outputs.getValue("providerCuesSha256"), outputs.getValue("sourceCueCount").toInt(), processed!!)
+                OrezSubtitleTools.verifyCompleted(OrezSubtitleReceipt(proof.taskId, proof.generation, id,
+                    OrezSubtitleSnapshot(sourceId, captured, proof.sourceFingerprint, outputs.getValue("speechModelSha256")), scope,
+                    OrezNativeSubtitleStatus.COMPLETED, duration!!, processed, outputs.getValue("windowCount").toInt(), outputs.getValue("cueCount").toInt(),
+                    OrezSubtitleExports(outputs.getValue("srtSha256"), outputs.getValue("vttSha256"), outputs.getValue("srtBytes").toLong(), outputs.getValue("vttBytes").toLong()),
+                    configFingerprint = proof.configFingerprint, audioComplete = outputs["audioComplete"] == "true", sourceCueCount = proof.cueCount,
+                    pendingTargetCues = outputs.getValue("pendingTargetCues").toInt(), providerCaptionReceipt = proof))
+            } else {
             require(OrezSubtitleContract.isLegacy(scope) || outputs["audioComplete"] == "true" &&
                 outputs["sourceCueCount"]?.toIntOrNull()?.let { it in 1..30_000 } == true && outputs["pendingTargetCues"] == "0") {
                 "Subtitle completion requires finished original speech and every requested target cue."
             }
-            plan.authorization.selectedMedia?.takeIf { it.sourceId == sourceId }?.verifySubtitleTail(duration!!, processed!!)
+            descriptor?.verifySubtitleTail(duration!!, processed!!)
+            }
         }
     }
 

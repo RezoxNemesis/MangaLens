@@ -174,6 +174,8 @@ class MainActivity : ComponentActivity(), com.mangalens.ui.video.PlaybackWindowH
                     onIngest = viewModel::ingest,
                     onIngestAndTranslate = viewModel::ingestAndTranslate,
                     onTranslatePage = viewModel::translatePage,
+                    onRetryReaderPage = viewModel::retryReaderPage,
+                    readerMemory = viewModel.readerMemory,
                     onTranslateChapter = viewModel::translateChapter,
                     onTargetLanguageChanged = viewModel::setTargetLanguage,
                     onTranslationStyleChanged = viewModel::setTranslationStyle,
@@ -194,6 +196,7 @@ class MainActivity : ComponentActivity(), com.mangalens.ui.video.PlaybackWindowH
                     onTranslationCancelled = viewModel::cancelTranslation,
                     onImportImages = viewModel::importLocalImages,
                     onResolvedVideo = viewModel::acceptResolvedVideo,
+                    onResolvedCaptionedVideo = viewModel::acceptResolvedVideo,
                     onIngestionCancelled = viewModel::cancelIngestion,
                     onVideoRefreshed = viewModel::acceptVideoRefresh,
                     onVideoReady = viewModel::acceptVideoReady

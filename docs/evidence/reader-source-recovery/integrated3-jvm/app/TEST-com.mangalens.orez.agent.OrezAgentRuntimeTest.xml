@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezAgentRuntimeTest" tests="18" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.067">
+  <properties/>
+  <testcase name="requestedLanguageSurvivesPlanning" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.026"/>
+  <testcase name="untrustedContentCannotInitiateLocalMutation" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.006"/>
+  <testcase name="conversationalQuestionFallsThroughToBrain" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.0"/>
+  <testcase name="urlWordsCannotInitiateChapterTranslation" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.001"/>
+  <testcase name="libraryQuestionRemainsGroundedConversation" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.0"/>
+  <testcase name="excessiveOrAmbiguousBatchDoesNotDispatchAPartialRequest" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.002"/>
+  <testcase name="explicitPlayOverridesMangaUrlHeuristic" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.016"/>
+  <testcase name="currentUrlDownloadBecomesBackgroundTool" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.001"/>
+  <testcase name="invalidSecondUrlRejectsWholeBatch" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.0"/>
+  <testcase name="modelCannotSpoofTrustedToolRiskOrRoute" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.001"/>
+  <testcase name="downloadIntentRoutesGenericUrlToDownloadRoom" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.001"/>
+  <testcase name="anOpenRequestMentioningDownloadsCannotStartATransfer" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.0"/>
+  <testcase name="queryParametersAreNotDownloadCommands" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.001"/>
+  <testcase name="batchDownloadRetainsEveryUniqueUrlAndTheRequestedQuality" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.005"/>
+  <testcase name="instructionsQuestionIsNotACommand" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.0"/>
+  <testcase name="routesActiveChapterTranslationWithoutUrl" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.001"/>
+  <testcase name="credentialBearingUrlsCannotReachTools" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.001"/>
+  <testcase name="untrustedBatchCannotInitiateTransfers" classname="com.mangalens.orez.agent.OrezAgentRuntimeTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

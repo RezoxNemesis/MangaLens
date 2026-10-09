@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.reader.ReaderPromoPolicyTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:15" hostname="53f09df5485f" time="0.018">
+  <properties/>
+  <testcase name="briefChapterLabelDoesNotHideRealPromotionalCard" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.006"/>
+  <testcase name="flattenedOcrDialogueWithPremiumFooterIsNotPromo" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.001"/>
+  <testcase name="temporaryDomainInStoryIsNotWebsitePromotion" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.0"/>
+  <testcase name="japaneseDialogueWithScanlationFooterIsNotPromo" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.002"/>
+  <testcase name="ordinaryMangaDialogueIsNotPromo" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.003"/>
+  <testcase name="adFreeAnnouncementIsPromo" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.001"/>
+  <testcase name="promotionalFooterDoesNotCollapseSubstantialStoryDialogue" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.0"/>
+  <testcase name="scanGroupCreditCardIsPromo" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.001"/>
+  <testcase name="storyAnnouncementAloneIsNotEnough" classname="com.mangalens.core.reader.ReaderPromoPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ProviderCaptionPlaybackSourceTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:29" hostname="53f09df5485f" time="0.006">
+  <properties/>
+  <testcase name="sameUrlDoesNotAuthorizeAnOlderAcceptedResolution" classname="com.mangalens.ui.video.ProviderCaptionPlaybackSourceTest" time="0.002"/>
+  <testcase name="uncapturedOrChangedInventoryCannotAdoptAGeneratedProviderTrack" classname="com.mangalens.ui.video.ProviderCaptionPlaybackSourceTest" time="0.002"/>
+  <testcase name="nonProviderSpeechDoesNotNeedAnInventedResolutionReceipt" classname="com.mangalens.ui.video.ProviderCaptionPlaybackSourceTest" time="0.0"/>
+  <testcase name="exactAcceptedResolutionAndInventoryRemainEligible" classname="com.mangalens.ui.video.ProviderCaptionPlaybackSourceTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

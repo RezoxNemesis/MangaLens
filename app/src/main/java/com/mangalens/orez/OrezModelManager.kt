@@ -166,6 +166,7 @@ class OrezModelManager private constructor(val context: Context, recoverTransfer
             prefs.edit().remove(KEY_VERIFICATION_ERROR).remove(KEY_RUNTIME_ERROR)
                 .remove(KEY_UNAVAILABLE_PATH).remove(KEY_UNAVAILABLE_UNTIL).apply()
             _state.value = readState()
+            com.mangalens.core.events.AppEvents.modelReady(artifact.sha256)
             artifact.file
         }
     }

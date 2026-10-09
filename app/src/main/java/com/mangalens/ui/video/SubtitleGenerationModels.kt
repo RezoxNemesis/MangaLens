@@ -2,6 +2,7 @@ package com.mangalens.ui.video
 
 import java.io.File
 import com.mangalens.core.translation.TranslationStyleProfile
+import com.mangalens.download.ProviderCaptionInventory
 
 data class SpeechCue(val startMs: Long, val endMs: Long, val text: String)
 
@@ -9,7 +10,9 @@ data class SubtitleMediaSource(
     val uri: String,
     val headers: Map<String, String> = emptyMap(),
     val cacheKey: String = uri,
-    val label: String = "Video"
+    val label: String = "Video",
+    val providerCaptions: ProviderCaptionInventory? = null,
+    val sourceResolutionId: String? = null
 )
 
 enum class SubtitleOutputMode { TRANSLATED, DUAL }
@@ -23,10 +26,11 @@ data class SubtitleTargetOptions(
     val customStyle: String = "",
     val localRefinement: Boolean = false,
     val refinementPin: SubtitleRefinementPin? = null,
-    val capturedStyle: TranslationStyleProfile? = null
+    val capturedStyle: TranslationStyleProfile? = null,
+    val sceneContext: String = ""
 ) {
     fun capture(): SubtitleTargetOptions = copy(targetLanguage = targetLanguage.trim().lowercase(java.util.Locale.ROOT),
-        style = style.trim().lowercase(java.util.Locale.ROOT), customStyle = customStyle.trim(),
+        style = style.trim().lowercase(java.util.Locale.ROOT), customStyle = customStyle.trim(), sceneContext = sceneContext.trim(),
         capturedStyle = capturedStyle ?: if (style.trim().equals("custom", true)) TranslationStyleProfile.custom(customStyle)
             else TranslationStyleProfile.fromId(style))
 }
@@ -45,10 +49,12 @@ data class SubtitleGenerationConfig(
     val localRefinement: Boolean = false,
     val translationPolicy: String = "whisper-english-v1",
     val capturedStyle: TranslationStyleProfile? = null,
-    val refinementPin: SubtitleRefinementPin? = null
+    val refinementPin: SubtitleRefinementPin? = null,
+    val sceneContext: String = ""
 ) {
     /** Legacy spelling is part of the durable v1 identity; never use data-class toString here. */
-    internal fun identityText(): String = if (pipeline == SubtitlePipeline.WHISPER_ENGLISH)
+    internal fun identityText(): String {
+        val legacy = if (pipeline == SubtitlePipeline.WHISPER_ENGLISH)
         "SubtitleGenerationConfig(sourceLanguage=$sourceLanguage, targetLanguage=$targetLanguage, style=$style, modelSha256=$modelSha256, windowSeconds=$windowSeconds, overlapSeconds=$overlapSeconds, threads=$threads)"
     else listOf("source-translation-v1", sourceLanguage, targetLanguage, style, modelSha256.orEmpty(),
         windowSeconds.toString(), overlapSeconds.toString(), threads.toString(), outputMode.name, pipeline.name,
@@ -56,13 +62,15 @@ data class SubtitleGenerationConfig(
         capturedStyle?.instruction.orEmpty(), capturedStyle?.preserveHonorifics.toString(), capturedStyle?.preserveNames.toString(),
         capturedStyle?.naturalDialogue.toString(), refinementPin?.modelId.orEmpty(), refinementPin?.sha256.orEmpty(),
         refinementPin?.bytes.toString()).joinToString("|") { "${it.length}:$it" }
+        return if (sceneContext.isEmpty()) legacy else legacy + "|scene-context-v1|${sceneContext.length}:$sceneContext"
+    }
     fun fingerprint(): String = java.security.MessageDigest.getInstance("SHA-256").digest(identityText().toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
     fun withTarget(options: SubtitleTargetOptions): SubtitleGenerationConfig = options.capture().let { captured -> copy(
         targetLanguage = captured.targetLanguage, style = captured.style, outputMode = captured.outputMode,
         pipeline = SubtitlePipeline.SOURCE_TRANSLATION, customStyle = captured.customStyle,
         localRefinement = captured.localRefinement, translationPolicy = "mlkit-dialogue-v1",
-        capturedStyle = captured.capturedStyle, refinementPin = captured.refinementPin)
+        capturedStyle = captured.capturedStyle, refinementPin = captured.refinementPin, sceneContext = captured.sceneContext)
     }
 }
 
@@ -74,7 +82,8 @@ data class SubtitleTranslatedCue(val sourceIndex: Int, val text: String, val hin
 data class SubtitleWindow(val index: Int, val startMs: Long, val endMs: Long, val pcmSha256: String,
     val cues: List<SpeechCue> = emptyList(), val silent: Boolean = false,
     val sourceCues: List<SpeechCue> = emptyList(), val detectedLanguage: String? = null,
-    val translations: List<SubtitleTranslatedCue> = emptyList()) {
+    val translations: List<SubtitleTranslatedCue> = emptyList(),
+    val providerCueSha256: String? = null) {
     internal fun targetComplete(config: SubtitleGenerationConfig): Boolean = config.pipeline == SubtitlePipeline.WHISPER_ENGLISH ||
         silent || sourceCues.isNotEmpty() && translations.size == sourceCues.size
     internal fun rendered(config: SubtitleGenerationConfig): List<SpeechCue> =
@@ -90,11 +99,12 @@ data class SubtitleGenerationTask(
     val durationMs: Long = 0, val detectedLanguage: String? = null, val srtPath: String? = null,
     val srtSha256: String? = null, val vttPath: String? = null, val vttSha256: String? = null,
     val updatedAt: Long = System.currentTimeMillis(), val error: String? = null, val validationPending: Boolean = false,
-    val pcmValidationRequired: Boolean = false, val ownerRequestId: String? = null, val audioComplete: Boolean = false
+    val pcmValidationRequired: Boolean = false, val ownerRequestId: String? = null, val audioComplete: Boolean = false,
+    val providerCaptionReceipt: ProviderCaptionReceipt? = null
 ) {
     private val aligned: List<SubtitleAlignedTrack.Pair> by lazy {
         if (validationPending || pcmValidationRequired || config.pipeline != SubtitlePipeline.SOURCE_TRANSLATION) emptyList()
-        else SubtitleAlignedTrack.pairs(windows)
+        else if (providerCaptionReceipt != null) providerCaptionPairs(windows) else SubtitleAlignedTrack.pairs(windows)
     }
     val cues: List<SpeechCue> by lazy {
         if (validationPending || pcmValidationRequired) emptyList()
@@ -117,7 +127,7 @@ data class SubtitleGenerationTask(
     val translatedCueCount: Int get() = windows.sumOf { it.translations.size }
     val sourceCueCount: Int get() = windows.sumOf { it.sourceCues.size }
     val pendingTargetCues: Int get() = if (config.pipeline == SubtitlePipeline.WHISPER_ENGLISH) 0 else sourceCueCount - translatedCueCount
-    val processedMs: Long get() = windows.lastOrNull()?.endMs ?: 0
+    val processedMs: Long get() = if (providerCaptionReceipt != null) windows.maxOfOrNull { it.endMs } ?: 0 else windows.lastOrNull()?.endMs ?: 0
 }
 
 internal data class SubtitleStartResult(val task: SubtitleGenerationTask, val replaced: SubtitleGenerationTask?)
@@ -140,7 +150,7 @@ internal suspend fun enforceSubtitleOwnerGate(store: SubtitleGenerationStore, ca
 internal fun SubtitleGenerationConfig.normalized(): SubtitleGenerationConfig = copy(
     sourceLanguage = sourceLanguage.trim().lowercase(java.util.Locale.ROOT),
     targetLanguage = targetLanguage.trim().lowercase(java.util.Locale.ROOT),
-    style = style.trim().lowercase(java.util.Locale.ROOT), customStyle = customStyle.trim())
+    style = style.trim().lowercase(java.util.Locale.ROOT), customStyle = customStyle.trim(), sceneContext = sceneContext.trim())
 
 data class FullSubtitleState(
     val running: Boolean = false, val progress: Float = 0f, val stage: String = "Ready",
@@ -186,7 +196,7 @@ internal object SubtitleFormats {
     }
 }
 
-internal fun SubtitleMediaSource.captureSnapshot(): SubtitleMediaSource = copy(headers = headers.toMap())
+internal fun SubtitleMediaSource.captureSnapshot(): SubtitleMediaSource = copy(headers = headers.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
 
 internal class SubtitleGenerationRequest(val token: Long, source: SubtitleMediaSource, val sourceLanguage: String, targetOptions: SubtitleTargetOptions? = null) {
     val source = source.captureSnapshot()

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.OrezLiveAnswerPolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.01">
+  <properties/>
+  <testcase name="cancellationFromTheRealSynthesisBoundaryPropagates" classname="com.mangalens.orez.OrezLiveAnswerPolicyTest" time="0.001"/>
+  <testcase name="unusableEncyclopediaExcerptsKeepTheLimitWithoutInventingAnAnswer" classname="com.mangalens.orez.OrezLiveAnswerPolicyTest" time="0.001"/>
+  <testcase name="aDifferentProviderIsNotMislabelledAsWikipedia" classname="com.mangalens.orez.OrezLiveAnswerPolicyTest" time="0.0"/>
+  <testcase name="encyclopediaFallbackKeepsItsAttributionAndTemporalLimit" classname="com.mangalens.orez.OrezLiveAnswerPolicyTest" time="0.001"/>
+  <testcase name="modelUnavailableUsesCleanDistinctBoundedExcerpts" classname="com.mangalens.orez.OrezLiveAnswerPolicyTest" time="0.005"/>
+  <testcase name="ordinaryWebEvidenceKeepsWorkingModelSynthesis" classname="com.mangalens.orez.OrezLiveAnswerPolicyTest" time="0.001"/>
+  <testcase name="encyclopediaBackgroundNeverInvokesAmbientModelSynthesis" classname="com.mangalens.orez.OrezLiveAnswerPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

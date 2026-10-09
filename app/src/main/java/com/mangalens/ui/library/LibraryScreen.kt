@@ -39,7 +39,8 @@ import java.io.File
 fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, onOpenSavedChapter: (String) -> Unit,
     onOpenReader: () -> Unit, onOpenLocalVideo: () -> Unit,
     onChapterDetails: (String, Boolean, ReadingStatus) -> Unit,
-    onChapterMetadata: (suspend (String, LibraryChapterMetadata) -> Unit)? = null) {
+    onChapterMetadata: (suspend (String, LibraryChapterMetadata) -> Unit)? = null,
+    onOpenSeriesMemory: ((String?) -> Unit)? = null) {
     val context = LocalContext.current.applicationContext
     val settings = remember(context) { LibrarySettingsStore(context) }
     val scope = rememberCoroutineScope()
@@ -111,6 +112,9 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = .045f), MaterialTheme.colorScheme.background))).statusBarsPadding(),
         contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item(span = { GridItemSpan(maxLineSpan) }) { BrandHeader("My Library", "YOUR STORIES, YOUR PACE") }
+        if (onOpenSeriesMemory != null) item(span = { GridItemSpan(maxLineSpan) }) {
+            TextButton({ onOpenSeriesMemory(null) }, modifier = Modifier.semantics { contentDescription = "Open series memory" }) { Text("Series memory and glossary") }
+        }
         item(span = { GridItemSpan(maxLineSpan) }) {
             OutlinedTextField(query, { if (it.length <= 512) query = it }, Modifier.fillMaxWidth().semantics { contentDescription = "Search saved chapters" },
                 singleLine = true, leadingIcon = { Icon(Icons.Outlined.Search, null) },
@@ -174,6 +178,8 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
                         ReadingStatus.displayOrder.forEach { status -> DropdownMenuItem(text = { Text(status.label) }, onClick = { onChapterDetails(chapter.id, chapter.bookmarked, status); menu = false }) }
                         if (onChapterMetadata != null) DropdownMenuItem(text = { Text("Edit series, notes and collections") },
                             modifier = Modifier.semantics { contentDescription = "Edit library details for ${chapter.title}" }, onClick = { editingId = chapter.id; menu = false })
+                        if (onOpenSeriesMemory != null) DropdownMenuItem(text = { Text("Link series memory and glossary") },
+                            modifier = Modifier.semantics { contentDescription = "Link series memory for ${chapter.title}" }, onClick = { menu = false; onOpenSeriesMemory(chapter.id) })
                         DropdownMenuItem(text = { Text("Delete offline chapter") }, onClick = { pendingDeleteId = chapter.id; menu = false })
                     }
                 })

@@ -59,13 +59,24 @@ class ChapterTranslationWorker(context: Context, parameters: WorkerParameters) :
                         if (!store.isCurrent(taskId, generation)) return@withLock Result.success()
                         val beforePage = store.get(taskId)?.takeIf { it.generation == generation } ?: return@withLock Result.success()
                         if (!OrezTaskRecovery.allowChapterWork(applicationContext, store, beforePage)) return@withLock Result.success()
+                        if (!com.mangalens.core.compute.ResourceGovernorRuntime.shared.awaitBoundary(
+                                com.mangalens.core.compute.ResourceWorkKind.BACKGROUND) { store.isCurrent(taskId, generation) })
+                            return@withLock Result.success()
+                        // Resource throttling can suspend; owner control remains authoritative before OCR.
+                        val readyPage = store.get(taskId)?.takeIf { it.generation == generation } ?: return@withLock Result.success()
+                        if (!OrezTaskRecovery.allowChapterWork(applicationContext, store, readyPage)) return@withLock Result.success()
                         val page = store.beginPage(taskId, generation, index) ?: continue
                         val contextText = store.get(taskId)?.pages.orEmpty().takeWhile { it.index != index }
                             .flatMap { it.lettering }.takeLast(12).joinToString("\n") { it.translated }.take(4500)
                         val result = try {
-                            withContext(Dispatchers.Default) { translator.translate(page, contextText) }
+                            val nativeGuard = ChapterNativeEntryGuard(store, task, page, allowOwner = { captured ->
+                                OrezTaskRecovery.allowChapterWork(applicationContext, store, captured)
+                            })
+                            withContext(Dispatchers.Default + nativeGuard.precondition) { translator.translate(page, contextText) }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
+                        } catch (deferred: com.mangalens.core.compute.ResourcePausedException) {
+                            throw deferred
                         } catch (failure: Exception) {
                             // A source/model error is local to this page; verified neighbours and
                             // any earlier successful bubbles remain available for another attempt.
@@ -89,6 +100,9 @@ class ChapterTranslationWorker(context: Context, parameters: WorkerParameters) :
                 }
                 Result.success() // Partial quality failures remain explicit in the durable journal.
             }
+        } catch (deferred: com.mangalens.core.compute.ResourcePausedException) {
+            if (store.deferForResources(taskId, generation, deferred.message ?: "Waiting for device resources; saved progress will resume automatically."))
+                Result.retry() else Result.success()
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable + Dispatchers.IO) {
                 // Explicit controls already changed status/generation. Only an OS interruption
@@ -232,7 +246,7 @@ object ChapterTranslationJobs {
         try {
             val request = OneTimeWorkRequestBuilder<ChapterTranslationWorker>()
                 .setInputData(workDataOf(ChapterTranslationWorker.TASK_ID to task.id, ChapterTranslationWorker.GENERATION to task.generation))
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(30))
+                .setBackoffCriteria(BackoffPolicy.LINEAR, Duration.ofSeconds(10))
                 .addTag("chapter-translation").addTag(chapterTag(task.chapterId)).addTag(workName(task.id, task.generation)).build()
             // Offline installed models work without a network constraint. Missing model downloads
             // are handled by the bounded translation phase with a visible resumable error.

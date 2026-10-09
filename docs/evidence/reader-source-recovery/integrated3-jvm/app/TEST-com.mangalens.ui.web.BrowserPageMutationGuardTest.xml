@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.web.BrowserPageMutationGuardTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:32" hostname="53f09df5485f" time="0.134">
+  <properties/>
+  <testcase name="heldTranslationCannotApplyOrPublishAfterTheActorSelectsAnotherTabBeforeOldViewDisposal" classname="com.mangalens.ui.web.BrowserPageMutationGuardTest" time="0.069"/>
+  <testcase name="aPostedJsDispatchRechecksOwnershipAfterEnqueueBeforeTouchingTheOldView" classname="com.mangalens.ui.web.BrowserPageMutationGuardTest" time="0.018"/>
+  <testcase name="stoppedOrReplacedTicketDropsTheHeldResultEvenWhenTheTabAndViewStillMatch" classname="com.mangalens.ui.web.BrowserPageMutationGuardTest" time="0.004"/>
+  <testcase name="qualifiedActivePageCanPublishANullJsResultAndCancellationStillPropagates" classname="com.mangalens.ui.web.BrowserPageMutationGuardTest" time="0.011"/>
+  <testcase name="inactiveInitialBuildAndRestorationDoNotEvenDispatchTheirProviderOperation" classname="com.mangalens.ui.web.BrowserPageMutationGuardTest" time="0.032"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

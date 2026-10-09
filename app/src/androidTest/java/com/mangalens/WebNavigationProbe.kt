@@ -20,8 +20,11 @@ import org.json.JSONTokener
 import java.io.File
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import java.util.logging.Formatter
 import java.util.logging.Level
 import java.util.logging.LogRecord
@@ -94,6 +97,56 @@ internal class WebNavigationProbe(
                 record("snapshot_error", "label" to label, "query" to id.toString(), "error_class" to it.javaClass.simpleName)
             }
         }
+    }
+
+    /**
+     * Some WebView providers omit their accessible descendants after a network-error reload.
+     * Read only the exact controlled document and require its visible heading plus a completed
+     * renderer frame. The caller still captures the actual screenshot and uses real UI controls.
+     */
+    fun awaitRenderedHeading(expectedUrl: String, expectedHeading: String, timeoutMs: Long = 15_000) {
+        require(timeoutMs > 0 && scope.accepts(expectedUrl))
+        val deadline = android.os.SystemClock.uptimeMillis() + timeoutMs
+        val last = AtomicReference<JSONObject?>()
+        while (android.os.SystemClock.uptimeMillis() < deadline) {
+            val ready = AtomicBoolean(false)
+            val complete = CountDownLatch(1)
+            main.post {
+                if (observationsStopped.get()) { complete.countDown(); return@post }
+                val activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                    .filterIsInstance<MainActivity>().firstOrNull()
+                val view = activity?.window?.decorView?.let(::findWebView)
+                if (view == null || !view.isAttachedToWindow || !view.isShown || view.url != expectedUrl || view.progress != 100) {
+                    complete.countDown(); return@post
+                }
+                view.evaluateJavascript(scope.domSnapshotScript()) { result ->
+                    val snapshot = runCatching {
+                        (JSONTokener(result.orEmpty()).nextValue() as? String)?.let(::JSONObject)
+                    }.getOrNull()
+                    last.set(snapshot)
+                    if (snapshot == null || !renderedWebFixtureHeading(snapshot, expectedUrl, expectedHeading)) {
+                        complete.countDown()
+                    } else {
+                        view.postVisualStateCallback(nextQuery.incrementAndGet(), object : WebView.VisualStateCallback() {
+                            override fun onComplete(requestId: Long) {
+                                ready.set(!observationsStopped.get() && view.isAttachedToWindow && view.isShown && view.url == expectedUrl)
+                                complete.countDown()
+                            }
+                        })
+                    }
+                }
+            }
+            val remaining = deadline - android.os.SystemClock.uptimeMillis()
+            if (remaining <= 0) break
+            complete.await(minOf(500L, remaining), TimeUnit.MILLISECONDS)
+            if (ready.get() && android.os.SystemClock.uptimeMillis() < deadline) {
+                record("rendered_heading_observed", "url" to expectedUrl, "heading" to expectedHeading,
+                    "snapshot" to last.get().toString())
+                return
+            }
+            android.os.SystemClock.sleep(minOf(50L, (deadline - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0)))
+        }
+        throw AssertionError("Expected rendered fixture heading '$expectedHeading' at $expectedUrl within $timeoutMs ms: ${last.get()}")
     }
 
     private fun observeOnMain(label: String, id: Long) {

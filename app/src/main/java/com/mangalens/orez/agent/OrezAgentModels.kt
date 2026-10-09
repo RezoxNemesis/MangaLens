@@ -1,5 +1,7 @@
 package com.mangalens.orez.agent
 
+import com.mangalens.ui.video.fingerprint
+
 import com.mangalens.orez.OrezRoute
 import java.util.UUID
 import java.util.Locale
@@ -80,7 +82,8 @@ data class OrezMediaSelection(
     val headers: Map<String, String> = emptyMap(),
     val resolutionId: String? = null,
     val audio: OrezAudioSelection? = null,
-    val expectedDurationUs: Long? = null
+    val expectedDurationUs: Long? = null,
+    val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null
 ) {
     val sourceId: String get() {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -92,13 +95,13 @@ data class OrezMediaSelection(
                 (audio?.let { listOf(it.uri, it.resolutionId, it.headers.size.toString()) +
                     it.headers.toSortedMap().flatMap { entry -> listOf(entry.key, entry.value) } }.orEmpty())
         // Length framing prevents header/source delimiters from aliasing a selection.
-        for (value in fields) {
+        for (value in fields + providerCaptions?.let { listOf("provider-caption-inventory", it.fingerprint()) }.orEmpty()) {
             digest.update(value.toByteArray(Charsets.UTF_8).size.toString().toByteArray(Charsets.UTF_8))
             digest.update(':'.code.toByte()); digest.update(value.toByteArray(Charsets.UTF_8))
         }
         return "selected-" + digest.digest().joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 255) }.take(32)
     }
-    fun captured() = copy(headers = headers.toMap(), audio = audio?.copy(headers = audio.headers.toMap()))
+    fun captured() = copy(headers = headers.toMap(), audio = audio?.copy(headers = audio.headers.toMap()), providerCaptions = providerCaptions?.captureSnapshot())
 }
 
 /** Complete captured native policy; a later Settings/model change cannot alter a queued request. */
@@ -115,11 +118,12 @@ data class OrezSubtitleOptions(
     val localRefinement: Boolean = false,
     val translationPolicy: String = "whisper-english-v1",
     val capturedStyle: TranslationStyleProfile? = null,
-    val refinementPin: SubtitleRefinementPin? = null
+    val refinementPin: SubtitleRefinementPin? = null,
+    val sceneContext: String = ""
 ) {
     fun normalized() = copy(sourceLanguage = sourceLanguage.trim().lowercase(Locale.ROOT),
         targetLanguage = targetLanguage.trim().lowercase(Locale.ROOT).replace('_', '-'), style = style.trim().lowercase(Locale.ROOT),
-        customStyle = customStyle.trim(), capturedStyle = capturedStyle ?: if (pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
+        customStyle = customStyle.trim(), sceneContext = sceneContext.trim(), capturedStyle = capturedStyle ?: if (pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
             if (style.trim().equals("custom", true)) TranslationStyleProfile.custom(customStyle) else TranslationStyleProfile.fromId(style)
         else null)
 }
@@ -156,7 +160,7 @@ enum class OrezOutputKind { DOWNLOAD_RECEIPT, SAVED_CHAPTER, CHAPTER_TRANSLATION
 enum class OrezPendingControl { PAUSE, CANCEL }
 enum class OrezOutputField(val key: String) {
     CHAPTER_ID("chapterId"), SOURCE_FINGERPRINT("sourceFingerprint"), DOWNLOAD_ID("downloadId"),
-    MEDIA_SOURCE_ID("sourceId"), SPEECH_MODEL_SHA256("speechModelSha256")
+    MEDIA_SOURCE_ID("sourceId"), SPEECH_MODEL_SHA256("speechModelSha256"), CAPTION_INVENTORY_SHA256("captionInventorySha256")
 }
 data class OrezOutputReference(val stepIndex: Int, val field: OrezOutputField)
 

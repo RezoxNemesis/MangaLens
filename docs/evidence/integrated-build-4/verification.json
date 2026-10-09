@@ -1,0 +1,51 @@
+{
+  "candidate": "dirty build4 based on08ca908c35e0a3593c84b683ed967fed1a069715",
+  "full_gradle_exit": 0,
+  "elapsed": "5m25s",
+  "unit_results": {
+    "tests": 1469,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "execution": "Valid unchanged JVM results reused by Gradle; exact210 XML receipts are in ../integrated-build-3/verification.json"
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 77
+  },
+  "package_checks": "BothABI debug+selfTest archive/signature/package/native-runtime/bundled-icon-license checks passed",
+  "source_inputs": "749 files checked equal before/after build",
+  "scope": "Adds bundled attribution and final test fixture lifecycle cleanup. Actual device checks are separate against sealed build3; build4 not installed. Fresh-SHA build and CI pending.",
+  "evidence_files": [
+    {
+      "path": "apk-manifest.json",
+      "bytes": 1721,
+      "sha256": "6e18efb31576cba9e7e9d2e37723a7ea7532a1cca89ef8bf63df40d069428fe2"
+    },
+    {
+      "path": "checkpoint-acceptance-scripts-unit.log",
+      "bytes": 107,
+      "sha256": "d9d734ee1c2de67b748aeef1c4126433aa438ad8375ca953916f12b1df11414d"
+    },
+    {
+      "path": "integrated-4-source-frozen.json",
+      "bytes": 163401,
+      "sha256": "9184ae7b9445ff73487a2a2f63b8ca05b916752d588a6cc05703eb458dd9f156"
+    },
+    {
+      "path": "integrated-build-4-debug-package-verification.log",
+      "bytes": 1315,
+      "sha256": "61b27647598cfaedb288e7042983dea9e39b4c1fb7c9520b63ee137e3d1db020"
+    },
+    {
+      "path": "integrated-build-4-selftest-package-verification.log",
+      "bytes": 1327,
+      "sha256": "6d12fe67e2fa3dbcd5b2783a3483c34581f7b8da2ab438c2777303b10435b9c6"
+    },
+    {
+      "path": "integrated-build-4.log",
+      "bytes": 18456,
+      "sha256": "29c4c98dc43df71081a16e22a96ad0b255bd9d5089c9600f3fa8152af857a7d9"
+    }
+  ]
+}

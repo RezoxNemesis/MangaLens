@@ -62,6 +62,7 @@ class WebNavigationSmokeTest {
         }
         server.start()
         val probe = WebNavigationProbe(context, trace, server.url("/").toString())
+        val browserFixture = BrowserWorkspaceFixtureIsolation(context)
         try {
             prefs.edit().putString("last_url", "").putBoolean("translation_web", false).commit()
             launchHome()
@@ -139,7 +140,7 @@ class WebNavigationSmokeTest {
             tap(By.text("Retry"))
             probe.record("recovery_retry_returned")
             probe.sample("before-recovery-heading-wait")
-            node(By.text("Fixture connection restored"))
+            probe.awaitRenderedHeading(server.url("/recover").toString(), "Fixture connection restored")
             probe.record("recovery_heading_visible")
             probe.sample("recovery-heading-visible")
             assertTrue("Reload did not make a new network request", recoveryVisits.get() >= 2)
@@ -159,7 +160,7 @@ class WebNavigationSmokeTest {
             try { finishActivity(); server.shutdown() }
             finally {
                 runCatching { probe.close() }.onFailure { android.util.Log.e("WebNavFixture", "Could not export fixture trace", it) }
-                restore()
+                try { restore() } finally { browserFixture.close() }
             }
         }
     }

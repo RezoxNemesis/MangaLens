@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.ResumableMediaTransferTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.405">
+  <properties/>
+  <testcase name="changedRepresentationCannotBeAppended" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.044"/>
+  <testcase name="matchingStartWithInvalidRangeEndIsRejected" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.008"/>
+  <testcase name="unsatisfiableRangeResetsForRetryAndChunkedBodyCompletes" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.065"/>
+  <testcase name="interruptedResponseResumesWithTheExactSavedBytes" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.102"/>
+  <testcase name="partialWithoutValidatorRestartsInsteadOfAppending" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.016"/>
+  <testcase name="rangeLengthMismatchAndMissingRangeAreRejected" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.071"/>
+  <testcase name="cancellationInterruptsAStalledSocket" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.017"/>
+  <testcase name="fullRestartRemovesOldValidatorBeforeAnotherAttempt" classname="com.mangalens.download.ResumableMediaTransferTest" time="0.081"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[Oct 09, 2026 7:57:24 PM okhttp3.mockwebserver.MockWebServer$SocketHandler handle
+WARNING: MockWebServer[41501] connection from /127.0.0.1 didn't make a request
+]]></system-err>
+</testsuite>

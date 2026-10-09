@@ -10,6 +10,29 @@ import java.io.IOException
 import java.nio.file.Files
 
 class SubtitleGenerationStoreTest {
+    @Test fun resourceWaitRetainsExactGenerationAndCheckpointsWithoutResumingExplicitPauses() {
+        Fixture().use { f ->
+            val store = f.store()
+            val task = store.start(f.source, f.config, ownerRequestId = "orez:resource-wait")
+            store.running(task.id, task.generation)
+            assertTrue(store.checkpoint(task.id, task.generation, f.window, 20_000))
+            val reason = "Waiting for the device to cool; saved progress will resume automatically."
+            assertTrue(store.deferForResources(task.id, task.generation, reason))
+            val reopened = f.store().get(task.id)!!
+            assertEquals(SubtitleGenerationStatus.QUEUED, reopened.status)
+            assertEquals(task.generation, reopened.generation)
+            assertEquals(task.ownerRequestId, reopened.ownerRequestId)
+            assertEquals(listOf(f.window), reopened.windows)
+            assertEquals(reason, reopened.error)
+            store.pause(task.id, task.generation)
+            assertFalse(store.deferForResources(task.id, task.generation, reason))
+            assertEquals(SubtitleGenerationStatus.PAUSED, store.get(task.id)!!.status)
+            val resumed = store.resume(task.id, task.generation)!!
+            assertFalse(store.deferForResources(task.id, task.generation, reason))
+            assertEquals(resumed.generation, store.get(task.id)!!.generation)
+        }
+    }
+
     private class Fixture : AutoCloseable {
         val root = Files.createTempDirectory("subtitle-journal").toFile()
         var failWrite = false

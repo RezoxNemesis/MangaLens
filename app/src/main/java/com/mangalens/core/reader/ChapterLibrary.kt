@@ -131,7 +131,11 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
             .put("addedAt", saved.addedAt.coerceAtLeast(0)).put("lastReadAt", saved.lastReadAt.coerceAtLeast(0))
             .put("pages", JSONArray().apply {
                 saved.pages.forEach { page -> put(JSONObject().put("index", page.index).put("source", page.sourceUrl)
-                    .put("file", page.localPath?.let { File(it).name }).put("error", page.error)) }
+                    .put("file", page.localPath?.let { File(it).name }).put("error", page.error)
+                    .put("documentSource", page.documentSource?.validate()?.let { source -> JSONObject()
+                        .put("uri", source.uri).put("kind", source.kind).put("pageIndex", source.pageIndex)
+                        .put("sha256", source.documentSha256).put("entry", source.archiveEntryName)
+                        .put("persistedRead", source.persistedReadPermission) })) }
             })
         val bytes = json.toString().toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_MANIFEST_BYTES) { "Chapter metadata is too large to save." }
@@ -168,12 +172,18 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
             val name = row.optString("file")
             val pageIndex = row.getInt("index")
             val source = row.getString("source")
+            val originalDocument = row.optJSONObject("documentSource")?.let { document ->
+                ChapterDocumentSource(document.getString("uri"), document.getString("kind"), document.getInt("pageIndex"),
+                    document.getString("sha256"), document.optString("entry").takeIf { it.isNotBlank() && it != "null" },
+                    document.optBoolean("persistedRead", false)).validate()
+            }
+            require(originalDocument == null || originalDocument.uri == source) { "Original document metadata does not match the saved source." }
             val image = File(images, name)
             when {
-                name.isBlank() || name == "null" -> ChapterPage(pageIndex, source, error = row.optString("error").takeIf { it.isNotBlank() && it != "null" } ?: "Page needs to be downloaded. Retry.")
-                name != File(name).name || image.canonicalFile.parentFile != images.canonicalFile -> ChapterPage(pageIndex, source, error = "Saved page path is invalid. Retry the source.")
-                !image.isFile || image.length() == 0L -> ChapterPage(pageIndex, source, error = "Saved page is missing. Retry the source.")
-                else -> ChapterPage(pageIndex, source, image.absolutePath, row.optString("error").takeIf { it.isNotBlank() && it != "null" })
+                name.isBlank() || name == "null" -> ChapterPage(pageIndex, source, error = row.optString("error").takeIf { it.isNotBlank() && it != "null" } ?: "Page needs to be downloaded. Retry.", documentSource = originalDocument)
+                name != File(name).name || image.canonicalFile.parentFile != images.canonicalFile -> ChapterPage(pageIndex, source, error = "Saved page path is invalid. Retry the source.", documentSource = originalDocument)
+                !image.isFile || image.length() == 0L -> ChapterPage(pageIndex, source, error = "Saved page is missing. Retry the source.", documentSource = originalDocument)
+                else -> ChapterPage(pageIndex, source, image.absolutePath, row.optString("error").takeIf { it.isNotBlank() && it != "null" }, documentSource = originalDocument)
             }
         }
         val collections = json.optJSONArray("collections")

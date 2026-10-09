@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.048">
+  <properties/>
+  <testcase name="retrievesOnlyRelevantNamesAndEarlierSameSeriesDialogue" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.003"/>
+  <testcase name="excludesFuturePageFutureChapterUnorderedChapterAndUnrelatedConfiguration" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.001"/>
+  <testcase name="explicitlyRecordedAliasMapsTheActualSourceSpellingWithoutInventingAName" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.0"/>
+  <testcase name="invalidGeometryOrReceiptCannotBeAdvertisedAsSourceProof" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.0"/>
+  <testcase name="equalTitlesCannotLinkUnassociatedChapterOrWrongSeriesProfile" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.0"/>
+  <testcase name="eastAsianNamesRemainRetrievableInsideUnspacedDialogueAndScriptTransitions" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.002"/>
+  <testcase name="boundsContextAndSearchWithoutDiscardingStoredHistory" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.034"/>
+  <testcase name="matchesWholeLatinNamesKeepsScriptMarksAndSupportsActualAliasPunctuation" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.0"/>
+  <testcase name="lexicalSearchIncludesGenuineTranslatedAndEditedSourceValuesWithEvidence" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.003"/>
+  <testcase name="glossaryPacketFitsPinnedRefinementBoundsWithoutTruncatingPreferredTerms" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.003"/>
+  <testcase name="knownSourceOriginsMustPrecedeCurrentLocationInTheExactSeries" classname="com.mangalens.core.translation.memory.SeriesMemoryQueryTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

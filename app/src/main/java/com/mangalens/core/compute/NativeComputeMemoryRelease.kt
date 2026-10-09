@@ -26,7 +26,7 @@ internal class NativeComputeMemoryRelease(
                     while (lease == null) {
                         try {
                             // FIFO with live requests, ahead of background; future live cannot starve cleanup.
-                            lease = admission.acquire(NativeComputeAdmission.Priority.LIVE) { true }
+                            lease = admission.acquire(NativeComputeAdmission.Priority.LIVE, ResourceWorkKind.CLEANUP) { true }
                         } catch (_: IllegalStateException) {
                             // A full feature queue must not drop accepted model cleanup or block Main.
                             delay(50)

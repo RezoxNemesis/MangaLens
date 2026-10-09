@@ -9,6 +9,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeout
 import com.mangalens.core.compute.NativeComputeAdmission
 import com.mangalens.core.compute.NativeComputePrecondition
+import com.mangalens.core.compute.ResourceGovernor
+import com.mangalens.core.compute.ResourceSignals
+import com.mangalens.core.compute.MemoryPressure
+import com.mangalens.core.compute.ResourcePausedException
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
@@ -23,6 +27,30 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class NativeLiveSpeechBudgetTest {
+    @Test fun confirmedCriticalPressureDuringFeatureProofCannotEnterNativeInference() = runBlocking {
+        val policy = ResourceGovernor(clockMs = { 0 })
+        val admission = NativeComputeAdmission(governor = policy)
+        val entries = AtomicInteger()
+        val finishes = AtomicInteger()
+        val outcome = runCatching {
+            withContext(NativeComputePrecondition {
+                kotlinx.coroutines.yield()
+                policy.update(ResourceSignals(memory = MemoryPressure.CRITICAL))
+            }) {
+                NativeLiveSpeechBudget(20_000, { 0 }, 5, policy).run(Mutex(), { true }, admission) {
+                    object : NativeLiveSpeechInvocation<String> {
+                        override fun infer(): String { entries.incrementAndGet(); return "obsolete native effect" }
+                        override fun cancel() { }
+                        override fun finish() { finishes.incrementAndGet() }
+                    }
+                }
+            }
+        }
+        assertTrue("Escalated pressure after proof entered native inference", outcome.exceptionOrNull() is ResourcePausedException)
+        assertEquals(0, entries.get())
+        assertEquals("An opened invocation must still finish while critical pressure blocks inference", 1, finishes.get())
+    }
+
     @Test fun sourceChangedDuringSharedQueueIsRejectedBeforeNativeAdmission() = heldTypedPrecondition("source")
     @Test fun modelChangedDuringSharedQueueIsRejectedBeforeNativeAdmission() = heldTypedPrecondition("model")
     @Test fun generationChangedDuringSharedQueueIsRejectedBeforeNativeAdmission() = heldTypedPrecondition("generation")
@@ -371,9 +399,13 @@ class NativeLiveSpeechBudgetTest {
             return "stale"
         }
         override fun cancel() {
+            // Snapshot this cancellation's native-entry phase before releasing the test
+            // thread. Otherwise that thread can enter JNI between the latch and the
+            // read below, letting the first cancellation impersonate the repeated one.
+            val afterReset = reset.get()
             cancels.incrementAndGet()
             firstCancel.countDown()
-            if (reset.get()) { cancelAfterReset.countDown(); returnNative.countDown() }
+            if (afterReset) { cancelAfterReset.countDown(); returnNative.countDown() }
         }
         override fun finish() { }
     }

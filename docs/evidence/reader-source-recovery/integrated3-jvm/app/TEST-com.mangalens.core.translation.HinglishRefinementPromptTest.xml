@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.HinglishRefinementPromptTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:17" hostname="53f09df5485f" time="0.042">
+  <properties/>
+  <testcase name="romanTargetExplicitlyRequiresReadableLatinHindiAndRetainedTerms" classname="com.mangalens.core.translation.HinglishRefinementPromptTest" time="0.04"/>
+  <testcase name="romanPromptRetainsSourceDraftContextAndGlossaryInsteadOfReTranslatingTheTargetTag" classname="com.mangalens.core.translation.HinglishRefinementPromptTest" time="0.001"/>
+  <testcase name="ordinaryHindiKeepsItsScriptGuidanceAndSelectedStyle" classname="com.mangalens.core.translation.HinglishRefinementPromptTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

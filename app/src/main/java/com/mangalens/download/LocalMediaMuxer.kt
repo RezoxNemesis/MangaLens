@@ -27,6 +27,11 @@ internal object LocalMediaMuxer {
                 "This original codec pair requires copy-only native FFmpeg remuxing."
             }
             videoInput.selectTrack(vi); audioInput.selectTrack(ai)
+            check(videoInput.sampleTrackIndex >= 0 && audioInput.sampleTrackIndex >= 0) { "Empty track cannot be muxed." }
+            // A negative PTS can be a real AAC priming packet, not extractor EOF.
+            // Older MediaMuxer versions require nonnegative PTS: use one shared
+            // origin so neither original packets nor the A/V offset are lost.
+            val timestampOffsetUs = Math.negateExact(minOf(0L, videoInput.sampleTime, audioInput.sampleTime))
             muxer = MediaMuxer(output.absolutePath, when (selected.container) {
                 OriginalMediaContainer.MP4 -> MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
                 OriginalMediaContainer.WEBM -> MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM
@@ -41,16 +46,17 @@ internal object LocalMediaMuxer {
             val buffer = ByteBuffer.allocateDirect(maxSample)
             val info = MediaCodec.BufferInfo()
             val counts = longArrayOf(0L, 0L)
-            while (videoInput.sampleTime >= 0L || audioInput.sampleTime >= 0L) {
+            while (videoInput.sampleTrackIndex >= 0 || audioInput.sampleTrackIndex >= 0) {
                 checkActive(); buffer.clear()
-                val selectedInput = if (audioInput.sampleTime < 0L ||
-                    videoInput.sampleTime >= 0L && videoInput.sampleTime <= audioInput.sampleTime) 0 else 1
+                val selectedInput = if (audioInput.sampleTrackIndex < 0 ||
+                    videoInput.sampleTrackIndex >= 0 && videoInput.sampleTime <= audioInput.sampleTime) 0 else 1
                 val input = if (selectedInput == 0) videoInput else audioInput
                 val track = if (selectedInput == 0) vt else at
                 val size = input.readSampleData(buffer, 0)
                 check(size > 0) { "Original media contains an empty sample." }
                 check(input.sampleFlags and MediaExtractor.SAMPLE_FLAG_ENCRYPTED == 0) { "Protected media cannot be remuxed." }
-                info.set(0, size, input.sampleTime, if (input.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
+                info.set(0, size, Math.addExact(input.sampleTime, timestampOffsetUs),
+                    if (input.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
                 muxer.writeSampleData(track, buffer, info)
                 input.advance(); counts[selectedInput]++
             }

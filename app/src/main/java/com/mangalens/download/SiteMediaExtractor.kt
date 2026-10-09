@@ -70,7 +70,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             addOption("--skip-download")
             // Inventory is never persisted; the parser rejects JSON over 16 MiB.
             // Only safe selected facts persist with the complete source tuple.
-            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,format_id,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats,formats})j")
+            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,format_id,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats,formats,id,language,original_language,subtitles,automatic_captions})j")
             addOption("--no-warnings")
             addOption("--socket-timeout", "8")
             addOption("--retries", "1")
@@ -162,7 +162,8 @@ internal object SiteMediaInfoParser {
                 detectedHeight = heightHint(video), title = info.optString("title"),
                 sourcePageUrl = sourcePage, headers = safeHeaders(info) + safeHeaders(video),
                 audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio),
-                expectedDurationUs = durationUs(info), originalSelection = selection(info, video, audio))
+                expectedDurationUs = durationUs(info), originalSelection = selection(info, video, audio),
+                providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, audio.optString("language")))
         }
         if (info.optString("vcodec") == "none" || info.optString("acodec") == "none") return null
         // Never substitute one of requested_formats: those commonly contain separate tracks.
@@ -181,7 +182,8 @@ internal object SiteMediaInfoParser {
             detectedHeight = heightHint(info),
             title = info.optString("title").takeIf { it.isNotBlank() },
             sourcePageUrl = sourcePage, headers = headers, expectedDurationUs = durationUs(info),
-            originalSelection = selection(info, info, info)
+            originalSelection = selection(info, info, info),
+            providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, info.optString("language"))
         )
     }
 

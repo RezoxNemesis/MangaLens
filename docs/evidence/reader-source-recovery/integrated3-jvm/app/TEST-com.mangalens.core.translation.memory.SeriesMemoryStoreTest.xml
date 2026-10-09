@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.252">
+  <properties/>
+  <testcase name="rejectsSameLengthSourceAndOutputTamperingBeforeSaveAndBeforeSearch" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.026"/>
+  <testcase name="realPrivateBytesAndBothCorrectionsSurviveReopenWithOriginalReceipt" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.006"/>
+  <testcase name="rollbackAddsInspectableRevisionAndExplicitRemoveErasesOnlyPersonalCorrection" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.02"/>
+  <testcase name="externalPathsAndOutOfSourceBoundsRejectBeforeAnyJournalCreation" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.009"/>
+  <testcase name="failedJournalPublicationPreservesPreviousStateAndReopen" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.01"/>
+  <testcase name="excessiveRevisionAndTextRequestsFailWithoutLosingAcceptedPersonalHistory" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.09"/>
+  <testcase name="sourcedGlossaryRetainsAuthenticPageHashAndStopsReuseAfterItsSourceChanges" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.01"/>
+  <testcase name="explicitSeriesIdentityAndOriginBoundsPreventCrossSeriesAndFutureTermReuse" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.01"/>
+  <testcase name="seriesStylePreferenceAndTermRemovalAreDurableAndInspectible" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.005"/>
+  <testcase name="relinkingAChapterDoesNotMoveOldSeriesCorrectionsIntoAnotherSeries" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.01"/>
+  <testcase name="sourceFreshnessAndTombstoneExcludeDeletedDataAndRejectLateIndexWithoutDeletingMedia" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.026"/>
+  <testcase name="correctionTouchesOneOriginalCoordinateBubbleAndSearchRetainsBothArtifacts" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.008"/>
+  <testcase name="symlinkEscapesAndUnsupportedSchemaNeverBecomeInstalledMemoryOrDeleteOriginals" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.01"/>
+  <testcase name="rejectsStaleGenerationTargetStyleAndEditorRevisionWithoutOverwritingAcceptedEdit" classname="com.mangalens.core.translation.memory.SeriesMemoryStoreTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

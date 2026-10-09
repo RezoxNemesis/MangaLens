@@ -1,6 +1,5 @@
 package com.mangalens.core.translation
 
-import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -140,12 +139,16 @@ internal class ChapterPageTranslator(
                         lettering += SavedMangaLettering(region.source, localized, patch.bounds.left, patch.bounds.top,
                             patch.bounds.right, patch.bounds.bottom, patch.style.family, patch.style.face, patch.style.color,
                             patch.style.size, patch.style.alignment.name, bounds.left, bounds.top, bounds.right, bounds.bottom,
-                            savedHindiDraft = localizedDraft.hindiDraft)
+                            savedHindiDraft = localizedDraft.hindiDraft,
+                            originalSourceBounds = OriginalMangaGeometry.fromSampled(bounds.left, bounds.top, bounds.right, bounds.bottom,
+                                bitmap.width, bitmap.height, decoded.originalWidth, decoded.originalHeight))
                     } finally { patch.background.recycle() }
                     remember(region.source, localizedDraft)
                     transientFailures = 0
                 } catch (cancelled: CancellationException) {
                     throw cancelled
+                } catch (deferred: com.mangalens.core.compute.ResourcePausedException) {
+                    throw deferred
                 } catch (quality: TranslationQualityException) {
                     rejected++
                     firstError = firstError ?: quality.message
@@ -175,7 +178,7 @@ internal class ChapterPageTranslator(
             checkActive()
             return page.copy(status = if (rejected == 0) ChapterTranslationPageStatus.COMPLETED else ChapterTranslationPageStatus.PARTIAL,
                 cleanedPath = generated.absolutePath, cleanedSha256 = checksum, imageWidth = bitmap.width, imageHeight = bitmap.height,
-                lettering = lettering.toList(), rejectedRegions = rejected.coerceAtMost(ChapterTranslationStore.MAX_LETTERING),
+                lettering = lettering.toList(), originalWidth = decoded.originalWidth, originalHeight = decoded.originalHeight, rejectedRegions = rejected.coerceAtMost(ChapterTranslationStore.MAX_LETTERING),
                 error = firstError?.take(ChapterTranslationStore.MAX_ERROR_CHARS))
         } catch (failure: Throwable) {
             generated?.let { store.discardUnreferenced(it.absolutePath) }
@@ -247,24 +250,7 @@ internal class ChapterPageTranslator(
         return Rect(left, top, ceil(bounds.right).toInt().coerceIn(left + 1, width), ceil(bounds.bottom).toInt().coerceIn(top + 1, height))
     }
 
-    private data class DecodedPage(val bitmap: Bitmap, val originalWidth: Int, val originalHeight: Int)
-
-    private fun decodeBounded(file: File): DecodedPage? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth.toLong() * bounds.outHeight > 100_000_000L) return null
-        val activity = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        val memory = ActivityManager.MemoryInfo().also { activity?.getMemoryInfo(it) }
-        val budget = if (memory.lowMemory || (activity != null && memory.availMem < 96L * 1024 * 1024)) 1_500_000L
-            else if ((activity?.memoryClass ?: 192) <= 128) 6_000_000L else 12_000_000L
-        var sample = 1
-        while (bounds.outWidth / sample > 2400 || (bounds.outWidth.toLong() / sample) * (bounds.outHeight / sample) > budget) sample *= 2
-        val decoded = BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
-            inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = true
-        }) ?: return null
-        val mutable = if (decoded.isMutable) decoded else try { decoded.copy(Bitmap.Config.ARGB_8888, true) } finally { decoded.recycle() }
-        return mutable?.let { DecodedPage(it, bounds.outWidth, bounds.outHeight) }
-    }
+    private fun decodeBounded(file: File) = OriginalMangaPageDecoder.decode(context, file)
 
     private fun persistCleanSurface(bitmap: Bitmap, output: File): String {
         check(output.parentFile!!.usableSpace >= maxOf(8L * 1024 * 1024, bitmap.width.toLong() * bitmap.height * 4L)) {

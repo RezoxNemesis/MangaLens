@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezNativeWorkflowTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.073">
+  <properties/>
+  <testcase name="aReceiptCannotShrinkTheInspectedPageScopeToClaimCompletion" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.009"/>
+  <testcase name="aForwardDependencyRejectsTheWholePlanBeforeAnyToolRuns" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.006"/>
+  <testcase name="runtimeCreatesARealNativeChainAndCapturesUserScope" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.001"/>
+  <testcase name="ordinaryResumeFailureRetainsUnresolvedNativeGenerationProof" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.003"/>
+  <testcase name="dependentNativeStepsResolveOnlyVerifiedTypedOutputsAndSurviveReplay" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.01"/>
+  <testcase name="pauseFenceBlocksLateEffectsAndResumeRetainsStableIdentities" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.01"/>
+  <testcase name="aNativeResultForAnotherChapterCannotCompleteTheStep" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.003"/>
+  <testcase name="aWorkerFromBeforeResumeCannotAdoptOrMutateTheNewEpoch" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.004"/>
+  <testcase name="modelCannotSkipInspectionAndInventNativeChapterScope" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.0"/>
+  <testcase name="proposedPlanAuthorityCannotWidenTheChapterSelectedInAppState" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.001"/>
+  <testcase name="sameEpochLateWorkerCannotEraseVerifiedStepsOrDowngradeCompletion" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.007"/>
+  <testcase name="nativeResumeTransitionMustNotDispatchBeforeItsNewReceiptIsCommitted" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.004"/>
+  <testcase name="untrustedCapturedOriginCannotBecomeDefaultUserAuthorityAfterRestart" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.003"/>
+  <testcase name="partialOrHandoffEvidenceCannotCompleteNativeTranslation" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.004"/>
+  <testcase name="cancellationIntentSurvivesReopenWithResumeProofUntilNativeAcknowledgement" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.003"/>
+  <testcase name="aResumedGenerationCannotBeOverwrittenByThePreviousWorker" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.005"/>
+  <testcase name="savedChapterInspectionIsAnExplicitNativeReadTool" classname="com.mangalens.orez.agent.OrezNativeWorkflowTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:27" hostname="53f09df5485f" time="0.153">
+  <properties/>
+  <testcase name="restoredSourceAndPcmMasksNeverYieldCompletionEvidenceUntilActuallyValidated" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.007"/>
+  <testcase name="unverifiableAndLegacyRemoteClaimsCannotBecomeVerifiedNativeCompletions" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.006"/>
+  <testcase name="nativeResumeCommitGapIsRecoveredForPauseAndCancelWithActualRotatedGeneration" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.029"/>
+  <testcase name="anExportFromAnotherDirectoryOrGenerationCannotCompleteThisReceipt" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.005"/>
+  <testcase name="nativeOwnerAndCapturedOptionsAreCheckedAgainBeforeExecutorCompletion" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.032"/>
+  <testcase name="bothActualExportFilesMustStillMatchChecksumsAndNativeCues" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.013"/>
+  <testcase name="nativeReplacementInsideStopCannotAcknowledgeOrPauseAnUnrelatedOwner" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.007"/>
+  <testcase name="actualNativeJournalAndExportsCompleteTypedExecutorAndReopenWithoutLeakingPaths" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.035"/>
+  <testcase name="reopenedNativeJournalAcknowledgesPersistedHeadlessPauseAndCancelWithoutLosingWindows" classname="com.mangalens.orez.agent.OrezSubtitleNativeEvidenceTest" time="0.017"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

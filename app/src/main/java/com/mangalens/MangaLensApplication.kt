@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 class MangaLensApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        com.mangalens.core.compute.AndroidResourceSignalMonitor.install(this)
         com.mangalens.orez.agent.OrezTaskRecovery.enqueue(this)
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
             com.mangalens.ui.video.SubtitleGenerationJobs.recoverPending(this@MangaLensApplication)
@@ -17,6 +18,7 @@ class MangaLensApplication : Application() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        com.mangalens.core.compute.AndroidResourceSignalMonitor.onTrimMemory(level)
         if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             runCatching { Coil.imageLoader(this).memoryCache?.clear() }
         }

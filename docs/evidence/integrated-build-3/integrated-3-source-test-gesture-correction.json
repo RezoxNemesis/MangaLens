@@ -1,0 +1,19 @@
+{
+  "supersedes": "integrated-3-source-before.json",
+  "phase": "native compilation before Android test task",
+  "changes": [
+    {
+      "path": "app/src/androidTest/java/com/mangalens/ui/web/BrowserSourceCaptionRouteTest.kt",
+      "before": {
+        "path": "app/src/androidTest/java/com/mangalens/ui/web/BrowserSourceCaptionRouteTest.kt",
+        "bytes": 14818,
+        "sha256": "d0db31665a58a10363aedcaf56486eef1e1dc3a0ee2c921f3ff3393bd0ef5847"
+      },
+      "after": {
+        "path": "app/src/androidTest/java/com/mangalens/ui/web/BrowserSourceCaptionRouteTest.kt",
+        "bytes": 15802,
+        "sha256": "695d059d7ab081f3b90b48f4f6b0004f130a2add8db717d4ea08900616f98a59"
+      }
+    }
+  ]
+}

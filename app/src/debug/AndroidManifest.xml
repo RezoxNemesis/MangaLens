@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.mangalens.selftest" />
+    </queries>
     <application android:networkSecurityConfig="@xml/debug_network_security_config">
         <activity android:name="com.mangalens.qa.PlaybackCaptureConsentActivity"
             android:exported="false" />

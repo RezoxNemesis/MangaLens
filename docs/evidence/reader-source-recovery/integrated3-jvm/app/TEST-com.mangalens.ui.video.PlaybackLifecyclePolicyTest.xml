@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:29" hostname="53f09df5485f" time="0.002">
+  <properties/>
+  <testcase name="defaultActivityStopPausesButConfigurationChangeDoesNot" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.001"/>
+  <testcase name="oldServiceShutdownCannotClearTheNewEnableOrAcknowledgeItsStart" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="pendingAutomaticResumeIsRetiredBySourceReplacementAndNewBackgroundIntent" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="rotationDetachesOnlyTheOldViewWithoutPausingTheSamePlayer" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="delayedServiceStartResumesOnlyTheStopItActuallyPaused" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="queuedControlsFromTheReleasedMediaSessionCannotSeekOrResumeANewerServiceRequest" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.001"/>
+  <testcase name="userReturnsBeforeTheDelayedServiceStartsAndTheirPausedStateIsRetained" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="anOldPresentationCannotPauseOrReopenTheReplacement" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="staleNotificationAndAnotherSessionCannotControlCurrentPlayback" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="disablingBackgroundRetiresCommandsButWaitsForActualServiceDetachBeforeReleasingThePlayer" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="serviceFailureAndStopRemoveRetentionAndNotificationAuthority" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="lateServiceStartAfterDisableDoesNotReviveAudio" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="pipRetainsSameSessionAndClosingItHonorsExplicitBackground" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="backgroundNeedsActualServiceAcknowledgmentAndSurvivesViewModelClear" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <testcase name="acceptedPendingBackgroundRetainsThePlayerAcrossScreenCloseUntilStartFails" classname="com.mangalens.ui.video.PlaybackLifecyclePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

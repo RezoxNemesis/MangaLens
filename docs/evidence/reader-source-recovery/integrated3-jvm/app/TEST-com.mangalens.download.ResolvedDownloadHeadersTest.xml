@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.ResolvedDownloadHeadersTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.032">
+  <properties/>
+  <testcase name="resolverCookiesAndAgentRemainAuthoritativeForTheirOwnNewUrl" classname="com.mangalens.download.ResolvedDownloadHeadersTest" time="0.001"/>
+  <testcase name="newlyResolvedCdnCannotReceiveTheEarlierDetectedCdnCookie" classname="com.mangalens.download.ResolvedDownloadHeadersTest" time="0.0"/>
+  <testcase name="browserJarForTheActualResolvedUrlStillOverridesAnyCapturedCookie" classname="com.mangalens.download.ResolvedDownloadHeadersTest" time="0.0"/>
+  <testcase name="exactDirectRequestStillKeepsItsCapturedCookieAndAgent" classname="com.mangalens.download.ResolvedDownloadHeadersTest" time="0.0"/>
+  <testcase name="resolvingASignedReplacementCannotReuseTheOldExactRequestCookie" classname="com.mangalens.download.ResolvedDownloadHeadersTest" time="0.0"/>
+  <testcase name="actualContextStillDropsAnExactCookieOnASecondCdnOrAdaptiveSegment" classname="com.mangalens.download.ResolvedDownloadHeadersTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

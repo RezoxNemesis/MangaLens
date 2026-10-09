@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.PackagedOriginalMediaAdmissionTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:24" hostname="53f09df5485f" time="0.118">
+  <properties/>
+  <testcase name="actualNonSystemDependenciesCannotHideBehindCleanManifestMetadata" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.029"/>
+  <testcase name="aSymlinkCannotReplaceARegularPackagedExecutableEvenWithMatchingBytes" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.002"/>
+  <testcase name="schemaRejectsUnknownDuplicateAndIncompleteAbiOrToolInventories" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.004"/>
+  <testcase name="admitsOnlyBothPinnedSystemOnlyExecutablesForTheInstalledAbi" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.002"/>
+  <testcase name="tamperedBytesOrMissingSecondToolCannotBeAdmitted" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.008"/>
+  <testcase name="loaderSearchPathsAreRejectedEvenWhenTheirBytesArePinned" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.002"/>
+  <testcase name="metadataAndDeclaredSizesAreBoundedBeforeAdmission" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.005"/>
+  <testcase name="cancellationPropagatesBeforeReadingOrAdmittingTools" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.003"/>
+  <testcase name="wrongOrUnsupportedAbiCannotFallBackToAnotherInstalledArchitecture" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.005"/>
+  <testcase name="malformedElfTablesOrInterpreterCannotBecomeAcceptedPinnedExecutables" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.043"/>
+  <testcase name="sourceLicenseVersionAndReceiptMetadataCannotSilentlyChange" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.003"/>
+  <testcase name="declaredDependenciesMustMatchEveryActualNeededLibrary" classname="com.mangalens.download.PackagedOriginalMediaAdmissionTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

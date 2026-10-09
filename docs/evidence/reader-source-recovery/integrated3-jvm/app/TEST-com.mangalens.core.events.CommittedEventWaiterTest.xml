@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.events.CommittedEventWaiterTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:14" hostname="53f09df5485f" time="0.11">
+  <properties/>
+  <testcase name="cancellationWithoutAnObserverSlotStopsAllPeriodicReads" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.016"/>
+  <testcase name="alreadyCommittedResultIsObservedWithoutAnyEventReplay" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.003"/>
+  <testcase name="lostHintStillReadsTheDurableResultAtTheBoundedFallback" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.012"/>
+  <testcase name="matchingHintWakesTheCapturedTaskBeforeTheFallbackInterval" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.013"/>
+  <testcase name="aCompletionHintOnlyRequeriesAndCannotCompleteWithoutCommittedEvidence" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.011"/>
+  <testcase name="exhaustedHintCapacityStillObservesCommittedStateWithoutASecondEffect" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.025"/>
+  <testcase name="changedJournalEpochDuringReadRejectsTheOldNativeReceipt" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.005"/>
+  <testcase name="aWrongTaskHintDoesNotCauseAReadOrAnEffect" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.005"/>
+  <testcase name="cancelledWaiterRemovesItsSubscriptionAndNeverRunsAgain" classname="com.mangalens.core.events.CommittedEventWaiterTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

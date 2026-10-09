@@ -36,8 +36,13 @@ internal object SubtitleInputs {
     suspend fun capture(context: Context, requested: SubtitleMediaSource): SubtitleSourceIdentity = withContext(Dispatchers.IO) {
         val source = requested.captureSnapshot()
         require(source.uri.length in 1..16000 && source.headers.size <= 32)
+        source.providerCaptions?.let {
+            it.validate()
+            require(source.sourceResolutionId?.matches(Regex("[a-f0-9]{32}")) == true) { "Provider captions need the current accepted video selection." }
+        }
         val uri = Uri.parse(source.uri)
-        val descriptor = listOf(source.uri, source.headers.toSortedMap().entries.joinToString("\n") { "${it.key}:${it.value}" })
+        val descriptor = (listOf(source.uri, source.headers.toSortedMap().entries.joinToString("\n") { "${it.key}:${it.value}" }) +
+            if (source.providerCaptions == null) emptyList() else listOf(source.sourceResolutionId.orEmpty(), source.providerCaptions.fingerprint()))
             .joinToString("|") { "${it.length}:$it" }
         if (uri.scheme in listOf("content", "file", "android.resource") || uri.scheme == null) {
             if (uri.scheme == "content") runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -88,6 +93,24 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                 OrezTaskRecovery.allowSubtitleWork(applicationContext, store, it)
             }
             checkOwner()
+            if (!com.mangalens.core.compute.ResourceGovernorRuntime.shared.awaitBoundary(
+                    com.mangalens.core.compute.ResourceWorkKind.BACKGROUND) { store.current(id, generation) })
+                return@withContext Result.success()
+            checkOwner()
+            if (captured.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && captured.source.source.providerCaptions != null) {
+                setForeground(notification(captured, "Checking original provider captions"))
+                val translator = SubtitleCueTranslator(applicationContext)
+                try {
+                    val handled = ProviderCaptionProcessor(store, captured, ::checkOwner,
+                        translate = translator::translate, progress = { current ->
+                            setForeground(notification(current, "Original provider captions • ${current.translatedCueCount}/${current.sourceCueCount} translated"))
+                        }).process()
+                    if (handled) return@withContext if (store.get(id)?.status == SubtitleGenerationStatus.COMPLETED) Result.success() else Result.failure()
+                } finally { translator.close() }
+                check(captured.config.modelSha256 != null) {
+                    "Original provider captions are unavailable. Install or import a multilingual Whisper model to recognise the original audio."
+                }
+            }
             setForeground(notification(captured, "Checking video and speech model"))
             withContext(NativeComputePrecondition { waited ->
                 workerCaller.ensureActive()
@@ -142,6 +165,9 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                         try {
                             val processor = SubtitleWindowProcessor(store, task, ::checkOwner, translator::translate)
                             for (window in task.windows) {
+                                if (!com.mangalens.core.compute.ResourceGovernorRuntime.shared.awaitBoundary(
+                                        com.mangalens.core.compute.ResourceWorkKind.BACKGROUND) { store.current(id, generation) })
+                                    throw CancellationException("Subtitle generation was paused or replaced.")
                                 val progress = processor.translateSaved(window)
                                 progress.error?.let { store.noteTargetFailure(id, generation, it) }
                                 if (progress.failedTargets >= 3) {
@@ -188,6 +214,10 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                         checkOwner()
                         SubtitleAudioDecoder(applicationContext).decode(task.source.source, task.source.strongEtag, task.source.networkSize, task.source.networkUrl) { audio, startMs, progress, durationMs ->
                             currentCoroutineContext().ensureActive()
+                            checkOwner()
+                            if (!com.mangalens.core.compute.ResourceGovernorRuntime.shared.awaitBoundary(
+                                    com.mangalens.core.compute.ResourceWorkKind.BACKGROUND) { store.current(id, generation) })
+                                throw CancellationException("Subtitle generation was paused or replaced.")
                             checkOwner()
                             val endMs = startMs + audio.size * 1000L / 16000
                             val hash = SubtitleInputs.pcmHash(audio)
@@ -261,6 +291,9 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                 runCatching { store.interrupted(id, generation) }
                 if (store.current(id, generation)) Result.retry() else Result.success()
             } else Result.success()
+        } catch (deferred: com.mangalens.core.compute.ResourcePausedException) {
+            if (store.deferForResources(id, generation, deferred.message ?: "Waiting for device resources; saved progress will resume automatically."))
+                Result.retry() else Result.success()
         } catch (unverified: SubtitleNetworkUnverified) {
             store.fail(id, generation, unverified.message ?: "Video byte version could not be verified.", requireValidation = true)
             Result.failure()
@@ -325,7 +358,7 @@ object SubtitleGenerationJobs {
         try {
             val request = OneTimeWorkRequestBuilder<SubtitleGenerationWorker>().setInputData(workDataOf("subtitle_task" to task.id,
                 "subtitle_generation" to task.generation)).addTag("full-subtitles").addTag(name(task))
-                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 15, java.util.concurrent.TimeUnit.SECONDS).build()
+                .setBackoffCriteria(androidx.work.BackoffPolicy.LINEAR, 10, java.util.concurrent.TimeUnit.SECONDS).build()
             WorkManager.getInstance(context).enqueueUniqueWork(name(task), ExistingWorkPolicy.KEEP, request).awaitCompletion()
         } catch (failure: Exception) { store.fail(task.id, task.generation, "Unable to schedule subtitles: " + (failure.message ?: "WorkManager failed")); throw failure }
     }

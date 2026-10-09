@@ -35,15 +35,16 @@ class LibraryExplorerSmokeTest {
         try {
             prefs.edit().remove(LibrarySettingsStore.OPTIONS_KEY).commit();library.save(chapter)
             launchHome();tap(By.desc("Library").pkg(context.packageName))
-            node(By.desc("Search saved chapters")).text="Library details QA"
+            typeIntoEditableUi(device,"Search saved chapters","Library details QA")
             tap(By.desc("Chapter actions for ${chapter.title}"));tap(By.text("Plan to Read"))
             waitFor("Plan to Read did not reach the native journal") { ChapterLibrary(context).list().firstOrNull { it.id==chapter.id }?.readingStatus==ReadingStatus.PLAN_TO_READ }
             tap(By.desc("Chapter actions for ${chapter.title}"));tap(By.text("Dropped"))
             waitFor("Dropped did not reach the native journal") { ChapterLibrary(context).list().firstOrNull { it.id==chapter.id }?.readingStatus==ReadingStatus.DROPPED }
             tap(By.desc("Chapter actions for ${chapter.title}"));tap(By.desc("Edit library details for ${chapter.title}"))
-            node(By.desc("Library series title")).text="Saved QA series"
-            node(By.desc("Library chapter notes")).text="Learn this scene with Mira"
-            scrollTo(By.desc("Library new collection")).text="QA Weekend"
+            typeIntoEditableUi(device,"Library series title","Saved QA series")
+            typeIntoEditableUi(device,"Library chapter notes","Learn this scene with Mira")
+            scrollTo(By.desc("Library new collection"))
+            typeIntoEditableUi(device,"Library new collection","QA Weekend")
             tap(By.text("Add"));tap(By.text("Save details"))
             waitFor("Actual details editor did not atomically persist metadata") {
                 ChapterLibrary(context).list().firstOrNull { it.id==chapter.id }?.let { it.seriesTitle=="Saved QA series" && it.notes=="Learn this scene with Mira" && it.collections==listOf("QA Weekend") }==true
@@ -52,13 +53,13 @@ class LibraryExplorerSmokeTest {
             assertEquals(chapter.position,saved.position);assertEquals(chapter.scrollOffset,saved.scrollOffset)
             assertEquals(chapter.addedAt,saved.addedAt);assertEquals(0L,saved.lastReadAt)
             assertTrue(saved.bookmarked);assertEquals(ReadingStatus.DROPPED,saved.readingStatus)
-            node(By.desc("Search saved chapters")).text="Mira QA Weekend"
+            typeIntoEditableUi(device,"Search saved chapters","Mira QA Weekend")
             node(By.desc("Saved chapter: ${chapter.title}"));capture("details-search")
             recreateActivity();node(By.desc("Library filters and sort"))
-            node(By.desc("Saved chapter: ${chapter.title}"));assertEquals("Mira QA Weekend",node(By.desc("Search saved chapters")).text)
+            node(By.desc("Saved chapter: ${chapter.title}"));assertEquals("Mira QA Weekend",readEditableUi(device,"Search saved chapters").text)
             tap(By.desc("Chapter actions for ${chapter.title}"));tap(By.desc("Edit library details for ${chapter.title}"))
-            assertTrue(node(By.desc("Library series title")).text.contains("Saved QA series"))
-            node(By.desc("Library chapter notes")).text="Discard this unsaved note"
+            assertTrue(readEditableUi(device,"Library series title").text.contains("Saved QA series"))
+            typeIntoEditableUi(device,"Library chapter notes","Discard this unsaved note")
             tap(By.text("Cancel"));assertEquals("Learn this scene with Mira",library.list().first { it.id==chapter.id }.notes)
             capture("details-after-recreation")
         } finally { finishActivity();library.remove(chapter.id);restore() }
@@ -72,7 +73,7 @@ class LibraryExplorerSmokeTest {
         val second=fixture(context,"Library query QA Alpha",ReadingStatus.PLAN_TO_READ,200).copy(collections=listOf("QA Study"),bookmarked=false)
         try {
             prefs.edit().remove(LibrarySettingsStore.OPTIONS_KEY).commit();library.save(first);library.save(second)
-            launchHome();tap(By.desc("Library").pkg(context.packageName));node(By.desc("Search saved chapters")).text="Library query QA"
+            launchHome();tap(By.desc("Library").pkg(context.packageName));typeIntoEditableUi(device,"Search saved chapters","Library query QA")
             node(By.desc("Saved chapter: ${first.title}"));node(By.desc("Saved chapter: ${second.title}"))
             tap(By.desc("Library filters and sort"));tap(By.desc("Sort library: Title A–Z"))
             scrollTo(By.desc("Choose status filter: Plan to Read")).click()
@@ -111,7 +112,7 @@ class LibraryExplorerSmokeTest {
             appPrefs.edit().putBoolean("translation_manga",false).commit()
             reader.edit().putString("default_mode","vertical").remove("mode_Library visit QA").commit()
             library.save(chapter);launchHome();tap(By.desc("Library").pkg(context.packageName))
-            node(By.desc("Search saved chapters")).text="Library visit QA"
+            typeIntoEditableUi(device,"Search saved chapters","Library visit QA")
             node(By.desc("Saved chapter: ${chapter.title}"))
             assertEquals("Passive restore counted as reading",0L,library.list().first { it.id==chapter.id }.lastReadAt)
             tap(By.desc("${chapter.title} cover"))

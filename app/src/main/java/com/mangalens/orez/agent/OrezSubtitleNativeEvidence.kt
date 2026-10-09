@@ -4,6 +4,7 @@ import com.mangalens.ui.video.SubtitleFormats
 import com.mangalens.ui.video.SubtitleGenerationStatus
 import com.mangalens.ui.video.SubtitleGenerationTask
 import com.mangalens.ui.video.hasSubtitleSourceProof
+import com.mangalens.ui.video.hasVerifiedProviderCaptions
 import com.mangalens.ui.video.SubtitlePipeline
 import com.mangalens.ui.video.SubtitleSourceIdentity
 import com.mangalens.ui.video.canTrustSubtitleSource
@@ -38,21 +39,24 @@ internal object OrezSubtitleNativeEvidence {
                 (!sourceId.startsWith("selected-") || sourceId == expected.sourceId)) { "The native audio descriptor does not match the captured selected source." }
         } else {
             require(!task.source.source.cacheKey.startsWith("orez-audio-pair:")) { "A native split audio receipt needs its captured video/audio selection." }
-            task.source.source.let { OrezMediaSelection(it.uri, it.cacheKey, it.label, it.headers.toMap()) }
+            task.source.source.let { OrezMediaSelection(it.uri, it.cacheKey, it.label, it.headers.toMap(),
+                resolutionId = it.sourceResolutionId, providerCaptions = it.providerCaptions?.captureSnapshot()) }
         }
         val options = task.config.orezOptions().also(OrezSubtitleContract::validate)
-        val model = requireNotNull(task.config.modelSha256) { "The native subtitle request has no captured speech model." }
+        val candidate = task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && descriptor.hasProviderCaptionCandidate()
+        val model = task.config.modelSha256 ?: "".also { require(candidate) { "The native subtitle request has no captured speech model or provider caption inventory." } }
         return OrezSubtitleReceipt(task.id, task.generation, task.ownerRequestId,
-            OrezSubtitleSnapshot(sourceId, descriptor, task.source.fingerprint, model, hasSubtitleSourceProof(task.source)), options,
+            OrezSubtitleSnapshot(sourceId, descriptor, task.source.fingerprint, model, hasSubtitleSourceProof(task.source) || candidate), options,
             OrezNativeSubtitleStatus.valueOf(task.status.name), task.durationMs, task.processedMs, task.windows.size, task.cues.size,
             validationPending = task.validationPending || task.pcmValidationRequired, error = task.error,
             configFingerprint = task.config.fingerprint(), audioComplete = task.audioComplete,
-            sourceCueCount = task.sourceCueCount, pendingTargetCues = task.pendingTargetCues)
+            sourceCueCount = task.sourceCueCount, pendingTargetCues = task.pendingTargetCues, providerCaptionReceipt = task.providerCaptionReceipt)
     }
 
     fun receipt(task: SubtitleGenerationTask, sourceId: String, directory: File, expectedDescriptor: OrezMediaSelection? = null): OrezSubtitleReceipt {
         val metadata = metadataReceipt(task, sourceId, expectedDescriptor)
-        val targetsComplete = task.config.pipeline == SubtitlePipeline.WHISPER_ENGLISH || task.audioComplete && task.windows.all { window ->
+        val targetsComplete = task.config.pipeline == SubtitlePipeline.WHISPER_ENGLISH ||
+            (if (task.providerCaptionReceipt != null) hasVerifiedProviderCaptions(task) else task.audioComplete) && task.windows.all { window ->
             window.cues.isEmpty() && if (window.silent) window.sourceCues.isEmpty() && window.translations.isEmpty()
             else window.sourceCues.isNotEmpty() && window.translations.map { it.sourceIndex }.sorted() == window.sourceCues.indices.toList()
         }

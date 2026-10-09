@@ -4,10 +4,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import com.mangalens.ui.video.SubtitlePipeline
+import com.mangalens.ui.video.ProviderCaptionReceipt
+import com.mangalens.ui.video.fingerprint
+import com.mangalens.ui.video.selectedTrack
+import com.mangalens.download.ProviderCaptionDiscovery
 
 data class OrezSubtitleSnapshot(
     val sourceId: String, val descriptor: OrezMediaSelection, val sourceFingerprint: String,
-    val speechModelSha256: String, val verifiable: Boolean = true
+    val speechModelSha256: String, val verifiable: Boolean = true,
+    val captionInventorySha256: String? = descriptor.providerCaptions?.fingerprint()
 )
 data class OrezSubtitleDownload(val id: String, val sourceUrl: String, val destination: String, val bytes: Long, val title: String)
 enum class OrezNativeSubtitleStatus { QUEUED, RUNNING, PAUSED, COMPLETED, PARTIAL, FAILED, CANCELLED }
@@ -19,7 +24,8 @@ data class OrezSubtitleReceipt(
     val validationPending: Boolean = false, val error: String? = null,
     val configFingerprint: String = options.nativeConfig(media.speechModelSha256).fingerprint(),
     val audioComplete: Boolean = options.pipeline == SubtitlePipeline.WHISPER_ENGLISH,
-    val sourceCueCount: Int = 0, val pendingTargetCues: Int = 0
+    val sourceCueCount: Int = 0, val pendingTargetCues: Int = 0,
+    val providerCaptionReceipt: ProviderCaptionReceipt? = null
 )
 
 /** Exact native source/config/owner boundary; navigation never produces these receipts. */
@@ -53,12 +59,14 @@ class OrezSubtitleTools(
             val options = requireNotNull(authorization.subtitle) { "Speech options were not captured." }
             OrezSubtitleContract.validate(options)
             val media = inspect(step, requestId)
-            require(media.verifiable && media.sourceFingerprint.matches(HASH) && media.speechModelSha256.matches(HASH)) {
+            require(media.verifiable && media.sourceFingerprint.matches(HASH) && (media.speechModelSha256.matches(HASH) || options.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
+                media.speechModelSha256.isEmpty() && media.descriptor.hasProviderCaptionCandidate())) {
                 "This playable source or installed speech model cannot be verified. Select a saved file or stable playable source and install a Whisper model."
             }
             if (step.call.name in setOf("inspect_selected_media", "inspect_downloaded_media")) return OrezToolResult.Completed(media.outputs(requestId))
             require(step.call.name == "generate_subtitles") { "Unsupported native subtitle tool." }
-            require(step.call.arguments["sourceFingerprint"] == media.sourceFingerprint && step.call.arguments["speechModelSha256"] == media.speechModelSha256) {
+            require(step.call.arguments["sourceFingerprint"] == media.sourceFingerprint && step.call.arguments["speechModelSha256"] == media.speechModelSha256 &&
+                step.call.arguments["captionInventorySha256"] == media.captionInventorySha256) {
                 "Media or the pinned speech model changed after inspection. Start a new subtitle request."
             }
             require(step.call.arguments["targetLanguage"] == options.targetLanguage) { "Subtitle target exceeds the captured request." }
@@ -118,7 +126,7 @@ class OrezSubtitleTools(
     private suspend fun inspect(step: OrezPlanStep, requestId: String): OrezSubtitleSnapshot {
         val pin = if (step.call.name == "generate_subtitles") step.call.arguments["speechModelSha256"] else null
         if (step.call.name == "generate_subtitles" && authorization.subtitle?.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
-            step.outputs["audioComplete"] == "true" && step.outputs["subtitleTaskId"] != null) {
+            (step.outputs["audioComplete"] == "true" || step.outputs["providerPayloadSha256"]?.matches(HASH) == true) && step.outputs["subtitleTaskId"] != null) {
             val expected = OrezSubtitleSnapshot(step.call.arguments.getValue("sourceId"), capturedDescriptor(step.call.arguments.getValue("sourceId")),
                 step.call.arguments.getValue("sourceFingerprint"), step.call.arguments.getValue("speechModelSha256"))
             val owned = requireNotNull(host.findOwned(requestId)) { "The owned saved original speech is missing." }
@@ -171,15 +179,36 @@ class OrezSubtitleTools(
             OrezSubtitleContract.validate(receipt.options)
             val exports = requireNotNull(receipt.exports) { "Saved SRT and VTT export evidence is missing." }
             require(receipt.status == OrezNativeSubtitleStatus.COMPLETED && !receipt.validationPending && receipt.media.verifiable &&
-                receipt.durationMs in 0..21_600_000 && receipt.processedMs in 1..21_600_000 && receipt.processedMs + 1500 >= receipt.durationMs &&
+                receipt.durationMs in 0..21_600_000 && receipt.processedMs in 1..21_600_000 && (receipt.providerCaptionReceipt != null || receipt.processedMs + 1500 >= receipt.durationMs) &&
                 receipt.windowCount in 1..4000 && receipt.cueCount in 1..30_000 && exports.srtSha256.matches(HASH) && exports.vttSha256.matches(HASH) &&
                 exports.srtBytes in 1..20_000_000 && exports.vttBytes in 1..20_000_000) { "Native subtitle track or saved SRT/VTT is incomplete or unverified." }
-            require(receipt.options.pipeline == SubtitlePipeline.WHISPER_ENGLISH || receipt.audioComplete &&
-                receipt.sourceCueCount in 1..30_000 && receipt.pendingTargetCues == 0) { "Original speech or requested target cues are incomplete." }
-            receipt.media.descriptor.verifySubtitleTail(receipt.durationMs, receipt.processedMs)
+            if (receipt.providerCaptionReceipt != null) verifyProviderCompleted(receipt)
+            else {
+                require(receipt.options.pipeline == SubtitlePipeline.WHISPER_ENGLISH || receipt.audioComplete &&
+                    receipt.sourceCueCount in 1..30_000 && receipt.pendingTargetCues == 0) { "Original speech or requested target cues are incomplete." }
+                require(receipt.media.speechModelSha256.matches(HASH)) { "The captured speech model is missing." }
+                receipt.media.descriptor.verifySubtitleTail(receipt.durationMs, receipt.processedMs)
+            }
+        }
+        private fun verifyProviderCompleted(receipt: OrezSubtitleReceipt) {
+            val proof = requireNotNull(receipt.providerCaptionReceipt)
+            val inventory = requireNotNull(receipt.media.descriptor.providerCaptions)
+            require(receipt.media.descriptor.hasProviderCaptionCandidate() && receipt.options.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
+                !receipt.audioComplete && proof.taskId == receipt.taskId && proof.generation == receipt.generation &&
+                proof.sourceFingerprint == receipt.media.sourceFingerprint && proof.configFingerprint == receipt.configFingerprint &&
+                proof.inventorySha256 == receipt.media.captionInventorySha256 && proof.inventorySha256 == inventory.fingerprint() &&
+                listOf(proof.sourceFingerprint, proof.configFingerprint, proof.inventorySha256, proof.trackUrlSha256,
+                    proof.payloadSha256, proof.cuesSha256).all { it.matches(HASH) } &&
+                proof.selectedTrack(inventory) in ProviderCaptionDiscovery.candidates(inventory, receipt.options.sourceLanguage) &&
+                proof.cueCount == receipt.sourceCueCount && receipt.pendingTargetCues == 0 && proof.cueCount in 1..30_000 &&
+                proof.lastEndMs == receipt.processedMs && receipt.durationMs == (inventory.expectedDurationMs ?: proof.lastEndMs) &&
+                (inventory.expectedDurationMs == null || proof.lastEndMs <= inventory.expectedDurationMs + 1500)) {
+                "The exact provider document or requested target cues are incomplete."
+            }
         }
         fun OrezSubtitleSnapshot.outputs(requestId: String) = mapOf("requestId" to requestId, "sourceId" to sourceId,
-            "sourceFingerprint" to sourceFingerprint, "speechModelSha256" to speechModelSha256, "title" to descriptor.label.take(250))
+            "sourceFingerprint" to sourceFingerprint, "speechModelSha256" to speechModelSha256, "title" to descriptor.label.take(250)) +
+            (captionInventorySha256?.let { mapOf("captionInventorySha256" to it) } ?: emptyMap())
         fun OrezSubtitleReceipt.outputs(requestId: String) = media.outputs(requestId) + mapOf(
             "ownerRequestId" to ownerRequestId.orEmpty(), "subtitleTaskId" to taskId, "generation" to generation,
             "targetLanguage" to options.targetLanguage, "sourceLanguage" to options.sourceLanguage, "status" to status.name,
@@ -188,6 +217,9 @@ class OrezSubtitleTools(
             "srtBytes" to (exports?.srtBytes ?: 0).toString(), "vttBytes" to (exports?.vttBytes ?: 0).toString(),
             "configFingerprint" to configFingerprint, "pipeline" to options.pipeline.name, "outputMode" to options.outputMode.name,
             "translationPolicy" to options.translationPolicy, "audioComplete" to audioComplete.toString(),
-            "sourceCueCount" to sourceCueCount.toString(), "pendingTargetCues" to pendingTargetCues.toString())
+            "sourceCueCount" to sourceCueCount.toString(), "pendingTargetCues" to pendingTargetCues.toString()) +
+            (providerCaptionReceipt?.let { mapOf("providerTrackSha256" to it.trackUrlSha256, "providerPayloadSha256" to it.payloadSha256,
+                "providerCuesSha256" to it.cuesSha256, "providerLanguage" to it.language,
+                "providerKind" to it.kind.name, "providerFormat" to it.format.name) } ?: emptyMap())
     }
 }

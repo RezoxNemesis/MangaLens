@@ -14,6 +14,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.Locale
 import java.util.UUID
 
@@ -70,7 +72,8 @@ data class SavedMangaLettering(
     val sourceTop: Int,
     val sourceRight: Int,
     val sourceBottom: Int,
-    val savedHindiDraft: String? = null
+    val savedHindiDraft: String? = null,
+    val originalSourceBounds: SavedOriginalSourceBounds? = null
 )
 
 data class ChapterTranslationPage(
@@ -84,7 +87,9 @@ data class ChapterTranslationPage(
     val imageHeight: Int = 0,
     val lettering: List<SavedMangaLettering> = emptyList(),
     val rejectedRegions: Int = 0,
-    val error: String? = null
+    val error: String? = null,
+    val originalWidth: Int? = null,
+    val originalHeight: Int? = null
 ) {
     val isProcessed: Boolean get() = status !in setOf(ChapterTranslationPageStatus.PENDING, ChapterTranslationPageStatus.RUNNING)
     val isComplete: Boolean get() = status in setOf(ChapterTranslationPageStatus.COMPLETED, ChapterTranslationPageStatus.NO_TEXT, ChapterTranslationPageStatus.PROMO)
@@ -116,6 +121,10 @@ internal data class ChapterTranslationRemoval(
     val token: String,
     val tasks: List<ChapterTranslationTask>
 )
+
+internal data class NativeMemoryFileStamp(val path: String, val key: Any?, val size: Long, val modified: java.nio.file.attribute.FileTime)
+internal data class NativeMemoryPageProof(val task: ChapterTranslationTask, val page: ChapterTranslationPage,
+    val source: NativeMemoryFileStamp, val output: NativeMemoryFileStamp)
 
 /** The injected IO boundary lets fault tests interrupt a commit without mocking the journal state. */
 internal interface ChapterJournalIo {
@@ -160,6 +169,12 @@ class ChapterTranslationStore internal constructor(
     private val directory: File,
     private val sourceDirectory: File,
     private val journalIo: ChapterJournalIo = AtomicChapterJournalIo(),
+    private val originalDimensions: (File) -> Pair<Int, Int>? = { file ->
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth > 0 && bounds.outHeight > 0 && bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L)
+            bounds.outWidth to bounds.outHeight else null
+    },
     private val surfaceReadable: (File) -> Boolean = { file ->
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
@@ -201,6 +216,49 @@ class ChapterTranslationStore internal constructor(
             ?.let(::visible) ?: captured
 
     @Synchronized private fun rawGet(taskId: String): ChapterTranslationTask? = tasks[taskId]
+
+    /** IO-only: check actual bytes and surface before the short Reader/task publication guard. */
+    internal fun prepareMemoryPublication(receipt: ReaderTranslationReceipt, pageIndex: Int): NativeMemoryPageProof? {
+        val task = synchronized(this) {
+            tasks[receipt.taskId]?.takeIf { memoryTaskMatches(receipt, it) }
+        } ?: return null
+        val page = task.pages.singleOrNull { it.index == pageIndex && it.status in setOf(
+            ChapterTranslationPageStatus.COMPLETED, ChapterTranslationPageStatus.PARTIAL) } ?: return null
+        if (page.lettering.isEmpty() || page.originalWidth == null || page.originalHeight == null) return null
+        val source = page.sourcePath?.let { runCatching { requireManagedSource(it) }.getOrNull() } ?: return null
+        val output = page.cleanedPath?.let { runCatching { requireManagedOutput(it, task.id) }.getOrNull() } ?: return null
+        return runCatching {
+            val sourceBefore = memoryStamp(source); val outputBefore = memoryStamp(output)
+            require(originalDimensions(source) == (page.originalWidth to page.originalHeight))
+            require(validatedPage(page, task.config) == page)
+            require(sourceBefore == memoryStamp(source) && outputBefore == memoryStamp(output))
+            NativeMemoryPageProof(task, page, sourceBefore, outputBefore)
+        }.getOrNull()
+    }
+
+    /** The caller holds Reader authority; this monitor protects task removal/replacement through rename. */
+    @Synchronized internal fun commitMemoryPublication(receipt: ReaderTranslationReceipt, proof: NativeMemoryPageProof, commit: () -> Unit) {
+        val current = tasks[proof.task.id]
+        check(current != null && memoryTaskMatches(receipt, current) &&
+            current.pages.singleOrNull { it.index == proof.page.index } == proof.page &&
+            memoryStamp(File(proof.source.path)) == proof.source && memoryStamp(File(proof.output.path)) == proof.output) {
+            "The saved source or translation changed. Reopen its correction editor."
+        }
+        commit()
+    }
+
+    private fun memoryTaskMatches(receipt: ReaderTranslationReceipt, task: ChapterTranslationTask): Boolean =
+        task.id !in awaitingValidation && task.chapterId !in chapterRemovals &&
+        task.status in setOf(ChapterTranslationStatus.QUEUED, ChapterTranslationStatus.RUNNING,
+            ChapterTranslationStatus.COMPLETED, ChapterTranslationStatus.PARTIAL) &&
+        ReaderTranslationPresentation.matchesTask(receipt, task) &&
+        receipt.sources == task.pages.map { ReaderTranslationSource(it.index, it.sourcePath, it.sourceSha256) }
+
+    private fun memoryStamp(file: File): NativeMemoryFileStamp {
+        val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
+        check(attributes.isRegularFile)
+        return NativeMemoryFileStamp(file.canonicalPath, attributes.fileKey(), attributes.size(), attributes.lastModifiedTime())
+    }
 
     @Synchronized fun latest(chapterId: String, targetLanguage: String? = null): ChapterTranslationTask? =
         tasks.values.filter { it.chapterId == chapterId && (targetLanguage == null || it.config.targetLanguage == targetLanguage) }
@@ -394,6 +452,14 @@ class ChapterTranslationStore internal constructor(
         save(task.copy(status = ChapterTranslationStatus.QUEUED, pages = task.pages.map(::interruptedPage), updatedAt = System.currentTimeMillis()))
     }
 
+    /** Resource waits retain ownership and generation, unlike an explicit user pause/resume. */
+    @Synchronized internal fun deferForResources(taskId: String, generation: String, reason: String): Boolean {
+        val task = current(taskId, generation) ?: return false
+        save(task.copy(status = ChapterTranslationStatus.QUEUED, pages = task.pages.map(::interruptedPage),
+            error = reason.take(MAX_ERROR_CHARS), updatedAt = System.currentTimeMillis()))
+        return true
+    }
+
     @Synchronized internal fun isCurrent(taskId: String, generation: String): Boolean = current(taskId, generation) != null
 
     /** Fence first; the facade stops these exact native jobs before completing deletion. */
@@ -573,6 +639,12 @@ class ChapterTranslationStore internal constructor(
     private fun validSource(file: File): Boolean = file.isFile && file.length() in 1..MAX_SOURCE_BYTES
 
     private fun validateMetadata(page: ChapterTranslationPage, config: ChapterTranslationConfig) {
+        require((page.originalWidth == null) == (page.originalHeight == null))
+        page.originalWidth?.let { width ->
+            val height = requireNotNull(page.originalHeight)
+            require(width in 1..100_000 && height in 1..100_000 && width.toLong() * height <= 100_000_000L)
+            require(page.imageWidth in 1..width && page.imageHeight in 1..height)
+        }
         require(page.index >= 0 && page.lettering.size <= MAX_LETTERING && page.rejectedRegions in 0..MAX_LETTERING)
         require((page.error?.length ?: 0) <= MAX_ERROR_CHARS)
         if (page.lettering.isEmpty()) {
@@ -582,6 +654,7 @@ class ChapterTranslationStore internal constructor(
         require(page.imageWidth > 0 && page.imageHeight > 0 && page.imageWidth.toLong() * page.imageHeight <= MAX_SURFACE_PIXELS)
         require(page.status in setOf(ChapterTranslationPageStatus.COMPLETED, ChapterTranslationPageStatus.PARTIAL, ChapterTranslationPageStatus.RUNNING))
         page.lettering.forEach { text ->
+            text.originalSourceBounds?.validate(requireNotNull(page.originalWidth), requireNotNull(page.originalHeight))
             require(text.source.length in 1..MAX_TEXT_CHARS && text.translated.length in 1..MAX_TEXT_CHARS)
             require(text.savedHindiDraft == null || text.savedHindiDraft.length in 1..MAX_TEXT_CHARS)
             require(text.left >= 0 && text.top >= 0 && text.right > text.left && text.bottom > text.top &&
@@ -627,7 +700,7 @@ class ChapterTranslationStore internal constructor(
         if (name.matches(Regex("[a-f0-9]{32}\\.json"))) File(directory, name) else null
     }.distinctBy { it.name }
 
-    private fun encode(task: ChapterTranslationTask): JSONObject = JSONObject().put("version", 1).put("id", task.id)
+    private fun encode(task: ChapterTranslationTask): JSONObject = JSONObject().put("version", 2).put("id", task.id)
         .put("generation", task.generation).put("chapterId", task.chapterId).put("title", task.title)
         .put("config", configJson(task.config)).put("status", task.status.name).put("createdAt", task.createdAt)
         .put("requestedPages", task.requestedPages?.let { JSONArray(it) }).put("ownerRequestId", task.ownerRequestId)
@@ -636,9 +709,12 @@ class ChapterTranslationStore internal constructor(
                 .put("sourceFile", page.sourcePath?.let { File(it).name }).put("sourceSha256", page.sourceSha256)
                 .put("status", page.status.name).put("cleanedFile", page.cleanedPath?.let { File(it).name })
                 .put("cleanedSha256", page.cleanedSha256).put("width", page.imageWidth).put("height", page.imageHeight)
+                .put("originalWidth", page.originalWidth).put("originalHeight", page.originalHeight)
                 .put("rejected", page.rejectedRegions).put("error", page.error).put("lettering", JSONArray().apply {
                     page.lettering.forEach { text -> put(JSONObject().put("source", text.source).put("translated", text.translated)
                         .put("savedHindiDraft", text.savedHindiDraft)
+                        .put("originalSourceBounds", text.originalSourceBounds?.let { bounds -> JSONObject().put("version", bounds.version)
+                            .put("left", bounds.left).put("top", bounds.top).put("right", bounds.right).put("bottom", bounds.bottom) })
                         .put("l", text.left).put("t", text.top).put("r", text.right).put("b", text.bottom)
                         .put("family", text.family).put("face", text.face).put("color", text.color).put("size", text.size)
                         .put("alignment", text.alignment).put("sl", text.sourceLeft).put("st", text.sourceTop)
@@ -647,7 +723,7 @@ class ChapterTranslationStore internal constructor(
         })
 
     private fun decode(json: JSONObject): ChapterTranslationTask {
-        require(json.getInt("version") == 1)
+        val version = json.getInt("version").also { require(it in 1..2) }
         val id = json.getString("id").also { require(it.matches(ID)) }
         val generation = json.getString("generation").also { require(it.matches(ID)) }
         val chapterId = json.getString("chapterId").also { require(it.matches(ID)) }
@@ -677,8 +753,13 @@ class ChapterTranslationStore internal constructor(
                     val t = letters.getJSONObject(n)
                     SavedMangaLettering(t.getString("source"), t.getString("translated"), t.getInt("l"), t.getInt("t"), t.getInt("r"), t.getInt("b"),
                         t.getString("family"), t.getInt("face"), t.getInt("color"), t.getDouble("size").toFloat(), t.getString("alignment"),
-                        t.getInt("sl"), t.getInt("st"), t.getInt("sr"), t.getInt("sb"), t.nullableString("savedHindiDraft"))
-                }, row.getInt("rejected"), row.nullableString("error"))
+                        t.getInt("sl"), t.getInt("st"), t.getInt("sr"), t.getInt("sb"), t.nullableString("savedHindiDraft"),
+                        if (version < 2) null else t.optJSONObject("originalSourceBounds")?.let { bounds ->
+                            SavedOriginalSourceBounds(bounds.getInt("version"), bounds.getInt("left"), bounds.getInt("top"), bounds.getInt("right"), bounds.getInt("bottom"))
+                        })
+                }, row.getInt("rejected"), row.nullableString("error"),
+                if (version < 2 || !row.has("originalWidth") || row.isNull("originalWidth")) null else row.getInt("originalWidth"),
+                if (version < 2 || !row.has("originalHeight") || row.isNull("originalHeight")) null else row.getInt("originalHeight"))
             require(page.sourceSha256 == null || page.sourceSha256.matches(HASH))
             require(page.cleanedSha256 == null || page.cleanedSha256.matches(HASH))
             validateMetadata(page, config)
@@ -700,6 +781,8 @@ class ChapterTranslationStore internal constructor(
         .put("styleId", c.styleId).put("customStyle", c.customStyle).put("ocrScript", c.ocrScript)
         .put("highAccuracy", c.highAccuracy).put("preserveStyle", c.preserveStyle).put("localRefinement", c.localRefinement)
         .put("refinementRequest", c.refinementRequest?.let(TranslationRefinementRequestCodec::encode))
+
+    internal fun memoryConfigurationIdentity(c: ChapterTranslationConfig) = digest(configIdentity(c))
 
     private fun configIdentity(c: ChapterTranslationConfig): String = (listOf(c.targetLanguage, c.styleId, c.customStyle,
         c.ocrScript, c.highAccuracy.toString(), c.preserveStyle.toString(), c.localRefinement.toString()) +

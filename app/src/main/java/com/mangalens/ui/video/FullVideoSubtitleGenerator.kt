@@ -39,7 +39,7 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
             try {
                 val identity = SubtitleInputs.capture(app, operation.source)
                 val config = SubtitleInputs.config(app, operation.sourceLanguage, operation.targetOptions)
-                val task = store.find(identity, config) ?: if (config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
+                var task = store.find(identity, config) ?: if (config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
                     config.targetLanguage == "en" && config.outputMode == SubtitleOutputMode.TRANSLATED && config.style == "natural" &&
                     !config.localRefinement && config.customStyle.isEmpty()) store.find(identity, SubtitleInputs.config(app, operation.sourceLanguage)) else null
                 if (task == null) {
@@ -48,7 +48,8 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                     }
                     return@launch
                 }
-                if (canTrustSubtitleSource(task.source, identity)) store.confirmValidated(task.id, task.generation)
+                if (task.providerCaptionReceipt != null) task = revalidateProviderCaptions(store, task) ?: task
+                else if (canTrustSubtitleSource(task.source, identity)) store.confirmValidated(task.id, task.generation)
                 observe(task, operation.token)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { publishFailure(operation.token, "Cannot restore subtitles", failure.message) }
@@ -75,8 +76,11 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                 val config = SubtitleInputs.config(app, operation.sourceLanguage, operation.targetOptions)
                 val previous = store.find(identity, config)
                 var task = SubtitleGenerationJobs.start(app, identity, config, force || previous?.status == SubtitleGenerationStatus.CANCELLED)
+                if (task.status == SubtitleGenerationStatus.COMPLETED && task.providerCaptionReceipt != null)
+                    task = revalidateProviderCaptions(store, task) ?: store.get(task.id) ?: task
                 operation.receipt = task
-                if (!force && operation.control == null && task.status in setOf(SubtitleGenerationStatus.PAUSED, SubtitleGenerationStatus.PARTIAL, SubtitleGenerationStatus.FAILED) && config.modelSha256 != null) {
+                if (!force && operation.control == null && task.status in setOf(SubtitleGenerationStatus.PAUSED, SubtitleGenerationStatus.PARTIAL, SubtitleGenerationStatus.FAILED) &&
+                    (config.modelSha256 != null || task.providerCaptionReceipt != null || task.source.source.providerCaptions != null)) {
                     task = SubtitleGenerationJobs.resume(app, task.id, task.generation) ?: task
                     operation.receipt = task
                 }
@@ -115,10 +119,11 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
         } ?: return
         scope.launch(Dispatchers.IO) {
             try {
-                val task = store.refresh(captured.second.id, captured.second.generation) ?: return@launch
+                var task = store.refresh(captured.second.id, captured.second.generation) ?: return@launch
+                if (task.providerCaptionReceipt != null) task = revalidateProviderCaptions(store, task) ?: return@launch
                 if (!qualifies(task, captured.second)) return@launch
                 val fresh = SubtitleInputs.capture(app, task.source.source)
-                if (!canTrustSubtitleSource(task.source, fresh)) {
+                if (task.providerCaptionReceipt == null && !canTrustSubtitleSource(task.source, fresh)) {
                     publishFailure(captured.first, "Cannot apply saved subtitles", "The video source changed. Reopen it before applying saved subtitles.")
                     return@launch
                 }
@@ -139,7 +144,7 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
 
     private fun qualifies(task: SubtitleGenerationTask, captured: SubtitleGenerationTask): Boolean =
         sameSubtitlePlaybackReceipt(task, captured) && !task.validationPending && !task.pcmValidationRequired &&
-            hasSubtitleSourceProof(task.source) && task.cues.isNotEmpty() &&
+            hasSubtitlePlaybackProof(task) && task.cues.isNotEmpty() &&
             (captured.status != SubtitleGenerationStatus.COMPLETED || task.status == SubtitleGenerationStatus.COMPLETED && task.srtPath != null && task.vttPath != null)
 
     private fun launchCommand(action: suspend () -> Unit) {
@@ -205,10 +210,13 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
                     val cues = task.cues
                     val running = task.status in setOf(SubtitleGenerationStatus.QUEUED, SubtitleGenerationStatus.RUNNING)
                     val stage = when {
-                        task.validationPending || task.pcmValidationRequired -> "Checking saved video and speech windows…"
+                        task.status == SubtitleGenerationStatus.QUEUED && task.error != null -> task.error
+                        task.validationPending || task.pcmValidationRequired -> if (task.providerCaptionReceipt != null) "Checking saved original provider captions…" else "Checking saved video and speech windows…"
                         task.status == SubtitleGenerationStatus.COMPLETED -> "${targetName(task.config.targetLanguage)} subtitles ready"
                         task.status == SubtitleGenerationStatus.QUEUED -> "Queued for background subtitle generation"
-                        task.status == SubtitleGenerationStatus.RUNNING -> if (task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
+                        task.status == SubtitleGenerationStatus.RUNNING -> if (task.providerCaptionReceipt != null)
+                            "${task.sourceCueCount} original provider cues • ${task.translatedCueCount} translated"
+                            else if (task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
                             "${task.sourceCueCount} original speech cues • ${task.translatedCueCount} translated" else "${task.windows.size} audio windows saved"
                         task.status == SubtitleGenerationStatus.PAUSED -> "Subtitle generation paused"
                         task.status == SubtitleGenerationStatus.CANCELLED -> "Subtitle generation cancelled"

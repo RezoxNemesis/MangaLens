@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:28" hostname="53f09df5485f" time="0.059">
+  <properties/>
+  <testcase name="missingTargetCueCannotCompleteEvenWhenPartialExportHashesAndBytesMatch" classname="com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest" time="0.003"/>
+  <testcase name="everyNonlegacyNativeFieldCannotBeDowngradedIntoLegacyOwnedScope" classname="com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest" time="0.05"/>
+  <testcase name="completeLegacyModelAndManagedExportsRetainTheirExistingContract" classname="com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest" time="0.003"/>
+  <testcase name="actualNativeConfigFingerprintAppearsInItsTypedReceipt" classname="com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest" time="0.001"/>
+  <testcase name="sourceRecognitionNotMarkedAudioCompleteCannotCompleteEvenWithMatchingExports" classname="com.mangalens.orez.agent.OrezSubtitleTargetEvidenceTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

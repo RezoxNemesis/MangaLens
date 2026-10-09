@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.oreznative.NativeModelLeaseRegistryTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-10-09T17:39:39" hostname="53f09df5485f" time="0.053">
+  <properties/>
+  <testcase name="changedSizeOrTimestampCannotReuseAFileLease" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.002"/>
+  <testcase name="differentModelCannotBorrowAnExistingModelsSuccessfulLoad" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.001"/>
+  <testcase name="refusedReplacementKeepsTheRequestingOwnersOldLease" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.004"/>
+  <testcase name="memoryTrimCanObserveOwnersDuringAnUnfinishedNativeLoad" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.008"/>
+  <testcase name="failedNativeLoadDoesNotPublishAReadyModelOrOwner" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.001"/>
+  <testcase name="reacquiringSameLeaseIsIdempotentAndNewModelLoadsAfterRelease" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.024"/>
+  <testcase name="closingAnUnownedOrAlreadyClosedEngineDoesNotUnloadPeers" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.002"/>
+  <testcase name="replacingTheFileAtTheSamePathCannotReuseTheOldMappedModel" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.001"/>
+  <testcase name="modelObservationDoesNotWaitForAnUnfinishedNativeLoad" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.005"/>
+  <testcase name="sameModelSharesOneNativeLoadAndUnloadsAfterLastOwner" classname="com.mangalens.oreznative.NativeModelLeaseRegistryTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

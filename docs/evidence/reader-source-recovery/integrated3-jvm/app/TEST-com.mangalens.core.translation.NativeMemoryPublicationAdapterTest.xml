@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:17" hostname="53f09df5485f" time="0.354">
+  <properties/>
+  <testcase name="sameLengthSourceByteReplacementDuringPreparationRejectsTheHeldEdit" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.056"/>
+  <testcase name="verifiedColdCompletedAndPartialPageZeroUseSavedOriginalBoundsAndKeepNativeBytes" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.023"/>
+  <testcase name="nativeRevisionRemoveAndRollbackCannotReviveTheHeldOldEdit" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.031"/>
+  <testcase name="navigationDuringActualSyncedPreparationRejectsHeldEditorWithoutBlockingRetirement" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.012"/>
+  <testcase name="awaitingColdFileValidationAndCancelledResultsCannotPublish" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.03"/>
+  <testcase name="savedOriginalDimensionsMustMatchFreshSourceInspection" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.004"/>
+  <testcase name="legacySampledLetteringRemainsReadableButDoesNotInventOriginalBounds" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.007"/>
+  <testcase name="replacedGenerationAndOwnerRejectG1ThenOnlyTheActualG2CanPublish" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.026"/>
+  <testcase name="relinkToExactSameSeriesAndOrdinalRejectsAPreviouslyCapturedEditor" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.028"/>
+  <testcase name="taskDeletionDuringPreparationCannotResurrectMemory" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.033"/>
+  <testcase name="removedSeriesCannotAcceptHeldCorrectionsOrNewEditors" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.019"/>
+  <testcase name="exactSameReceiptSelectedAgainRetiresTheOldPresentationEpoch" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.01"/>
+  <testcase name="failingPreparedWriteLeavesThePreviousCorrectionAndNativeJournalIntact" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.014"/>
+  <testcase name="alteredOwnerConfigurationOrFullSourceReceiptCannotOpenTheSavedBubble" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.016"/>
+  <testcase name="legacyReceiptCannotGainNativeAuthorityByCopyingOnlyTheOwner" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.015"/>
+  <testcase name="sameLengthOutputByteReplacementDuringPreparationRejectsTheHeldEdit" classname="com.mangalens.core.translation.NativeMemoryPublicationAdapterTest" time="0.03"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

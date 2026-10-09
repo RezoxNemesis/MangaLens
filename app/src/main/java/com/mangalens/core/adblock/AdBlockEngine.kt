@@ -12,7 +12,7 @@ class AdBlockEngine(val statsStore: AdBlockStatsStore = AdBlockStatsStore()) {
         val host = runCatching { URI(url).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
         val pageHost = runCatching { URI(pageUrl.orEmpty()).host.orEmpty() }.getOrDefault("")
         statsStore.recordBlocked(host, pageHost = pageHost, type = type, rule = rule)
-        return WebResourceResponse("text/plain", StandardCharsets.UTF_8.name(), ByteArrayInputStream(ByteArray(0)))
+        return WebResourceResponse("text/plain", StandardCharsets.UTF_8.name(), 200, "OK", emptyMap(), ByteArrayInputStream(ByteArray(0)))
     }
 
     fun getElementHidingScript(): String = AdBlockScript.build()

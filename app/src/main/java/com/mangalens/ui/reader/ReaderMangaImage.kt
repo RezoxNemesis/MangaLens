@@ -16,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -38,17 +39,22 @@ import coil.request.Options
 import coil.size.Precision
 import coil.size.Scale
 import com.mangalens.core.reader.MangaImagePolicy
+import com.mangalens.core.translation.ChapterTranslationStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 import kotlin.math.ceil
 import kotlin.math.floor
 
-internal data class MangaImageSource(val path: String, val size: MangaImagePolicy.Dimensions, val bytes: Long, val modified: Long, val regionCapable: Boolean)
+internal data class MangaImageSource(val path: String, val size: MangaImagePolicy.Dimensions, val bytes: Long,
+    val modified: Long, val regionCapable: Boolean, val contentSha256: String? = null)
 internal data class MangaImageTile(val source: MangaImageSource, val region: MangaImagePolicy.Region, val width: Int)
 private data class MangaImageViewport(val width: Int, val height: Int, val firstRow: Int, val lastRow: Int)
+private data class MangaSourceRead(val source: MangaImageSource? = null, val complete: Boolean = false)
 
 /** A region never retains a decoder or bitmap outside Coil's ordinary image ownership. */
 private class MangaRegionFetcher(private val tile: MangaImageTile, private val context: Context) : Fetcher {
@@ -85,8 +91,9 @@ private class MangaRegionFetcher(private val tile: MangaImageTile, private val c
 }
 
 /** Check the actual decoder once; unknown/unsupported formats retain Coil's bounded software path. */
-internal fun readMangaImageSource(file: File): MangaImageSource? {
-    if (!file.isFile || file.length() <= 0) return null
+internal fun readMangaImageSource(file: File, checkActive: () -> Unit = {}): MangaImageSource? {
+    if (!file.isFile || file.length() !in 1..ChapterTranslationStore.MAX_SURFACE_BYTES) return null
+    checkActive()
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.absolutePath, bounds)
     val size = MangaImagePolicy.dimensions(bounds.outWidth, bounds.outHeight) ?: return null
@@ -94,21 +101,41 @@ internal fun readMangaImageSource(file: File): MangaImageSource? {
         val decoder = BitmapRegionDecoder.newInstance(file.absolutePath, false) ?: return@runCatching false
         try { decoder.width == size.width && decoder.height == size.height } finally { decoder.recycle() }
     }.getOrDefault(false)
-    return MangaImageSource(file.absolutePath, size, file.length(), file.lastModified(), regionCapable)
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            checkActive()
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            check(total <= ChapterTranslationStore.MAX_SURFACE_BYTES) { "Reader source exceeded its safe byte limit while loading." }
+            if (read > 0) digest.update(buffer, 0, read)
+        }
+    }
+    val hash = digest.digest().joinToString("") { "%02x".format(it) }
+    return MangaImageSource(file.absolutePath, size, file.length(), file.lastModified(), regionCapable, hash)
 }
 
 @Composable
-private fun rememberMangaSource(model: String?): MangaImageSource? {
-    var source by remember(model) { mutableStateOf<MangaImageSource?>(null) }
-    LaunchedEffect(model) {
-        source = withContext(Dispatchers.IO) {
-            model?.let(::File)?.let(::readMangaImageSource)
+private fun rememberMangaSource(model: String?, contentRevision: String? = null): MangaSourceRead {
+    var result by remember(model, contentRevision) { mutableStateOf(MangaSourceRead()) }
+    LaunchedEffect(model, contentRevision) {
+        val source = withContext(Dispatchers.IO) {
+            val coroutine = currentCoroutineContext()
+            try {
+                model?.let(::File)?.let { readMangaImageSource(it, checkActive = { coroutine.ensureActive() }) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { null }
         }
+        result = MangaSourceRead(source, complete = true)
     }
-    return source
+    return result
 }
 
-internal fun mangaImageRequest(context: Context, model: Any?, width: Int, height: Int): ImageRequest =
+internal fun mangaImageRequest(context: Context, model: Any?, width: Int, height: Int,
+    contentRevision: String? = null): ImageRequest =
     ImageRequest.Builder(context).data(model)
         .allowHardware(false).bitmapConfig(Bitmap.Config.ARGB_8888).allowRgb565(false)
         .size(width.coerceIn(1, MangaImagePolicy.MAX_DECODE_SIDE), height.coerceIn(1, MangaImagePolicy.MAX_DECODE_SIDE))
@@ -117,19 +144,24 @@ internal fun mangaImageRequest(context: Context, model: Any?, width: Int, height
             if (model is MangaImageTile) {
                 fetcherFactory(MangaRegionFetcher.Factory())
                 memoryCacheKey("manga-region:${model.source.path}:${model.source.bytes}:${model.source.modified}:" +
-                    "${model.region.top}:${model.region.bottom}:${model.width}")
+                    "${model.region.top}:${model.region.bottom}:${model.width}:${model.source.contentSha256}:$contentRevision")
+            } else if (contentRevision != null) {
+                val key = "manga-source:$model:$contentRevision"
+                memoryCacheKey(key)
+                diskCacheKey(key)
             }
         }.build()
 
 /** Decode the top artwork of a tall page, rather than cropping a downscaled complete strip. */
 @Composable
-internal fun rememberMangaThumbnailRequest(model: String?): ImageRequest {
+internal fun rememberMangaThumbnailRequest(model: String?, contentRevision: String? = null): ImageRequest {
     val context = LocalContext.current
-    val source = rememberMangaSource(model)
+    val source = rememberMangaSource(model, contentRevision).source
     val data = source?.takeIf { it.regionCapable && it.size.height.toLong() > it.size.width.toLong() * 2 }?.let {
         MangaImageTile(it, MangaImagePolicy.coverRegion(it.size), 512)
-    } ?: model
-    return remember(context, data) { mangaImageRequest(context, data, 512, 768) }
+    } ?: model?.takeUnless { File(it).isAbsolute && source == null }
+    val revision = listOfNotNull(contentRevision, source?.contentSha256).joinToString(":").takeIf { it.isNotBlank() }
+    return remember(context, data, revision) { mangaImageRequest(context, data, 512, 768, revision) }
 }
 
 /**
@@ -142,13 +174,26 @@ internal fun ReaderMangaImage(
     description: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    viewportTransform: Any? = null
+    viewportTransform: Any? = null,
+    contentRevision: String? = null,
+    onLoadError: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val source = rememberMangaSource(model)
-    var coordinates by remember(model) { mutableStateOf<LayoutCoordinates?>(null) }
-    var viewport by remember(model) { mutableStateOf<MangaImageViewport?>(null) }
+    val sourceRead = rememberMangaSource(model, contentRevision)
+    val source = sourceRead.source
+    val loadIdentity = remember(model, contentRevision) { Any() }
+    val currentLoadIdentity = rememberUpdatedState(loadIdentity)
+    val currentErrorHandler = rememberUpdatedState(onLoadError)
+    val reportLoadError = remember(loadIdentity) {
+        { if (currentLoadIdentity.value === loadIdentity) currentErrorHandler.value() }
+    }
+    LaunchedEffect(loadIdentity, sourceRead.complete) {
+        if (sourceRead.complete && source == null && File(model).isAbsolute) reportLoadError()
+    }
+    val revision = listOfNotNull(contentRevision, source?.contentSha256).joinToString(":").takeIf { it.isNotBlank() }
+    var coordinates by remember(model, contentRevision) { mutableStateOf<LayoutCoordinates?>(null) }
+    var viewport by remember(model, contentRevision) { mutableStateOf<MangaImageViewport?>(null) }
 
     fun updateViewport(value: LayoutCoordinates) {
         if (!value.isAttached || value.size.width <= 0 || value.size.height <= 0) return
@@ -165,6 +210,9 @@ internal fun ReaderMangaImage(
     val tiled = source?.takeIf { it.regionCapable && contentScale == ContentScale.FillWidth && it.size.height > MangaImagePolicy.MAX_DECODE_SIDE }
     Box(modifier.clipToBounds().onGloballyPositioned { coordinates = it; updateViewport(it) }
         .then(if (tiled != null) Modifier.semantics { contentDescription = description } else Modifier)) {
+        // A cold restored page has no runtime token. Obtain its actual fingerprint
+        // before consulting Coil, whose path cache may outlive the previous reader.
+        if (File(model).isAbsolute && source == null) return@Box
         if (tiled != null) {
             val view = viewport
             val regions = if (view == null) listOf(MangaImagePolicy.Region(0, minOf(tiled.size.height, MangaImagePolicy.MAX_DECODE_SIDE)))
@@ -172,17 +220,19 @@ internal fun ReaderMangaImage(
             for (region in regions) {
                 val width = view?.width ?: tiled.size.width.coerceAtMost(MangaImagePolicy.MAX_DECODE_SIDE)
                 val tile = MangaImageTile(tiled, region, width)
-                val request = remember(context, tile) { mangaImageRequest(context, tile, width, MangaImagePolicy.MAX_DECODE_SIDE) }
+                val request = remember(context, tile, revision) { mangaImageRequest(context, tile, width, MangaImagePolicy.MAX_DECODE_SIDE, revision) }
                 val scale = (view?.height?.toFloat() ?: 0f) / tiled.size.height
                 AsyncImage(request, null, Modifier.offset(y = with(density) { (region.top * scale).toDp() })
-                    .fillMaxWidth().height(with(density) { (region.height * scale).toDp() }), contentScale = ContentScale.FillBounds)
+                    .fillMaxWidth().height(with(density) { (region.height * scale).toDp() }), contentScale = ContentScale.FillBounds,
+                    onError = { reportLoadError() })
             }
         } else {
-            val request = remember(context, model, viewport?.width, viewport?.height) {
+            val request = remember(context, model, revision, viewport?.width, viewport?.height) {
                 mangaImageRequest(context, model, viewport?.width ?: MangaImagePolicy.MAX_DECODE_SIDE,
-                    viewport?.height ?: MangaImagePolicy.MAX_DECODE_SIDE)
+                    viewport?.height ?: MangaImagePolicy.MAX_DECODE_SIDE, revision)
             }
-            AsyncImage(request, description, Modifier.fillMaxSize(), contentScale = contentScale)
+            AsyncImage(request, description, Modifier.fillMaxSize(), contentScale = contentScale,
+                onError = { reportLoadError() })
         }
     }
 }

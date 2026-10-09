@@ -30,7 +30,8 @@ data class ResolvedMediaLink(
     val audioHeaders: Map<String, String> = emptyMap(),
     val requestedHeight: Int? = null,
     val expectedDurationUs: Long? = null,
-    val originalSelection: OriginalMediaSelection? = null
+    val originalSelection: OriginalMediaSelection? = null,
+    val providerCaptions: ProviderCaptionInventory? = null
 )
 
 class MediaLinkResolver(
@@ -41,8 +42,9 @@ class MediaLinkResolver(
     private val timeoutMs: Long = 90_000L
 ) {
 
-    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? =
-        MediaResolutionRunner.run(timeoutMs) { session -> resolveWithin(input, quality, session) }
+    suspend fun resolveCancellable(input: String, quality: DownloadQuality = DownloadQuality.BEST,
+        budgetMs: Long = timeoutMs): ResolvedMediaLink? =
+        MediaResolutionRunner.run(minOf(timeoutMs, budgetMs)) { session -> resolveWithin(input, quality, session) }
 
     fun resolve(input: String, quality: DownloadQuality = DownloadQuality.BEST): ResolvedMediaLink? =
         runBlocking { resolveCancellable(input, quality) }

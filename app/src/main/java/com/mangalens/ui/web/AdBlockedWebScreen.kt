@@ -421,19 +421,7 @@ internal fun GuardedBrowserTabScreen(
                     }
                 }.orEmpty()
                 onOpenVideo(
-                    SniffedMedia(
-                        url = resolved.url,
-                        headers = videoHeaders,
-                        kind = when (resolved.mimeType) {
-                            "application/x-mpegURL" -> "HLS"
-                            "application/dash+xml" -> "DASH"
-                            else -> "RESOLVED"
-                        },
-                        audioUrl = resolved.audioUrl,
-                        audioHeaders = audioHeaders,
-                        title = resolved.title ?: capturedTitle,
-                        provider = resolved.provider
-                    ),
+                    captureResolvedBrowserMedia(resolved, videoHeaders, audioHeaders, capturedTitle),
                     sourcePage
                 )
                 translationStatus = null
@@ -610,6 +598,14 @@ internal fun GuardedBrowserTabScreen(
         Surface(shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    speechSettings = false
+                    openCurrentVideo()
+                }, enabled = pageReady && !capturePending && !captureActive) {
+                    Text("Use source captions in Video")
+                }
+                Text("Open the current source in Video, then use Generate Full Subtitles to check its original captions. Captions are fetched and verified before they can be shown. This route does not require web audio capture or a speech model.",
+                    style = MaterialTheme.typography.bodySmall)
                 com.mangalens.ui.video.LiveAudioSubtitleSettings(speech, showEnableControl = false)
                 if (captureStatus.isNotBlank()) Text(captureStatus)
                 captureConsentStatus?.let { Text(it) }

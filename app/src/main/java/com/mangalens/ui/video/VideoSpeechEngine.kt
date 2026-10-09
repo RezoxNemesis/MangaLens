@@ -54,13 +54,18 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     @Volatile private var handle = 0L
     @Volatile private var enabled = false
     @Volatile private var generation = 0L
+    @Volatile private var modelEpoch = 0L
     @Volatile private var detectedSourceLanguage: String? = null
     private val liveBudget = NativeLiveSpeechBudget(LIVE_INFERENCE_BUDGET_MS, android.os.SystemClock::elapsedRealtime)
     private val liveHandles = NativeLiveSpeechHandles(handleGuard, { handle }) { native.cancel(it) }
     @Volatile var positionMs = 0L
     @Volatile var language = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getString("source", "auto") ?: "auto"
     @Volatile var chunkSeconds = context.getSharedPreferences("live_audio_subtitles", Context.MODE_PRIVATE).getInt("chunk_seconds", 4).coerceIn(3, 12)
-    private data class Chunk(val audio: FloatArray, val startMs: Long, val generation: Long)
+    private val windowSnapshots = LiveSpeechWindowSnapshots(handleGuard, android.os.SystemClock::elapsedRealtime) {
+        LiveSpeechControlSnapshot(closed, enabled, mutable.value.ready && handle != 0L,
+            generation, modelEpoch, language)
+    }
+    private data class Chunk(val audio: FloatArray, val startMs: Long, val request: LiveSpeechWindowSnapshot)
     private val chunks = Channel<Chunk>(capacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val model = File(context.filesDir, "speech/whisper.bin")
     private val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
@@ -68,43 +73,42 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     init {
         scope.launch(Dispatchers.Default) {
             for (chunk in chunks) {
-                if (closed || !enabled || chunk.generation != generation) continue
-                val isCurrent = { !closed && enabled && chunk.generation == generation }
+                if (!windowSnapshots.isCurrent(chunk.request)) continue
+                val isCurrent = { windowSnapshots.isCurrent(chunk.request) }
                 try {
-                    val started = android.os.SystemClock.elapsedRealtime()
-                    val outcome = liveBudget.run(
-                        lock,
-                        isCurrent = isCurrent
-                    ) { permit ->
-                        val invocation = synchronized(handleGuard) {
-                            if (!permit() || handle == 0L) null else liveHandles.begin(handle)
-                        }
-                        if (invocation == null) null else object : NativeLiveSpeechInvocation<Array<String>> {
-                            override fun infer(): Array<String> {
-                                val requestedLanguage = if (language == "auto") detectedSourceLanguage ?: "auto" else language
-                                val translateToEnglish = requestedLanguage != "en"
-                                val threads = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
-                                if (!permit()) return emptyArray()
-                                return native.infer(
-                                    invocation.handle,
-                                    chunk.audio,
-                                    requestedLanguage,
-                                    translateToEnglish,
-                                    threads
-                                ).also {
-                                    if (permit() && language == "auto" && detectedSourceLanguage == null) {
-                                        val detected = runCatching { native.detectedLanguage(invocation.handle) }
-                                            .getOrNull()?.takeIf { detected -> detected.isNotBlank() && detected != "auto" }
-                                        synchronized(handleGuard) {
-                                            if (permit() && language == "auto" && detectedSourceLanguage == null) {
-                                                detectedSourceLanguage = detected
+                    val started = chunk.request.enqueuedAtMs
+                    val outcome = withContext(NativeLiveSpeechEnqueuedAt(chunk.request.enqueuedAtMs)) {
+                        liveBudget.run(lock, isCurrent = isCurrent) { permit ->
+                            val invocation = synchronized(handleGuard) {
+                                if (!permit() || handle == 0L) null else liveHandles.begin(handle)
+                            }
+                            if (invocation == null) null else object : NativeLiveSpeechInvocation<Array<String>> {
+                                override fun infer(): Array<String> {
+                                    val requestedLanguage = chunk.request.inferenceLanguage(detectedSourceLanguage)
+                                    val translateToEnglish = requestedLanguage != "en"
+                                    val threads = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+                                    if (!permit()) return emptyArray()
+                                    return native.infer(
+                                        invocation.handle,
+                                        chunk.audio,
+                                        requestedLanguage,
+                                        translateToEnglish,
+                                        threads
+                                    ).also {
+                                        if (permit() && chunk.request.sourceLanguage == "auto" && detectedSourceLanguage == null) {
+                                            val detected = runCatching { native.detectedLanguage(invocation.handle) }
+                                                .getOrNull()?.takeIf { detected -> detected.isNotBlank() && detected != "auto" }
+                                            synchronized(handleGuard) {
+                                                if (permit() && chunk.request.sourceLanguage == "auto" && detectedSourceLanguage == null) {
+                                                    detectedSourceLanguage = detected
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                override fun cancel() { liveHandles.cancel(invocation) }
+                                override fun finish() { liveHandles.finish(invocation) }
                             }
-                            override fun cancel() { liveHandles.cancel(invocation) }
-                            override fun finish() { liveHandles.finish(invocation) }
                         }
                     }
                     if (!isCurrent()) continue
@@ -210,14 +214,25 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         if (enabled && samples.size <= 16000 * 12) {
             markAudio(samples.size)
             if (SpeechWindowPolicy.hasActivity(samples)) {
-                chunks.trySend(Chunk(samples.copyOf(), startMs, generation))
+                queueWindow(samples.copyOf(), startMs)
             }
         }
     }
+    private fun queueWindow(audio: FloatArray, startMs: Long, expectedGeneration: Long? = null) {
+        val captured = windowSnapshots.capture() ?: return
+        if (expectedGeneration != null && captured.generation != expectedGeneration) return
+        if (chunks.trySend(Chunk(audio, startMs, captured)).isFailure) {
+            publishLiveSpeechWindow(handleGuard, { windowSnapshots.isCurrent(captured) }) {
+                mutable.update { it.copy(status = "Speech queue is saturated • try Balanced mode or a smaller model") }
+            }
+        }
+    }
+
     suspend fun loadInstalled() = withContext(Dispatchers.IO) {
         if (model.exists()) {
             try { loadModel() }
             catch (e: CancellationException) { throw e }
+            catch (paused: com.mangalens.core.compute.ResourcePausedException) { throw paused }
             catch (e: Exception) { mutable.value = mutable.value.copy(ready = false, status = e.message ?: "Cannot load speech model") }
         }
     }
@@ -226,6 +241,11 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         withNativeWork(nativePriority()) {
             mutable.value = mutable.value.copy(ready = false)
             synchronized(handleGuard) {
+                // The engine mutex retains the old handle until its actual native return.
+                // Retire old PCM even if the allocator later recycles that handle address.
+                generation++
+                modelEpoch++
+                detectedSourceLanguage = null
                 if (handle != 0L) native.free(handle)
                 handle = 0L
             }
@@ -305,6 +325,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                     synchronized(handleGuard) {
                         check(!closed) { "Speech engine is closed" }
                         check(temp.renameTo(model)) { "Cannot install speech model" }
+                        mutable.value = mutable.value.copy(ready = false)
                     }
                 }
             }
@@ -350,6 +371,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                 withContext(NonCancellable) {
                     val pending = async(Dispatchers.Default) {
                         caller.ensureActive()
+                        com.mangalens.core.compute.ResourceGovernorRuntime.shared.requireNativeEntry(com.mangalens.core.compute.ResourceWorkKind.BACKGROUND)
                         native.infer(handle, samples, requestedLanguage, translateToEnglish && requestedLanguage != "en", threads.coerceIn(1, 4))
                     }
                     try { withContext(caller) { pending.await() } }
@@ -440,13 +462,27 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     private suspend fun <T> withNativeWork(priority: NativeComputeAdmission.Priority, cleanup: Boolean = false,
         block: suspend () -> T): T {
         val caller = currentCoroutineContext()
-        val lease = NativeComputeAdmission.shared.acquire(priority) { cleanup || !closed }
+        val lease = NativeComputeAdmission.shared.acquire(priority,
+            if (cleanup) com.mangalens.core.compute.ResourceWorkKind.CLEANUP else when (priority) {
+                NativeComputeAdmission.Priority.LIVE -> com.mangalens.core.compute.ResourceWorkKind.LIVE
+                NativeComputeAdmission.Priority.INTERACTIVE -> com.mangalens.core.compute.ResourceWorkKind.INTERACTIVE
+                NativeComputeAdmission.Priority.BACKGROUND -> com.mangalens.core.compute.ResourceWorkKind.BACKGROUND
+            }) { cleanup || !closed }
             ?: throw CancellationException("Speech engine closed before native admission.")
         try {
             caller.ensureActive()
             if (!cleanup) checkNativeComputePrecondition(lease.waited)
             caller.ensureActive()
-            return withContext(NonCancellable + Dispatchers.IO) { block() }
+            return withContext(NonCancellable + Dispatchers.IO) {
+                caller.ensureActive()
+                com.mangalens.core.compute.ResourceGovernorRuntime.shared.requireNativeEntry(
+                    if (cleanup) com.mangalens.core.compute.ResourceWorkKind.CLEANUP else when (priority) {
+                        NativeComputeAdmission.Priority.LIVE -> com.mangalens.core.compute.ResourceWorkKind.LIVE
+                        NativeComputeAdmission.Priority.INTERACTIVE -> com.mangalens.core.compute.ResourceWorkKind.INTERACTIVE
+                        NativeComputeAdmission.Priority.BACKGROUND -> com.mangalens.core.compute.ResourceWorkKind.BACKGROUND
+                    })
+                block()
+            }
         } finally { lease.close() }
     }
     fun srt(): String = state.value.cues.mapIndexed { i, cue ->
@@ -506,10 +542,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         }
         private fun sendChunk(overlap: Boolean = true) {
             if (SpeechWindowPolicy.hasActivity(samples.copyOf(used))) {
-                val result = chunks.trySend(Chunk(samples.copyOf(used), start, epoch))
-                if (result.isFailure) mutable.update {
-                    it.copy(status = "Speech queue is saturated • try Balanced mode or a smaller model")
-                }
+                queueWindow(samples.copyOf(used), start, epoch)
             }
             // Keep roughly one second of real speech context between windows.
             // 500 ms was too easy to cut words at boundaries; a full second is still

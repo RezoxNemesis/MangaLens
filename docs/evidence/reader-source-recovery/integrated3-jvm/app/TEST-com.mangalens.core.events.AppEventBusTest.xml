@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.events.AppEventBusTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:14" hostname="53f09df5485f" time="0.404">
+  <properties/>
+  <testcase name="closingDiscardsQueuedHintsAndReleasesTheSubscriberSlot" classname="com.mangalens.core.events.AppEventBusTest" time="0.034"/>
+  <testcase name="acceptedKindsAreCapturedAndNotChangedByTheCallersMutableSet" classname="com.mangalens.core.events.AppEventBusTest" time="0.005"/>
+  <testcase name="duplicatesAreSuppressedWithoutManufacturingAnAdditionalWakeup" classname="com.mangalens.core.events.AppEventBusTest" time="0.149"/>
+  <testcase name="cancellingTheRealFlowCollectorDisposesItsRegistration" classname="com.mangalens.core.events.AppEventBusTest" time="0.167"/>
+  <testcase name="configurationCannotIncreaseSafetyCapsOrUseZeroCapacity" classname="com.mangalens.core.events.AppEventBusTest" time="0.003"/>
+  <testcase name="stalledSubscriberRetainsOnlyItsConfiguredNewestHints" classname="com.mangalens.core.events.AppEventBusTest" time="0.002"/>
+  <testcase name="anotherTaskWithTheSameSourceNeverReceivesTheOwnersHint" classname="com.mangalens.core.events.AppEventBusTest" time="0.006"/>
+  <testcase name="globalResourceHintCannotMasqueradeAsTheExactNativeTaskCompletion" classname="com.mangalens.core.events.AppEventBusTest" time="0.001"/>
+  <testcase name="thereIsNoReplayToALaterSubscriber" classname="com.mangalens.core.events.AppEventBusTest" time="0.001"/>
+  <testcase name="aNegativeExecutionGenerationCannotCreateAValidTaskHint" classname="com.mangalens.core.events.AppEventBusTest" time="0.0"/>
+  <testcase name="sourceContentAndPrivatePathsCannotBePutInIdentityFields" classname="com.mangalens.core.events.AppEventBusTest" time="0.005"/>
+  <testcase name="explicitModelFilterCannotObserveAnotherModelOrTaskHint" classname="com.mangalens.core.events.AppEventBusTest" time="0.0"/>
+  <testcase name="recoveredMemoryCanReportANewCriticalTransitionToTheSameObserver" classname="com.mangalens.core.events.AppEventBusTest" time="0.001"/>
+  <testcase name="taskSourceOwnerAndGenerationMustAllMatchTheCapturedSubscription" classname="com.mangalens.core.events.AppEventBusTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

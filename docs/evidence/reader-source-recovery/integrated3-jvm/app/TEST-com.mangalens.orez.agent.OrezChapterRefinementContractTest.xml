@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.agent.OrezChapterRefinementContractTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:26" hostname="53f09df5485f" time="0.059">
+  <properties/>
+  <testcase name="changedCapturedModelOrStyleFlagsCannotBeDroppedDuringNativeMapping" classname="com.mangalens.orez.agent.OrezChapterRefinementContractTest" time="0.0"/>
+  <testcase name="legacyEnabledNullRequestRetainsItsExactScopeRatherThanAnAmbientModel" classname="com.mangalens.orez.agent.OrezChapterRefinementContractTest" time="0.014"/>
+  <testcase name="fullRequestAndPinSurviveAnOrezJournalReopenWithExplicitNewSchema" classname="com.mangalens.orez.agent.OrezChapterRefinementContractTest" time="0.029"/>
+  <testcase name="unavailableCapturedPinOrLegacyEnabledNullFailsBeforeAnyNativeDispatch" classname="com.mangalens.orez.agent.OrezChapterRefinementContractTest" time="0.008"/>
+  <testcase name="enabledFlagOrCustomInstructionMismatchCannotBecomeNativeAuthority" classname="com.mangalens.orez.agent.OrezChapterRefinementContractTest" time="0.002"/>
+  <testcase name="capturedSchemaCannotSilentlyLoseItsRefinementRequestOrModelField" classname="com.mangalens.orez.agent.OrezChapterRefinementContractTest" time="0.005"/>
+  <testcase name="actualNativeConfigMapperPreservesTheFullStyleFlagsAndModelIdentity" classname="com.mangalens.orez.agent.OrezChapterRefinementContractTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

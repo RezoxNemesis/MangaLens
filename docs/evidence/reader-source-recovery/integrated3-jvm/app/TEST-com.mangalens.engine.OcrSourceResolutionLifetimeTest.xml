@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.engine.OcrSourceResolutionLifetimeTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.068">
+  <properties/>
+  <testcase name="cancellationBeforeDecoderEntryStartsNoReadAndFreshRequestStillWorks" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.011"/>
+  <testcase name="actualFirstChapterPageContractDoesNotSilentlyFallBackToLostPixels" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.008"/>
+  <testcase name="ownerInvalidationDuringDecoderReadReleasesCropWithoutStartingNative" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.002"/>
+  <testcase name="failedDecoderStillHonorsInvalidationInsteadOfFallingBackToOldPage" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.001"/>
+  <testcase name="sourceChangeDuringNativeReturnDiscardsTheResultButPreservesCleanup" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.002"/>
+  <testcase name="callerCancellationWaitsActualNativeReturnBeforeReleasingOriginalCrop" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.008"/>
+  <testcase name="ownerInvalidationDuringHashVerificationCannotStartNative" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.001"/>
+  <testcase name="sourceMutationBetweenDecodeAndNativeStartNeverUsesThosePixels" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.005"/>
+  <testcase name="cancellationAtIoLeaseHandoffReleasesTheCreatedCropExactlyOnce" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.027"/>
+  <testcase name="everyCapturedIdentityFieldMustStillMatchBeforeOpeningDecoder" classname="com.mangalens.engine.OcrSourceResolutionLifetimeTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

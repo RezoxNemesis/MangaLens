@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.TranslationRefinementProvenanceTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.059">
+  <properties/>
+  <testcase name="modelAndActualOutputCannotBorrowAnotherReceipt" classname="com.mangalens.core.translation.TranslationRefinementProvenanceTest" time="0.004"/>
+  <testcase name="oversizeAndBlankOutputsCannotBeReceipted" classname="com.mangalens.core.translation.TranslationRefinementProvenanceTest" time="0.005"/>
+  <testcase name="exactCapturedGenerationReceiptMatches" classname="com.mangalens.core.translation.TranslationRefinementProvenanceTest" time="0.001"/>
+  <testcase name="disabledUnavailableTimedOutAndMissingPinsNeverClaimRefinement" classname="com.mangalens.core.translation.TranslationRefinementProvenanceTest" time="0.001"/>
+  <testcase name="sourceDraftTargetCustomInstructionFlagsContextAndGlossaryRemainBound" classname="com.mangalens.core.translation.TranslationRefinementProvenanceTest" time="0.036"/>
+  <testcase name="promptLimitNeverReceiptsAnInputTheNativeBoundaryWouldTruncate" classname="com.mangalens.core.translation.TranslationRefinementProvenanceTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

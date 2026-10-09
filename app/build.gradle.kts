@@ -12,8 +12,8 @@ android {
         applicationId = "com.mangalens"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "2.3.0-preview.1"
+        versionCode = 11
+        versionName = "2.3.0-preview.2"
         val sourceSha = (System.getenv("MANGALENS_GIT_SHA") ?: System.getenv("GITHUB_SHA")
             ?: runCatching { ProcessBuilder("git", "rev-parse", "HEAD").directory(rootDir).start().inputStream.bufferedReader().readText().trim() }.getOrDefault("local"))
             .takeIf { it.matches(Regex("[a-fA-F0-9]{7,40}")) } ?: "local"
@@ -31,6 +31,13 @@ android {
         }
     }
     buildTypes {
+        create("selfTest") {
+            initWith(getByName("debug"))
+            // A fresh cloud debug key cannot update an earlier preview's signing
+            // identity. Keep self-test installs and their data separate.
+            applicationIdSuffix = ".selftest"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -62,7 +69,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.5.1")

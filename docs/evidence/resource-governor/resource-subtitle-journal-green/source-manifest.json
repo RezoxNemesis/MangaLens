@@ -1,0 +1,58 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/SubtitleGenerationModels.kt",
+    "sha256": "2feb6e528d77053bd4040ddff0d3168977353b6212b259c2b4623bd2605738e3"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/SubtitleGenerationStore.kt",
+    "sha256": "75c6f0b6285b661623e1da4df0691785220d6f6b100267e86518f7fe60fc6dd0"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/SubtitleTranslationEvidence.kt",
+    "sha256": "a31c7a0616f41dfa64bc4e9297b09072f15527c741e1af9754c6f9eb84e40d12"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/ImportedCaptionFile.kt",
+    "sha256": "95e0efec39336b7565d3ccb04b81bd13958c6c5518be6bcd5d0abcb1bb7dd193"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/SubtitleAlignedTrack.kt",
+    "sha256": "8ca6e68419cffd8b2da94b9546e3a9eec4859ea9dea74640c49e96af94954173"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/SpeechWindowPolicy.kt",
+    "sha256": "b29372aa1d49f4f1dbe0af20e9927a1ca4dc9261a62e843a8f35acd959ee7e26"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/ProviderCaptionReceipt.kt",
+    "sha256": "8b244035e9520398c676c5dcee43b8e85899ea234053e155a194fcfe3188f027"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/ProviderCaptionJournal.kt",
+    "sha256": "db20e54852de5772f596c024c29fddc05b8b149ff796782d89db4383a7ad79ee"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/ProviderCaptionParser.kt",
+    "sha256": "18c68fb30a80291b9672944d492afde522582206c8542ef059578ea74943c9f9"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/ui/video/SubtitleExportSpool.kt",
+    "sha256": "3292cd7f76a51be88e629a0ed06707d7c9a44f0faf4dbf7997990c95e36766e6"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/download/ProviderCaptionDiscovery.kt",
+    "sha256": "969e4a5623b7553707b8222c4ef68c8281805f1f4c9bb6ed958d15681338813c"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/download/ProviderCaptionModels.kt",
+    "sha256": "bc3860522fd34639fd5417d036674524d5e0311a3cde6a2a7fee182de3cc3b52"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/download/MediaResolutionRunner.kt",
+    "sha256": "1da81fe3b95a129b7843ae204191cb986aa21a31c9b78fc52df9ff37b643a4bf"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/ui/video/SubtitleGenerationStoreTest.kt",
+    "sha256": "811d69400d23cbd80e0333c6162f0ca57459a58d522e89ac2129e893c0bd96ca"
+  }
+]

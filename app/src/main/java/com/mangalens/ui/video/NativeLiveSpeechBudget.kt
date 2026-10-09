@@ -1,6 +1,9 @@
 package com.mangalens.ui.video
 
 import com.mangalens.core.compute.NativeComputeAdmission
+import com.mangalens.core.compute.ResourceGovernor
+import com.mangalens.core.compute.ResourceGovernorRuntime
+import com.mangalens.core.compute.ResourceWorkKind
 import com.mangalens.core.compute.checkNativeComputePrecondition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -32,7 +35,8 @@ internal sealed interface NativeLiveSpeechOutcome<out T> {
 internal class NativeLiveSpeechBudget(
     private val budgetMs: Long,
     private val clock: () -> Long,
-    private val pollMs: Long = 50L
+    private val pollMs: Long = 50L,
+    private val resourceGovernor: ResourceGovernor = ResourceGovernorRuntime.shared
 ) {
     init { require(budgetMs > 0 && pollMs > 0) }
 
@@ -43,7 +47,7 @@ internal class NativeLiveSpeechBudget(
         open: (permit: () -> Boolean) -> NativeLiveSpeechInvocation<T>?
     ): NativeLiveSpeechOutcome<T> {
         val caller = currentCoroutineContext()
-        val started = clock()
+        val started = caller[NativeLiveSpeechEnqueuedAt]?.elapsedRealtimeMs ?: clock()
         fun stopped(): NativeLiveSpeechOutcome<Nothing>? = when {
             !isCurrent() -> NativeLiveSpeechOutcome.Invalidated
             clock() - started >= budgetMs -> NativeLiveSpeechOutcome.TimedOut
@@ -86,6 +90,7 @@ internal class NativeLiveSpeechBudget(
                         try {
                             caller.ensureActive()
                             stopped()?.let { return@async it }
+                            resourceGovernor.requireNativeEntry(ResourceWorkKind.LIVE)
                             NativeLiveSpeechOutcome.Completed(call.infer())
                         } finally {
                             try { call.finish() }

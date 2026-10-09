@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.compute.NativeComputeMemoryReleaseTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:14" hostname="53f09df5485f" time="0.267">
+  <properties/>
+  <testcase name="completeCumulativeCallbacksHaveOneBoundedPendingSlotDuringActualRelease" classname="com.mangalens.core.compute.NativeComputeMemoryReleaseTest" time="0.046"/>
+  <testcase name="failedCleanupReportsTheSameCauseAndNextReleaseCanStillUseTheLane" classname="com.mangalens.core.compute.NativeComputeMemoryReleaseTest" time="0.004"/>
+  <testcase name="releaseWaitsForActivePeerAndRetainsLaneUntilActualCloseReturns" classname="com.mangalens.core.compute.NativeComputeMemoryReleaseTest" time="0.216"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

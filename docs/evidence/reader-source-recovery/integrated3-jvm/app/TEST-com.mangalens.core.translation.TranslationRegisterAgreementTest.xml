@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.TranslationRegisterAgreementTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.021">
+  <properties/>
+  <testcase name="formalCustomAndFaithfulDoNotBorrowTheNaturalRegister" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.002"/>
+  <testcase name="hindiFirstRomanProofKeepsDefaultRegisterAndTracksAnExplicitPairedRewrite" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.002"/>
+  <testcase name="noCapturedStylePreservesTheValidatedHindiRegisterAndAgreement" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.001"/>
+  <testcase name="aRegisterControlWordUsedAsANameNeverDisappearsDuringPostprocessing" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.004"/>
+  <testcase name="mixedSubjectsAndRelativeOrFutureClausesAreKeptIntact" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.001"/>
+  <testcase name="explicitNaturalAndCasualChangeBothSubjectAndItsPresentCopula" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.006"/>
+  <testcase name="independentClausesNeverRewriteAnotherSubjectsPluralAuxiliary" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.0"/>
+  <testcase name="aKnownImperativeChangesItsExplicitSubjectTogetherWithTheVerb" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.001"/>
+  <testcase name="independentRomanModelOutputRequiresTheSameClauseAgreementRules" classname="com.mangalens.core.translation.TranslationRegisterAgreementTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

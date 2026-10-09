@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.ProviderCaptionFetcherTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:29" hostname="53f09df5485f" time="0.142">
+  <properties/>
+  <testcase name="HTTPAccessDeniedAndChallengeHtmlAreUnavailableWithSanitizedErrors" classname="com.mangalens.ui.video.ProviderCaptionFetcherTest" time="0.01"/>
+  <testcase name="userCancellationReturnsEvenIfTransportAndCancelCleanupBlock" classname="com.mangalens.ui.video.ProviderCaptionFetcherTest" time="0.01"/>
+  <testcase name="exactCaptionUrlCookieIsUsedWithoutPageOrMediaCredentials" classname="com.mangalens.ui.video.ProviderCaptionFetcherTest" time="0.005"/>
+  <testcase name="timeoutReturnsWithoutWaitingForUncooperativeTransport" classname="com.mangalens.ui.video.ProviderCaptionFetcherTest" time="0.105"/>
+  <testcase name="approvedRedirectGetsItsOwnCookieAndAnotherVideoIsNeverRequested" classname="com.mangalens.ui.video.ProviderCaptionFetcherTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

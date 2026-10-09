@@ -21,7 +21,9 @@ internal fun SubtitleGenerationConfig.selectTargetDraft(source: String, draft: T
 internal fun SubtitleGenerationTask.translationContext(windowIndex: Int, sourceIndex: Int): String {
     val earlier = windows.take(windowIndex).takeLast(3).flatMap { it.sourceCues }.takeLast(12) +
         windows[windowIndex].sourceCues.take(sourceIndex)
-    return earlier.joinToString(" ") { it.text }.takeLast(1200)
+    val previous = earlier.joinToString(" ") { it.text }
+    return if (config.sceneContext.isEmpty()) previous.takeLast(1200)
+        else config.sceneContext + previous.takeLast((1200 - config.sceneContext.length).coerceAtLeast(0)).let { if (it.isEmpty()) "" else "\n" + it }.take((1200 - config.sceneContext.length).coerceAtLeast(0))
 }
 
 internal fun acceptsSubtitleTarget(task: SubtitleGenerationTask, window: SubtitleWindow, target: SubtitleTranslatedCue): Boolean {

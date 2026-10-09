@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.download.MediaProcessAttemptDeadlineTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:21" hostname="53f09df5485f" time="0.358">
+  <properties/>
+  <testcase name="providerFailureBeforeTheAttemptDeadlineKeepsItsSpecificReason" classname="com.mangalens.download.MediaProcessAttemptDeadlineTest" time="0.033"/>
+  <testcase name="actualPinnedWrapperCancelledExceptionAtTheLocalDeadlineKeepsTimeoutCategory" classname="com.mangalens.download.MediaProcessAttemptDeadlineTest" time="0.114"/>
+  <testcase name="attemptTerminationBeforeTheOuterDeadlineIsReportedAsTimeout" classname="com.mangalens.download.MediaProcessAttemptDeadlineTest" time="0.104"/>
+  <testcase name="expiredAttemptCannotAcceptLateOutputOrEnterANewNativeCall" classname="com.mangalens.download.MediaProcessAttemptDeadlineTest" time="0.104"/>
+  <testcase name="cancellationOfThisSessionNeverBecomesAnAttemptTimeout" classname="com.mangalens.download.MediaProcessAttemptDeadlineTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

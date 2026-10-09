@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.ui.video.PlaybackMutationGuardTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:29" hostname="53f09df5485f" time="0.008">
+  <properties/>
+  <testcase name="lastCallbackReplacementIsRejectedAndSuccessfulActionsPreserveOrder" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.002"/>
+  <testcase name="pausedRefreshRetainsTheIntentCapturedWithItsLatePositionAndSpeed" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.001"/>
+  <testcase name="aReentrantSourceReplacementPreventsOldPreparePauseSpeedAndDescriptorWrites" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.002"/>
+  <testcase name="aFreshExplicitOpenStartsPlaybackAfterAPreviousPausedSource" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.001"/>
+  <testcase name="reentrantPrepareCannotPublishTheOldPausedIntentIntoANewOwner" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.0"/>
+  <testcase name="laterPickerSelectionCanInvalidateAnAttachmentWithoutMutatingTheOldPlayer" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.001"/>
+  <testcase name="alreadySupersededRefreshCannotTouchSourcePrepareOrPlayIntent" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.0"/>
+  <testcase name="playingRefreshRestoresItsCapturedIntentAfterPreparation" classname="com.mangalens.ui.video.PlaybackMutationGuardTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

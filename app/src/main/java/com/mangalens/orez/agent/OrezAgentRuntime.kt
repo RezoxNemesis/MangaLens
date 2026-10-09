@@ -27,7 +27,12 @@ class OrezAgentRuntime(
                 it.call.name != "generate_subtitles" && it.call.capability == OrezCapability.TRANSLATION
             }?.call?.arguments?.get("targetLanguage") ?: context.translationOptions.targetLanguage).normalized(),
             selectedMedia = context.selectedMedia?.captured()?.takeIf { plan.steps.any { it.call.name == "inspect_selected_media" } },
-            subtitle = OrezSubtitleRequest.options(plan.objective, context.subtitleOptions).takeIf {
+            subtitle = OrezSubtitleRequest.options(plan.objective, context.subtitleOptions.let { options ->
+                if (context.selectedMedia?.hasProviderCaptionCandidate() == true && OrezSubtitleContract.isLegacy(options.normalized()))
+                    options.copy(style = "natural", pipeline = com.mangalens.ui.video.SubtitlePipeline.SOURCE_TRANSLATION,
+                        translationPolicy = "mlkit-dialogue-v1", capturedStyle = com.mangalens.core.translation.TranslationStyleProfile.NATURAL)
+                else options
+            }).takeIf {
                 plan.steps.any { it.call.name in setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles") }
             }
         ))

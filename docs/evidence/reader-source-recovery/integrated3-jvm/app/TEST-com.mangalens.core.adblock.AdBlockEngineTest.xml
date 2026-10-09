@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.adblock.AdBlockEngineTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:12" hostname="53f09df5485f" time="0.105">
+  <properties/>
+  <testcase name="socialVideoAdSelectorsArePresentWithoutBlockingSharedMediaCdn" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.073"/>
+  <testcase name="testMediaQueryStringIsNotBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.003"/>
+  <testcase name="testMediaOnKnownAdHostIsBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.002"/>
+  <testcase name="testOrdinaryFirstPartyVideoWithAdWordInTitleStillPasses" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.001"/>
+  <testcase name="testAdDomainIsBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.0"/>
+  <testcase name="testValidMediaStreamIsNotBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.0"/>
+  <testcase name="testValidImageIsNotBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.0"/>
+  <testcase name="testUnrelatedDomainIsAllowed" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.001"/>
+  <testcase name="testOrdinaryFirstPartyMediaStillPasses" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.001"/>
+  <testcase name="testNestedAdSubdomainIsBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.008"/>
+  <testcase name="testAdditionalProgrammaticAdNetworkIsBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.001"/>
+  <testcase name="testFirstPartyPrerollMediaIsBlocked" classname="com.mangalens.core.adblock.AdBlockEngineTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

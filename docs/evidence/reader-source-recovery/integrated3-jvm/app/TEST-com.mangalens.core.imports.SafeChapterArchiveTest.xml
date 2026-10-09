@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.imports.SafeChapterArchiveTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:14" hostname="53f09df5485f" time="0.012">
+  <properties/>
+  <testcase name="rejectsTraversalAbsoluteAndWindowsPaths" classname="com.mangalens.core.imports.SafeChapterArchiveTest" time="0.002"/>
+  <testcase name="naturallyOrdersPagesAndIgnoresNonImages" classname="com.mangalens.core.imports.SafeChapterArchiveTest" time="0.002"/>
+  <testcase name="rejectsNestedArchivesAndPageOverflow" classname="com.mangalens.core.imports.SafeChapterArchiveTest" time="0.001"/>
+  <testcase name="rejectsExpansionAndCleansPartialPages" classname="com.mangalens.core.imports.SafeChapterArchiveTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

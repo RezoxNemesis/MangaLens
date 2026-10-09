@@ -5,6 +5,12 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.work.*
+import com.mangalens.core.events.AppEventType
+import com.mangalens.core.events.AppEvents
+import com.mangalens.core.events.CommittedEventWaiter
+import com.mangalens.core.events.EventIdentity
+import com.mangalens.core.events.TaskEventFilter
+import com.mangalens.core.events.TaskEventIdentity
 import com.mangalens.download.DownloadDatabase
 import com.mangalens.download.DownloadQuality
 import com.mangalens.download.DownloadState
@@ -12,7 +18,6 @@ import com.mangalens.download.MediaDownloadManager
 import com.mangalens.orez.OrezRoomDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Duration
@@ -37,7 +42,7 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
                 OrezSubtitleTools.forPlan(store, plan, OrezNativeSubtitleHost(applicationContext)) else null
             val executor = OrezTaskExecutor(store, OrezDurableTools { step, requestId ->
                 when (step.call.name) {
-                    "enqueue_download" -> executeDownload(step, requestId)
+                    "enqueue_download" -> executeDownload(step, requestId, id, plan.executionEpoch, store)
                     "inspect_saved_chapter", "translate_saved_chapter" -> requireNotNull(chapterTools).execute(step, requestId)
                     "inspect_selected_media", "inspect_downloaded_media", "generate_subtitles" -> requireNotNull(subtitleTools).execute(step, requestId)
                     else -> OrezToolResult.Failed("This tool has no durable native executor.")
@@ -71,46 +76,60 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
         }
     }
 
-    private suspend fun executeDownload(step: OrezPlanStep, downloadId: String): OrezToolResult {
-        val downloads = DownloadDatabase.get(applicationContext).downloads()
-        val existing = downloads.get(downloadId)
-        if (existing == null || existing.state == DownloadState.QUEUED) {
-            val queued = withTimeoutOrNull(120_000L) {
-                MediaDownloadManager(applicationContext).enqueue(step.call.arguments.getValue("value"),
-                    quality = step.call.arguments["quality"]?.let(DownloadQuality::valueOf) ?: DownloadQuality.BEST,
-                    requestId = downloadId)
-            }
-            if (queued == null) return if (runAttemptCount < 2) OrezToolResult.Pending("Retrying media source resolution.")
-                else OrezToolResult.Failed("Media resolution timed out. Inspect the source in Web.")
-        }
-        val terminal = withTimeoutOrNull(8L * 60L * 1000L) {
-            downloads.observe().first { rows -> rows.any { row ->
-                row.id == downloadId && row.state in setOf(DownloadState.COMPLETED, DownloadState.FAILED, DownloadState.CANCELLED, DownloadState.PAUSED)
-            } }.first { it.id == downloadId }
-        } ?: return OrezToolResult.Pending("Transfer is continuing in Downloads.")
-        return when (terminal.state) {
-            DownloadState.PAUSED -> OrezToolResult.Pending("Download paused. Resume this task to continue its remaining steps.", needsResume = true)
-            DownloadState.CANCELLED -> OrezToolResult.Cancelled("The current transfer was cancelled.")
-            DownloadState.FAILED -> OrezToolResult.Failed(terminal.error ?: "Native download verification failed.")
-            DownloadState.COMPLETED -> {
-                if (terminal.bytesDownloaded <= 0L) return OrezToolResult.Failed("Completed transfer has no downloaded bytes.")
-                val destination = terminal.destination?.takeIf { it.isNotBlank() }
-                    ?: if (terminal.isAdaptive) "adaptive-cache:$downloadId" else null
-                if (destination == null) return OrezToolResult.Failed("Completed transfer has no published destination.")
-                if (!terminal.isAdaptive) {
-                    val available = runCatching {
-                        applicationContext.contentResolver.openAssetFileDescriptor(android.net.Uri.parse(destination), "r")?.use {
-                            it.createInputStream().use { stream -> stream.read() >= 0 }
-                        } == true
-                    }.getOrDefault(false)
-                    if (!available) return OrezToolResult.Failed("The published download is missing or unreadable.")
+    private suspend fun executeDownload(step: OrezPlanStep, downloadId: String, taskId: String,
+        executionEpoch: Long, store: OrezTaskStore): OrezToolResult {
+        // The executor already authorized this native request. Hints only shorten
+        // an exact committed-row read and never enqueue or complete another step.
+        val captured = TaskEventIdentity(EventIdentity.task(taskId), EventIdentity.source(downloadId),
+            EventIdentity.owner(downloadId), executionEpoch)
+        val subscription = AppEvents.bus.trySubscribe(TaskEventFilter(captured,
+            setOf(AppEventType.DOWNLOAD_COMPLETE, AppEventType.DOWNLOAD_FAILED)))
+        try {
+            if (!store.isExecuting(taskId, executionEpoch))
+                return OrezToolResult.Pending("Task paused before native dispatch.", needsResume = true)
+            val downloads = DownloadDatabase.get(applicationContext).downloads()
+            val existing = downloads.get(downloadId)
+            if (existing == null || existing.state == DownloadState.QUEUED) {
+                if (!store.isExecuting(taskId, executionEpoch))
+                    return OrezToolResult.Pending("Task paused before native dispatch.", needsResume = true)
+                val queued = withTimeoutOrNull(120_000L) {
+                    MediaDownloadManager(applicationContext).enqueue(step.call.arguments.getValue("value"),
+                        quality = step.call.arguments["quality"]?.let(DownloadQuality::valueOf) ?: DownloadQuality.BEST,
+                        requestId = downloadId)
                 }
-                OrezToolResult.Completed(mapOf("downloadId" to downloadId, "destination" to destination,
-                    "title" to terminal.title.take(250), "bytes" to terminal.bytesDownloaded.toString(),
-                    "storage" to if (terminal.isAdaptive) "adaptive-cache" else "published-file"))
+                if (queued == null) return if (runAttemptCount < 2) OrezToolResult.Pending("Retrying media source resolution.")
+                    else OrezToolResult.Failed("Media resolution timed out. Inspect the source in Web.")
             }
-            else -> OrezToolResult.Pending("Waiting for native download completion.")
-        }
+            val terminal = withTimeoutOrNull(8L * 60L * 1000L) {
+                CommittedEventWaiter.awaitCurrent(subscription, 2_000L,
+                    isCurrent = { store.isExecuting(taskId, executionEpoch) },
+                    read = { downloads.get(downloadId)?.takeIf { it.state in setOf(
+                        DownloadState.COMPLETED, DownloadState.FAILED, DownloadState.CANCELLED, DownloadState.PAUSED) } })
+            } ?: return OrezToolResult.Pending("Transfer is continuing in Downloads.")
+            return when (terminal.state) {
+                DownloadState.PAUSED -> OrezToolResult.Pending("Download paused. Resume this task to continue its remaining steps.", needsResume = true)
+                DownloadState.CANCELLED -> OrezToolResult.Cancelled("The current transfer was cancelled.")
+                DownloadState.FAILED -> OrezToolResult.Failed(terminal.error ?: "Native download verification failed.")
+                DownloadState.COMPLETED -> {
+                    if (terminal.bytesDownloaded <= 0L) return OrezToolResult.Failed("Completed transfer has no downloaded bytes.")
+                    val destination = terminal.destination?.takeIf { it.isNotBlank() }
+                        ?: if (terminal.isAdaptive) "adaptive-cache:$downloadId" else null
+                    if (destination == null) return OrezToolResult.Failed("Completed transfer has no published destination.")
+                    if (!terminal.isAdaptive) {
+                        val available = runCatching {
+                            applicationContext.contentResolver.openAssetFileDescriptor(android.net.Uri.parse(destination), "r")?.use {
+                                it.createInputStream().use { stream -> stream.read() >= 0 }
+                            } == true
+                        }.getOrDefault(false)
+                        if (!available) return OrezToolResult.Failed("The published download is missing or unreadable.")
+                    }
+                    OrezToolResult.Completed(mapOf("downloadId" to downloadId, "destination" to destination,
+                        "title" to terminal.title.take(250), "bytes" to terminal.bytesDownloaded.toString(),
+                        "storage" to if (terminal.isAdaptive) "adaptive-cache" else "published-file"))
+                }
+                else -> OrezToolResult.Pending("Waiting for native download completion.")
+            }
+        } finally { subscription?.close() }
     }
 
     private fun completionMessage(plan: OrezTaskPlan): String {

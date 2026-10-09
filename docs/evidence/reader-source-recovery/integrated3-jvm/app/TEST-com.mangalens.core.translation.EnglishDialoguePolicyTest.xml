@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.EnglishDialoguePolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:17" hostname="53f09df5485f" time="0.019">
+  <properties/>
+  <testcase name="recognisesShortImperativesAndIdioms" classname="com.mangalens.core.translation.EnglishDialoguePolicyTest" time="0.008"/>
+  <testcase name="nonLatinDialogueAndOcrNoiseDoNotBecomeEnglishHints" classname="com.mangalens.core.translation.EnglishDialoguePolicyTest" time="0.001"/>
+  <testcase name="recognisesShortPersonalClauses" classname="com.mangalens.core.translation.EnglishDialoguePolicyTest" time="0.002"/>
+  <testcase name="shortForeignLatinPhrasesDoNotBecomeEnglishHints" classname="com.mangalens.core.translation.EnglishDialoguePolicyTest" time="0.007"/>
+  <testcase name="latinCharacterNamesDoNotBecomeEnglishHints" classname="com.mangalens.core.translation.EnglishDialoguePolicyTest" time="0.0"/>
+  <testcase name="embeddedEnglishNameDoesNotOverrideNonLatinDialogue" classname="com.mangalens.core.translation.EnglishDialoguePolicyTest" time="0.0"/>
+  <testcase name="recognisesContractionsAndCurlyApostrophes" classname="com.mangalens.core.translation.EnglishDialoguePolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

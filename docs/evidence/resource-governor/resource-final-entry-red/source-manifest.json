@@ -1,0 +1,18 @@
+[
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/ResourceGovernor.kt",
+    "sha256": "e32dd07ddc43da63bbee13b1ae633610682df131b15a2a55697fe08b0f96cf77"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputeAdmission.kt",
+    "sha256": "1465d902a5f9ecc560cd7320224f30dfb5504f3bf274868d84bbb1085b9e9902"
+  },
+  {
+    "path": "app/src/main/java/com/mangalens/core/compute/NativeComputePrecondition.kt",
+    "sha256": "2b330c72b6167b5a87921128a58716c562ef94e2f317a396b0eb0479139fd2b2"
+  },
+  {
+    "path": "app/src/test/java/com/mangalens/core/compute/ResourceGovernorTest.kt",
+    "sha256": "fd5d52b6a22f19e1bd83feb829b863c80f0d57322494e2d75adb9707117a185b"
+  }
+]

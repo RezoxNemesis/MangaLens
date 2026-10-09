@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -58,7 +59,10 @@ fun MangaLensNavGraph(
     onIngestionCancelled: () -> Unit = {},
     onVideoRefreshed: (VideoPlaybackSelection, VideoPlaybackSelection, () -> Boolean) -> Boolean = { _, _, _ -> false },
     onVideoReady: (VideoReadyObservation) -> Unit = {},
-    onChapterMetadata: (suspend (String, com.mangalens.core.reader.LibraryChapterMetadata) -> Unit)? = null
+    onChapterMetadata: (suspend (String, com.mangalens.core.reader.LibraryChapterMetadata) -> Unit)? = null,
+    onRetryReaderPage: (com.mangalens.core.reader.ChapterPage) -> Unit = { onIngest() },
+    readerMemory: com.mangalens.core.translation.ReaderMemoryController? = null,
+    onResolvedCaptionedVideo: ((com.mangalens.ui.video.SniffedMedia, String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -143,7 +147,7 @@ fun MangaLensNavGraph(
                 )
             }
             composable("library") {
-                LibraryScreen(state = state, onChapterDetails = onChapterDetails, onChapterMetadata = onChapterMetadata, onDeleteChapter = onDeleteSavedChapter, onOpenSavedChapter = { id -> onOpenSavedChapter(id); navController.navigate("reader") }, onOpenReader = { navController.navigate("reader") }, onOpenLocalVideo = { navController.navigate("local_video") })
+                LibraryScreen(state = state, onChapterDetails = onChapterDetails, onChapterMetadata = onChapterMetadata, onOpenSeriesMemory = { chapter -> navController.navigate("series_memory?chapter=" + chapter.orEmpty()) }, onDeleteChapter = onDeleteSavedChapter, onOpenSavedChapter = { id -> onOpenSavedChapter(id); navController.navigate("reader") }, onOpenReader = { navController.navigate("reader") }, onOpenLocalVideo = { navController.navigate("local_video") })
             }
             composable("orez") {
                 OrezAiScreen(hasActiveChapter = state.pages.isNotEmpty(),
@@ -195,7 +199,22 @@ fun MangaLensNavGraph(
                     onResetAdBlockStats = onResetAdBlockStats
                 )
             }
+            composable("series_memory?chapter={chapter}", arguments = listOf(androidx.navigation.navArgument("chapter") { defaultValue = "" })) { entry ->
+                val id = entry.arguments?.getString("chapter").orEmpty()
+                com.mangalens.ui.library.SeriesMemoryScreen(state.library.firstOrNull { it.id == id }, state.targetLanguage,
+                    onBack = { navController.popBackStack() })
+            }
             composable("reader") {
+                val memoryState = readerMemory?.state?.collectAsState()?.value
+                val memoryScope = rememberCoroutineScope()
+                DisposableEffect(readerMemory) { readerMemory?.enterReader(); onDispose { readerMemory?.leaveReader() } }
+                val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+                DisposableEffect(lifecycle, readerMemory) {
+                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) readerMemory?.refreshVisiblePage() }
+                    lifecycle.addObserver(observer)
+                    onDispose { lifecycle.removeObserver(observer) }
+                }
+                readerMemory?.let { controller -> com.mangalens.ui.reader.ReaderMemoryPanel(controller, onRetranslate = { index -> state.pages.firstOrNull { it.index == index }?.let(onTranslatePage) }) }
                 MangaContinuousReader(
                     title = state.activeChapter?.title ?: "Chapter", chapterId = state.activeChapter?.id ?: "",
                     initialPosition = state.activeChapter?.position ?: 0, initialOffset = state.activeChapter?.scrollOffset ?: 0,
@@ -211,6 +230,10 @@ fun MangaLensNavGraph(
                     onBack = { navController.popBackStack() }, onTranslate = onTranslateChapter,
                     onDownload = onDownloadChapter, onMenu = { navController.navigate("settings") },
                     onRetry = { if (state.translationError || state.translationMessage != null) onTranslateChapter() else onIngest() },
+                    onRetryPage = onRetryReaderPage,
+                    onVisiblePage = { index -> readerMemory?.onVisiblePage(index) },
+                    onCorrectPage = readerMemory?.let { controller -> { index -> memoryScope.launch { controller.openPage(index) }; Unit } },
+                    personalOverlays = memoryState?.personalOverlays.orEmpty(),
                     onOpenWeb = { navController.navigate("web") }, onLongPressPage = onTranslatePage,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -239,6 +262,7 @@ fun MangaLensNavGraph(
                         audioUrl = state.videoAudioUrl,
                         audioHeaders = state.videoAudioHeaders,
                         resolutionId = state.videoResolutionId,
+                        providerCaptions = state.videoProviderCaptions,
                         onSourceRefreshed = onVideoRefreshed,
                         onReadySource = onVideoReady
                     )
@@ -320,13 +344,8 @@ fun MangaLensNavGraph(
                         navController.navigate("reader")
                     },
                     onOpenVideo = { media, sourcePage ->
-                        onResolvedVideo(
-                            media.url,
-                            media.headers,
-                            sourcePage,
-                            media.audioUrl,
-                            media.audioHeaders
-                        )
+                        if (onResolvedCaptionedVideo != null) onResolvedCaptionedVideo(media, sourcePage)
+                        else onResolvedVideo(media.url, media.headers, sourcePage, media.audioUrl, media.audioHeaders)
                         navController.navigate("video")
                     }
                 )

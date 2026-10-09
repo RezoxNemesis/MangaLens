@@ -78,6 +78,10 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
                         check(manager.verifiedModelCandidates(candidate.pin).any { it.file.canonicalPath == requestedPath }) {
                             "The captured local model changed while waiting for native compute. Retry with a verified model."
                         }
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        com.mangalens.core.compute.ResourceGovernorRuntime.shared.requireNativeEntry(
+                            if (priority == NativeComputeAdmission.Priority.BACKGROUND) com.mangalens.core.compute.ResourceWorkKind.BACKGROUND
+                            else com.mangalens.core.compute.ResourceWorkKind.INTERACTIVE)
                         val switched = OrezModelLeaseSwitch.switch(requestedPath, loadedModelPath, engine.isLoaded,
                             engine::load, engine::close, { OrezNativeEngine.sharedModelPath })
                         loadedModelPath = switched.loadedPath
@@ -197,6 +201,10 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
                 check(stillVerified(captured)) {
                     "The captured local model changed while waiting for native compute. Saved work has been kept."
                 }
+                if (!continuation.isActive) return@launch
+                com.mangalens.core.compute.ResourceGovernorRuntime.shared.requireNativeEntry(
+                    if (priority == NativeComputeAdmission.Priority.BACKGROUND) com.mangalens.core.compute.ResourceWorkKind.BACKGROUND
+                    else com.mangalens.core.compute.ResourceWorkKind.INTERACTIVE)
                 val result = engine.generate(prompt, maxTokens.coerceIn(96, 320), request)
                 if (continuation.isActive) continuation.resume(result)
             } catch (failure: Exception) {
@@ -249,13 +257,27 @@ class OrezLocalModelService(private val manager: OrezModelManager) {
     private suspend fun <T> nativeWork(priority: NativeComputeAdmission.Priority, cleanup: Boolean = false,
         block: suspend () -> T): T? {
         val caller = kotlinx.coroutines.currentCoroutineContext()
-        val lease = NativeComputeAdmission.shared.acquire(priority) { caller.isActive }
+        val lease = NativeComputeAdmission.shared.acquire(priority,
+            if (cleanup) com.mangalens.core.compute.ResourceWorkKind.CLEANUP else when (priority) {
+                NativeComputeAdmission.Priority.LIVE -> com.mangalens.core.compute.ResourceWorkKind.LIVE
+                NativeComputeAdmission.Priority.INTERACTIVE -> com.mangalens.core.compute.ResourceWorkKind.INTERACTIVE
+                NativeComputeAdmission.Priority.BACKGROUND -> com.mangalens.core.compute.ResourceWorkKind.BACKGROUND
+            }) { caller.isActive }
             ?: return null
         try {
             caller.ensureActive()
             if (!cleanup) checkNativeComputePrecondition(lease.waited)
             caller.ensureActive()
-            return withContext(NonCancellable + Dispatchers.IO) { block() }
+            return withContext(NonCancellable + Dispatchers.IO) {
+                caller.ensureActive()
+                com.mangalens.core.compute.ResourceGovernorRuntime.shared.requireNativeEntry(
+                    if (cleanup) com.mangalens.core.compute.ResourceWorkKind.CLEANUP else when (priority) {
+                        NativeComputeAdmission.Priority.LIVE -> com.mangalens.core.compute.ResourceWorkKind.LIVE
+                        NativeComputeAdmission.Priority.INTERACTIVE -> com.mangalens.core.compute.ResourceWorkKind.INTERACTIVE
+                        NativeComputeAdmission.Priority.BACKGROUND -> com.mangalens.core.compute.ResourceWorkKind.BACKGROUND
+                    })
+                block()
+            }
         } finally { lease.close() }
     }
 

@@ -2,6 +2,7 @@ package com.mangalens.ui.video
 
 import android.app.Application
 import android.net.Uri
+import com.mangalens.download.ProviderCaptionInventory
 import androidx.lifecycle.AndroidViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -25,8 +26,9 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun open(value: Uri) { session.open(value, presentation) }
     fun openHttp(value: String, referer: String? = null, headers: Map<String, String> = emptyMap(),
-        audioUrl: String? = null, audioHeaders: Map<String, String> = emptyMap(), refreshFromRevision: Long? = null): Boolean =
-        session.openHttp(presentation, value, referer, headers, audioUrl, audioHeaders, refreshFromRevision)
+        audioUrl: String? = null, audioHeaders: Map<String, String> = emptyMap(), refreshFromRevision: Long? = null,
+        sourceResolutionId: String? = null, providerCaptions: ProviderCaptionInventory? = null): Boolean =
+        session.openHttp(presentation, value, referer, headers, audioUrl, audioHeaders, refreshFromRevision, sourceResolutionId, providerCaptions)
     fun bind(view: PlayerView, epoch: Long = presentation) { view.player = player.takeIf { session.policy.ownsPresentation(epoch) } }
     internal fun attachPresentation(): Long {
         presentation = session.attachPresentation()

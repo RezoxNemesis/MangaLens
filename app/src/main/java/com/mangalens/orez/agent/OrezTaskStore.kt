@@ -12,6 +12,7 @@ import com.mangalens.ui.video.SubtitleOutputMode
 import com.mangalens.ui.video.SubtitlePipeline
 import com.mangalens.core.translation.TranslationRefinementRequestCodec
 import com.mangalens.ui.video.SubtitleRefinementPin
+import com.mangalens.ui.video.ProviderCaptionJournal
 
 /**
  * Durable journal for autonomous Orez work.
@@ -214,12 +215,14 @@ class OrezTaskStore(
                 .put("refinementRequest", options.refinementRequest?.let(TranslationRefinementRequestCodec::encode) ?: JSONObject.NULL)) }
             scope.selectedMedia?.let { source -> authorization.put("selectedMedia", JSONObject()
                 .put("uri", source.uri).put("cacheKey", source.cacheKey).put("label", source.label).put("headers", JSONObject(source.headers))
+                .put("providerCaptions", source.providerCaptions?.let(ProviderCaptionJournal::inventory) ?: JSONObject.NULL)
                 .put("resolutionId", source.resolutionId ?: JSONObject.NULL).put("expectedDurationUs", source.expectedDurationUs ?: JSONObject.NULL)
                 .put("audio", source.audio?.let { audio -> JSONObject().put("uri", audio.uri).put("resolutionId", audio.resolutionId)
                     .put("headers", JSONObject(audio.headers)) } ?: JSONObject.NULL)) }
             scope.subtitle?.let { options -> authorization.put("subtitle", JSONObject()
                 .put("sourceLanguage", options.sourceLanguage).put("targetLanguage", options.targetLanguage).put("style", options.style)
                 .put("windowSeconds", options.windowSeconds).put("overlapSeconds", options.overlapSeconds).put("threads", options.threads)
+                .put("sceneContext", options.sceneContext)
                 .put("outputMode", options.outputMode.name).put("pipeline", options.pipeline.name).put("customStyle", options.customStyle)
                 .put("localRefinement", options.localRefinement).put("translationPolicy", options.translationPolicy)
                 .put("capturedStyle", options.capturedStyle?.let { profile -> JSONObject().put("id", profile.id).put("name", profile.name)
@@ -264,7 +267,8 @@ class OrezTaskStore(
             val legacy = OrezMediaSelection(source.getString("uri"), source.getString("cacheKey"), source.getString("label"), stringMap(source.getJSONObject("headers")))
             if (schema <= 2) return legacy
             require(listOf("resolutionId", "audio", "expectedDurationUs").all(source::has)) { "Captured playable source metadata is incomplete." }
-            return legacy.copy(resolutionId = if (source.isNull("resolutionId")) null else source.getString("resolutionId"),
+            return legacy.copy(providerCaptions = source.optJSONObject("providerCaptions")?.let(ProviderCaptionJournal::inventory),
+                resolutionId = if (source.isNull("resolutionId")) null else source.getString("resolutionId"),
                 expectedDurationUs = if (source.isNull("expectedDurationUs")) null else source.getLong("expectedDurationUs"),
                 audio = if (source.isNull("audio")) null else source.getJSONObject("audio").let { audio ->
                     OrezAudioSelection(audio.getString("uri"), audio.getString("resolutionId"), stringMap(audio.getJSONObject("headers"))) })
@@ -276,7 +280,7 @@ class OrezTaskStore(
             require(listOf("outputMode", "pipeline", "customStyle", "localRefinement", "translationPolicy", "capturedStyle", "refinementPin").all(options::has)) {
                 "Captured subtitle policy metadata is incomplete."
             }
-            return legacy.copy(outputMode = SubtitleOutputMode.valueOf(options.getString("outputMode")), pipeline = SubtitlePipeline.valueOf(options.getString("pipeline")),
+            return legacy.copy(sceneContext = options.optString("sceneContext", ""), outputMode = SubtitleOutputMode.valueOf(options.getString("outputMode")), pipeline = SubtitlePipeline.valueOf(options.getString("pipeline")),
                 customStyle = options.getString("customStyle"), localRefinement = options.getBoolean("localRefinement"), translationPolicy = options.getString("translationPolicy"),
                 capturedStyle = if (options.isNull("capturedStyle")) null else options.getJSONObject("capturedStyle").let { profile ->
                     TranslationStyleProfile(profile.getString("id"), profile.getString("name"), profile.getString("instruction"),

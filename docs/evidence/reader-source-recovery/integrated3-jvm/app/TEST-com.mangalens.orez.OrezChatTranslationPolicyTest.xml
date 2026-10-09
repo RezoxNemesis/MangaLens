@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.orez.OrezChatTranslationPolicyTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:25" hostname="53f09df5485f" time="0.093">
+  <properties/>
+  <testcase name="fallbackScriptTagIsNormalizedWithoutCollapsingToHindi" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.005"/>
+  <testcase name="failedCacheOrModelDoesNotHideAGoodFallback" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.025"/>
+  <testcase name="invalidCacheFallsThroughToVerifiedModelWithoutUsingFallback" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.012"/>
+  <testcase name="cancelledModelNeverStartsFallbackWork" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.001"/>
+  <testcase name="alreadyRomanSourceCanRemainUnchangedThroughTheFallback" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.006"/>
+  <testcase name="checkedHindiFallbackRetainsShortNounProofAfterWrongScriptRefinement" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.012"/>
+  <testcase name="untrustedShortNounCannotInventHindiProofToClaimSuccess" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.002"/>
+  <testcase name="actualMemoryCodecPreservesShortNounProofWithoutModelOrFallback" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.003"/>
+  <testcase name="ordinaryHindiMemoryKeepsItsScriptAndTarget" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.007"/>
+  <testcase name="romanTargetPromptRequestsLatinHindiRatherThanDevanagari" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.0"/>
+  <testcase name="chatAliasesKeepTheFullTargetAndRemoveTheActualInstruction" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.001"/>
+  <testcase name="validRomanCacheAvoidsModelAndFallbackAndKeepsMemoryTagDistinct" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.007"/>
+  <testcase name="cacheAndModelWrongScriptCannotBypassTheRomanDraftGate" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.008"/>
+  <testcase name="anUnusableFallbackCannotBecomeAClaimedTranslation" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.002"/>
+  <testcase name="prefixAndSuffixTargetsPreserveQuotedSourceAndPriorLanguages" classname="com.mangalens.orez.OrezChatTranslationPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

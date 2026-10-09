@@ -18,6 +18,30 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real journals/files; only Android's AtomicFile and image decoder are replaced on the JVM. */
 class ChapterTranslationStoreTest {
+    @Test fun resourceWaitSurvivesRestartKeepsCompletedPagesAndCannotWakeUserPauseOrReplacement() = runBlocking {
+        Fixture().use { f ->
+            val store = f.store()
+            val task = store.start(f.chapter(), f.config, ownerRequestId = "orez:resource-wait")
+            store.markRunning(task.id, task.generation)
+            val completed = f.completed(store, task)
+            assertTrue(store.commitPage(task.id, task.generation, completed))
+            val reason = "Waiting for device memory; saved progress will resume automatically."
+            assertTrue(store.deferForResources(task.id, task.generation, reason))
+            val reopened = f.store().refresh(task.id, task.generation)!!
+            assertEquals(ChapterTranslationStatus.QUEUED, reopened.status)
+            assertEquals(task.generation, reopened.generation)
+            assertEquals(task.ownerRequestId, reopened.ownerRequestId)
+            assertEquals(completed, reopened.pages.single())
+            assertEquals(reason, reopened.error)
+            store.pause(task.id, task.generation)
+            assertFalse(store.deferForResources(task.id, task.generation, reason))
+            assertEquals(ChapterTranslationStatus.PAUSED, store.get(task.id)!!.status)
+            val resumed = store.resume(task.id, task.generation)!!
+            assertFalse(store.deferForResources(task.id, task.generation, reason))
+            assertEquals(resumed.generation, store.get(task.id)!!.generation)
+        }
+    }
+
     @Test fun explicitPageRetranslationCreatesFreshWorkAndRetainsOtherCompletedPages() {
         Fixture().use { f ->
             val second = File(f.sources, "2.img").apply { writeText("second original page") }

@@ -59,6 +59,7 @@ internal class SubtitleWindowProcessor(
                 successes++
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (blocked: SubtitleOwnedWorkBlocked) { throw blocked }
+            catch (paused: com.mangalens.core.compute.ResourcePausedException) { throw paused }
             catch (failure: Exception) {
                 failures++
                 firstError = firstError ?: (failure.message ?: "A speech cue could not be translated.").take(300)

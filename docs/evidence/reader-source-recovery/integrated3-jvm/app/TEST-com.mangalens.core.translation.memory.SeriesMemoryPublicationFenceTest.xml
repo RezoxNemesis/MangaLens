@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mangalens.core.translation.memory.SeriesMemoryPublicationFenceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-09T19:57:19" hostname="53f09df5485f" time="0.036">
+  <properties/>
+  <testcase name="readOnlyStoreCannotMutateSourceHistoryWithoutRealOwnerAuthority" classname="com.mangalens.core.translation.memory.SeriesMemoryPublicationFenceTest" time="0.003"/>
+  <testcase name="generationHandoffDuringPreparationRejectsOldOwnerWithoutBlockingNavigation" classname="com.mangalens.core.translation.memory.SeriesMemoryPublicationFenceTest" time="0.028"/>
+  <testcase name="queuedEditInvalidatedBeforePublicationCannotPersistOldGeneration" classname="com.mangalens.core.translation.memory.SeriesMemoryPublicationFenceTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
