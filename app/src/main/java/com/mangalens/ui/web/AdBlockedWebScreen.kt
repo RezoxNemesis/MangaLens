@@ -53,6 +53,7 @@ import org.json.JSONTokener
 import kotlin.coroutines.resume
 
 @SuppressLint("SetJavaScriptEnabled")
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun AdBlockedWebScreen(
     url: String,
@@ -130,12 +131,13 @@ fun AdBlockedWebScreen(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var currentUrl by remember { mutableStateOf(url) }
     var pageTitle by remember { mutableStateOf("") }
-    var loadProgress by remember { mutableIntStateOf(0) }
+    var pageLoad by remember { mutableStateOf(WebPageLoadState()) }
+    val loadProgress = pageLoad.progress
+    val pageReady = pageLoad.pageReady
+    val navigationEpoch = pageLoad.navigation?.epoch ?: 0L
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
-    var navigationEpoch by remember { mutableIntStateOf(0) }
     var clearSiteDialog by remember { mutableStateOf(false) }
-    var pageReady by remember { mutableStateOf(false) }
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var translated by remember { mutableStateOf(translationEnabled) }
@@ -148,6 +150,53 @@ fun AdBlockedWebScreen(
     var siteAdBlockEnabled by remember { mutableStateOf(adBlockEnabled) }
     val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
     val latestSiteAdBlockEnabled by rememberUpdatedState(siteAdBlockEnabled)
+
+    fun beginNavigation(target: String) {
+        pageLoad = pageLoad.start(target)
+        currentUrl = target
+        detectedMedia = null
+        speech.invalidate(clear = true)
+        translating = false
+        translatedCount = 0
+        totalTranslatable = 0
+        translationStatus = null
+        hudVisible = true
+    }
+
+    fun loadPage(target: String) {
+        val view = webView ?: return
+        beginNavigation(target)
+        view.loadUrl(target)
+    }
+
+    fun reloadPage() {
+        val view = webView ?: return
+        val target = view.url?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl) ?: currentUrl
+        if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(target)) return
+        beginNavigation(target)
+        if (view.url?.let { WebPageLoadState.sameDocument(it, target) } == true) view.reload() else view.loadUrl(target)
+    }
+
+    fun navigateHistory(delta: Int) {
+        val view = webView ?: return
+        val history = view.copyBackForwardList()
+        val index = history.currentIndex + delta
+        if (index !in 0 until history.size) return
+        val target = history.getItemAtIndex(index).url
+        if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(target)) return
+        beginNavigation(target)
+        view.goBackOrForward(delta)
+    }
+
+    fun callbackTicket(view: WebView?, callbackUrl: String?): WebNavigationTicket? {
+        val ticket = pageLoad.navigation ?: return null
+        if (!pageLoad.accepts(ticket, callbackUrl)) return null
+        val visibleUrl = view?.url
+        if (visibleUrl != null && callbackUrl != null && !WebPageLoadState.sameDocument(visibleUrl, callbackUrl)) return null
+        // WebView supplies no original request ID. URL checks reject another document's
+        // callbacks; captured tickets also fence our own asynchronous continuations.
+        return ticket
+    }
 
     fun enrichSniffedMedia(media: SniffedMedia): SniffedMedia {
         val cookie = runCatching {
@@ -249,7 +298,7 @@ fun AdBlockedWebScreen(
         webView = null
         translator.close()
     } }
-    BackHandler(canGoBack) { webView?.goBack() }
+    BackHandler(canGoBack) { navigateHistory(-1) }
     if (clearSiteDialog) AlertDialog(
         onDismissRequest = { clearSiteDialog = false }, title = { Text("Clear all website data?") },
         text = { Text("This signs you out of websites and removes their stored data.") },
@@ -260,15 +309,14 @@ fun AdBlockedWebScreen(
             com.mangalens.core.verification.VerificationSessionStore(context).clearAll()
             webView?.clearCache(true)
             clearSiteDialog = false
-            webView?.reload()
+            reloadPage()
         }) { Text("Clear") } }, dismissButton = { TextButton(onClick = { clearSiteDialog = false }) { Text("Cancel") } })
 
     LaunchedEffect(url, webView) {
         val view = webView ?: return@LaunchedEffect
         if (url.isBlank()) return@LaunchedEffect
         if (view.url == url) return@LaunchedEffect
-        pageReady = false
-        if (com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) view.loadUrl(url)
+        if (com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) loadPage(url)
         else translationStatus = "Enter a complete HTTP or HTTPS URL."
     }
 
@@ -284,7 +332,7 @@ fun AdBlockedWebScreen(
             val value = address.trim()
             val target = BrowserAddress.resolve(value)
             if (target == null) addressError = "Use an HTTP(S) URL or a search phrase."
-            else { webView?.loadUrl(target); showAddress = false; hudVisible = true }
+            else { loadPage(target); showAddress = false; hudVisible = true }
         }, enabled = address.isNotBlank()) { Text("Open") } },
         dismissButton = { TextButton(onClick = { showAddress = false }) { Text("Cancel") } }
     )
@@ -292,8 +340,10 @@ fun AdBlockedWebScreen(
     LaunchedEffect(pageReady, translated, webView, targetLanguage, navigationEpoch) {
         val view = webView ?: return@LaunchedEffect
         if (!pageReady) return@LaunchedEffect
+        val ticket = pageLoad.navigation ?: return@LaunchedEffect
         if (!translated) {
             evaluateJavascriptAwait(view, "window.__mangalensTranslationOff && window.__mangalensTranslationOff();")
+            if (!pageLoad.readyFor(ticket)) return@LaunchedEffect
             translating = false
             translationStatus = "Original page restored."
             return@LaunchedEffect
@@ -304,6 +354,7 @@ fun AdBlockedWebScreen(
         translationStatus = "Reading page text…"
         try {
             val raw = evaluateJavascriptAwait(view, WebTranslationScript.build(targetLanguage))
+            if (!pageLoad.readyFor(ticket)) return@LaunchedEffect
             val texts = parseJavascriptStringArray(raw).take(MAX_WEB_TEXT_NODES)
             totalTranslatable = texts.count { it.trim().length >= 2 && it.any(Char::isLetter) }
             if (texts.isEmpty()) {
@@ -317,17 +368,21 @@ fun AdBlockedWebScreen(
             }
             for ((index, original) in texts.withIndex()) {
                 currentCoroutineContext().ensureActive()
+                if (!pageLoad.readyFor(ticket)) return@LaunchedEffect
                 val source = original.trim()
                 if (source.length < 2 || source.length > 1200 || source.none(Char::isLetter)) continue
                 val result = try {
                     translator.translate(source, targetLanguage)
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
+                    if (!pageLoad.readyFor(ticket)) return@LaunchedEffect
                     translationStatus = "Translation paused: " + (failure.message ?: "language model unavailable")
                     continue
                 }
+                if (!pageLoad.readyFor(ticket)) return@LaunchedEffect
                 if (result.isNotBlank() && result != source) {
                     evaluateJavascriptAwait(view, WebTranslationScript.apply(index, result))
+                    if (!pageLoad.readyFor(ticket)) return@LaunchedEffect
                 }
                 translatedCount++
                 translationStatus = "Translating page text… $translatedCount / $totalTranslatable"
@@ -337,9 +392,9 @@ fun AdBlockedWebScreen(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
-            translationStatus = "Web translation failed: " + (failure.message ?: "unknown error")
+            if (pageLoad.readyFor(ticket)) translationStatus = "Web translation failed: " + (failure.message ?: "unknown error")
         } finally {
-            translating = false
+            if (pageLoad.navigation == ticket) translating = false
         }
     }
 
@@ -375,7 +430,7 @@ fun AdBlockedWebScreen(
         }
     }
 
-    val browserChromeVisible = hudVisible || loadProgress < 100
+    val browserChromeVisible = hudVisible || pageLoad.loading || pageLoad.error != null
     val browserTopInset by animateDpAsState(
         targetValue = if (browserChromeVisible) 66.dp else 0.dp,
         animationSpec = tween(220),
@@ -390,8 +445,13 @@ fun AdBlockedWebScreen(
                     com.mangalens.core.web.SafeWebView.configure(this)
                     settings.domStorageEnabled = true
                     webChromeClient = object : WebChromeClient() {
-                        override fun onProgressChanged(view: WebView?, progress: Int) { loadProgress = progress }
-                        override fun onReceivedTitle(view: WebView?, title: String?) { pageTitle = title.orEmpty() }
+                        override fun onProgressChanged(view: WebView?, progress: Int) {
+                            val ticket = callbackTicket(view, view?.url) ?: return
+                            pageLoad = pageLoad.progressed(ticket, view?.url, progress)
+                        }
+                        override fun onReceivedTitle(view: WebView?, title: String?) {
+                            if (callbackTicket(view, view?.url) != null) pageTitle = title.orEmpty()
+                        }
 
                         override fun onCreateWindow(
                             view: WebView?,
@@ -411,6 +471,14 @@ fun AdBlockedWebScreen(
                         false
                     }
                     webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && latestSiteAdBlockEnabled }) {
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                            val blocked = super.shouldOverrideUrlLoading(view, request)
+                            if (!blocked && request?.isForMainFrame == true) {
+                                val target = request.url.toString()
+                                if (!pageLoad.pageReady || !WebPageLoadState.sameDocument(currentUrl, target)) beginNavigation(target)
+                            }
+                            return blocked
+                        }
                         override fun shouldInterceptRequest(
                             view: WebView?,
                             request: WebResourceRequest?
@@ -431,7 +499,9 @@ fun AdBlockedWebScreen(
                                     title = pageTitle.takeIf(String::isNotBlank),
                                     provider = runCatching { java.net.URI(mediaUrl).host?.removePrefix("www.") }.getOrNull()
                                 )
+                                val observedNavigation = pageLoad.navigation
                                 view?.post {
+                                    if (pageLoad.navigation != observedNavigation) return@post
                                     val current = detectedMedia
                                     if (
                                         current == null ||
@@ -446,24 +516,52 @@ fun AdBlockedWebScreen(
                         }
 
                         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
+                            val target = pageUrl?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl) ?: return
+                            val visibleUrl = view?.url
+                            if (visibleUrl != null && !WebPageLoadState.sameDocument(visibleUrl, target)) return
+                            val ticket = pageLoad.navigation
+                            if (ticket == null || !WebPageLoadState.sameDocument(ticket.url, target) || pageLoad.pageReady) beginNavigation(target)
+                            if (!pageLoad.loading) return
                             super.onPageStarted(view, pageUrl, favicon)
-                            pageReady = false
-                            detectedMedia = null
-                            speech.invalidate(clear = true)
-                            navigationEpoch++
-                            currentUrl = pageUrl ?: currentUrl
-                            translationStatus = null
+                            currentUrl = target
                         }
                         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                            if (request?.isForMainFrame == true) translationStatus = "Page could not load. Check your connection and retry."
-                        }
-                        override fun onPageFinished(view: WebView?, pageUrl: String?) {
-                            super.onPageFinished(view, pageUrl)
-                            currentUrl = pageUrl ?: currentUrl
-                            pageUrl?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)?.let(onPageChanged)
+                            if (request?.isForMainFrame != true) return
+                            val ticket = callbackTicket(view, request.url.toString()) ?: return
+                            pageLoad = pageLoad.failed(ticket, request.url.toString(), true, "Page could not load. Check your connection and retry.")
+                            translating = false
+                            autoScroll = false
                             canGoBack = view?.canGoBack() == true
                             canGoForward = view?.canGoForward() == true
-                            pageReady = true
+                            hudVisible = true
+                        }
+                        override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, response: android.webkit.WebResourceResponse?) {
+                            if (request?.isForMainFrame != true) return
+                            val ticket = callbackTicket(view, request.url.toString()) ?: return
+                            pageLoad = pageLoad.failed(ticket, request.url.toString(), true, "Website returned HTTP ${response?.statusCode ?: "error"}. Retry or open the source.")
+                            translating = false
+                            autoScroll = false
+                            hudVisible = true
+                        }
+                        override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler?, error: android.net.http.SslError?) {
+                            handler?.cancel()
+                            val failedUrl = error?.url ?: view?.url
+                            val ticket = callbackTicket(view, failedUrl) ?: return
+                            pageLoad = pageLoad.failed(ticket, failedUrl, true, "Secure connection failed. Check the source and retry.")
+                            translating = false
+                            autoScroll = false
+                            hudVisible = true
+                        }
+                        override fun onPageFinished(view: WebView?, pageUrl: String?) {
+                            val ticket = callbackTicket(view, pageUrl) ?: return
+                            pageLoad = pageLoad.finished(ticket, pageUrl)
+                            currentUrl = pageUrl ?: currentUrl
+                            canGoBack = view?.canGoBack() == true
+                            canGoForward = view?.canGoForward() == true
+                            if (pageLoad.readyFor(ticket)) {
+                                super.onPageFinished(view, pageUrl)
+                                pageUrl?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)?.let(onPageChanged)
+                            }
                         }
                     }
                     webView = this
@@ -499,12 +597,17 @@ fun AdBlockedWebScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TextButton(onClick = { if (canGoBack) webView?.goBack() else onClose?.invoke() }, enabled = canGoBack || onClose != null, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("‹") }
-                TextButton(onClick = { webView?.goForward() }, enabled = canGoForward, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("›") }
+                TextButton(onClick = { if (canGoBack) navigateHistory(-1) else onClose?.invoke() }, enabled = canGoBack || onClose != null, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("‹") }
+                TextButton(onClick = { navigateHistory(1) }, enabled = canGoForward, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("›") }
                 TextButton(
-                    onClick = { if (loadProgress < 100) webView?.stopLoading() else webView?.reload() },
+                    onClick = {
+                        if (pageLoad.loading) {
+                            pageLoad.navigation?.let { pageLoad = pageLoad.stopped(it) }
+                            webView?.stopLoading()
+                        } else reloadPage()
+                    },
                     contentPadding = PaddingValues(horizontal = 7.dp)
-                ) { Text(if (loadProgress < 100) "■" else "↻") }
+                ) { Text(if (pageLoad.loading) "■" else "↻") }
                 if (detectedMedia != null || VideoSourcePolicy.isSourcePage(currentUrl)) {
                     TextButton(
                         onClick = { openCurrentVideo() },
@@ -514,19 +617,19 @@ fun AdBlockedWebScreen(
                 TextButton(
                     onClick = {
                         siteAdBlockEnabled = !siteAdBlockEnabled
-                        webView?.reload()
+                        reloadPage()
                     },
                     enabled = adBlockEnabled,
                     contentPadding = PaddingValues(horizontal = 7.dp)
                 ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ads ✓" else "Ads") }
                 TextButton(onClick = { address = currentUrl; showAddress = true }, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("URL") }
             }
-            if (loadProgress < 100) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
+            if (pageLoad.loading) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
         }
         }
         if (captureActive) com.mangalens.ui.video.LiveAudioSubtitleOverlay(speech,
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (hudVisible) 125.dp else 24.dp, start = 16.dp, end = 16.dp))
-        if (hudVisible || translating) {
+        if (hudVisible || translating || pageLoad.error != null) {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
                 tonalElevation = 2.dp,
@@ -634,7 +737,21 @@ fun AdBlockedWebScreen(
                         )
                         if (autoScroll) Slider(value = speed, onValueChange = { speed = it }, valueRange = 1f..5f, steps = 3, modifier = Modifier.width(90.dp))
                     }
-                    translationStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    val loadError = pageLoad.error
+                    if (loadError != null) {
+                        Text(loadError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        translationStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { reloadPage() }) { Text("Retry") }
+                            TextButton(onClick = {
+                                if (com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(currentUrl)) runCatching {
+                                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(currentUrl))
+                                        .addCategory(android.content.Intent.CATEGORY_BROWSABLE))
+                                }.onFailure { translationStatus = "No browser is available to open this source." }
+                            }) { Text("Open source") }
+                            TextButton(onClick = { if (canGoBack) navigateHistory(-1) else onClose?.invoke() }, enabled = canGoBack || onClose != null) { Text("Back") }
+                        }
+                    } else translationStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (translating) LinearProgressIndicator(
                         progress = if (totalTranslatable > 0) translatedCount.toFloat() / totalTranslatable else 0f,
                         modifier = Modifier.fillMaxWidth()

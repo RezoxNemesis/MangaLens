@@ -4,9 +4,9 @@ import android.content.Context
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONObject
+import kotlinx.coroutines.runBlocking
 import java.net.URI
 import java.util.UUID
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /** A real local extractor, with no remote paid API and no authentication/DRM bypass. */
@@ -17,36 +17,48 @@ fun interface SiteMediaExtractor {
 class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams: Boolean = false) : SiteMediaExtractor {
     private val app = context.applicationContext
 
-    override fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink? {
-        YoutubeDL.init(app)
-        refreshExtractorIfUseful(url)
-        val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
-        val youtube = host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com")
+    override fun extract(url: String, quality: DownloadQuality): ResolvedMediaLink? = runBlocking {
+        MediaResolutionRunner.run(90_000L) { extractWithin(url, quality, it) }
+    }
+
+    internal fun extractWithin(url: String, quality: DownloadQuality, session: MediaResolutionSession): ResolvedMediaLink? {
+        session.checkActive()
+        val extractorDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
+            SiteExtractionPolicy.extractorBudgetMs(session.remainingMillis())
+        )
+        // Use the installed extractor immediately. The library's synchronous updater fetches
+        // metadata without a network deadline and holds the init monitor, so it must never run
+        // on the playback path. A stale extractor reports an actionable source-page fallback.
+        BundledYtDlpRuntime.initialize(app, session::checkActive)
+        session.checkActive()
         // Do not mix YouTube clients in one request. Mixed client URLs can be signed for a
         // different player and later fail with HTTP 403. Try the current yt-dlp default first
         // for full quality, then bounded single-client fallbacks.
-        val clients: List<String?> = if (youtube) {
-            // Current yt-dlp gives the default client first. Then try clients that can expose
-            // ordinary HTTPS/DASH/HLS media without intentionally capping quality. Keep Android
-            // last because YouTube periodically applies stricter token checks to that client.
-            listOf(null, "tv", "web_embedded", "web_safari", "ios", "android")
-        } else listOf(null)
-        var lastFailure: Exception? = null
-        clients.forEach { client ->
+        val failures = mutableListOf<Throwable>()
+        for ((index, client) in SiteExtractionPolicy.clients(url).withIndex()) {
+            session.checkActive()
+            val remaining = minOf(
+                session.remainingMillis(),
+                TimeUnit.NANOSECONDS.toMillis(extractorDeadline - System.nanoTime())
+            )
+            if (remaining < 1_000L) break
             try {
-                execute(url, quality, client)?.let { return it.copy(requestedHeight = quality.height) }
+                execute(url, quality, client, session, SiteExtractionPolicy.attemptBudgetMs(index, remaining))
+                    ?.let { return it.copy(requestedHeight = quality.height) }
             } catch (failure: Exception) {
+                session.checkActive()
                 if (failure is InterruptedException) throw failure
-                lastFailure = failure
+                failures += failure
             }
         }
-        throw IllegalArgumentException(
-            "The site extractor could not find an accessible video/audio source. MangaLens tried fresh extractor data and safe site-specific fallbacks; protected, private or login-only media may still be unavailable.",
-            lastFailure
-        )
+        throw MediaSourceException.fromFailures(failures)
     }
 
-    private fun execute(url: String, quality: DownloadQuality, youtubeClient: String?): ResolvedMediaLink? {
+    private fun execute(
+        url: String, quality: DownloadQuality, youtubeClient: String?,
+        session: MediaResolutionSession, timeoutMs: Long
+    ): ResolvedMediaLink? {
+        session.checkActive()
         val browserCookies = browserCookieFile(url)
         val heightFilter = if (quality == DownloadQuality.BEST) "" else "[height<=${quality.height}]"
         val format = if (allowSeparateStreams) {
@@ -59,14 +71,17 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         }
         val request = YoutubeDLRequest(url).apply {
             addOption("--ignore-config")
+            addOption("--no-plugin-dirs")
+            addOption("--no-remote-components")
+            addOption("--no-geo-bypass")
             addOption("--no-playlist")
             addOption("--skip-download")
             addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats})j")
             addOption("--no-warnings")
-            addOption("--socket-timeout", "30")
-            addOption("--retries", "3")
-            addOption("--extractor-retries", "3")
-            addOption("--fragment-retries", "3")
+            addOption("--socket-timeout", "8")
+            addOption("--retries", "1")
+            addOption("--extractor-retries", "1")
+            addOption("--fragment-retries", "1")
             addOption("--user-agent", "Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36")
             addOption("--referer", url)
             browserCookies?.let { addOption("--cookies", it.absolutePath) }
@@ -76,13 +91,16 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             addOption("-f", format)
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
-        val timeout = timer.schedule({ YoutubeDL.destroyProcessById(processId) }, 90, TimeUnit.SECONDS)
+        val guard = MediaProcessGuard(session, processId, timeoutMs, YoutubeDL::destroyProcessById)
         return try {
+            session.checkActive()
+            AndroidNativeExtractorNetworking.configure(app, request, url, session::checkActive)
+            session.checkActive()
             val response = YoutubeDL.execute(request, processId = processId, callback = null)
+            session.checkActive()
             SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)
         } finally {
-            timeout.cancel(false)
-            YoutubeDL.destroyProcessById(processId)
+            guard.close()
             browserCookies?.delete()
         }
     }
@@ -121,39 +139,6 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         }
     }
 
-    /**
-     * YouTube changes signatures frequently. Prefer the current yt-dlp nightly on Android because
-     * extractor fixes often land before the next stable release. A failed update is non-fatal.
-     */
-    private fun refreshExtractorIfUseful(url: String) {
-        val host = runCatching { URI(url).host.orEmpty().lowercase() }.getOrDefault("")
-        val dynamicSite = host == "youtu.be" ||
-            host == "youtube.com" || host.endsWith(".youtube.com") ||
-            host == "instagram.com" || host.endsWith(".instagram.com") ||
-            host == "x.com" || host.endsWith(".x.com") ||
-            host == "twitter.com" || host.endsWith(".twitter.com") ||
-            host == "tiktok.com" || host.endsWith(".tiktok.com") ||
-            host == "facebook.com" || host.endsWith(".facebook.com") ||
-            host == "rule34video.com" || host.endsWith(".rule34video.com") ||
-            host == "spankbang.com" || host.endsWith(".spankbang.com")
-        if (!dynamicSite) return
-        val prefs = app.getSharedPreferences("mangalens_ytdlp", Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val lastAttempt = prefs.getLong("nightly_update_attempt", 0L)
-        if (now - lastAttempt < 12L * 60L * 60L * 1000L) return
-        prefs.edit().putLong("nightly_update_attempt", now).apply()
-        runCatching {
-            YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel._NIGHTLY)
-        }.onSuccess {
-            prefs.edit().putLong("nightly_update_success", now).apply()
-        }
-    }
-
-    companion object {
-        private val timer = Executors.newSingleThreadScheduledExecutor { runnable ->
-            Thread(runnable, "mangalens-extractor-timeout").apply { isDaemon = true }
-        }
-    }
 }
 
 /** Kept separate from the native runtime so format/security decisions have JVM tests. */

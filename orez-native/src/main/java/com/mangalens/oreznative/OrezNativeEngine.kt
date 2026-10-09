@@ -1,5 +1,7 @@
 package com.mangalens.oreznative
 
+import android.system.Os
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -7,10 +9,10 @@ class OrezNativeEngine {
     companion object {
         val available: Boolean = runCatching { System.loadLibrary("mangalens_orez_native"); true }.getOrDefault(false)
         // JNI currently shares one physical model; each feature holds its own lease.
-        private val modelLock = Any()
-        private val modelOwners = mutableSetOf<OrezNativeEngine>()
+        private val modelLeases = NativeModelLeaseRegistry<OrezNativeEngine>()
+        val sharedModelPath: String? get() = modelLeases.sharedPath
         fun trimMemory() {
-            val owners = synchronized(modelLock) { modelOwners.toList() }
+            val owners = modelLeases.owners()
             owners.forEach { it.cancelGenerations() }
             Thread({ owners.forEach { it.close() } }, "orez-memory-release").start()
         }
@@ -47,10 +49,16 @@ class OrezNativeEngine {
     fun cancelGenerations() { generations.forEach { it.cancel() } }
 
     @Synchronized
-    fun load(path: String): Boolean = available && synchronized(modelLock) {
-        nativeLoad(path).also { success ->
-            if (success) { loaded = true; modelOwners.add(this) }
-        }
+    fun load(path: String): Boolean {
+        if (!available) return false
+        val identity = runCatching {
+            val file = File(path).canonicalFile
+            require(file.isFile && file.length() > 0L)
+            val stat = Os.stat(file.path)
+            ModelFileIdentity(file.path, stat.st_size, file.lastModified(), stat.st_dev, stat.st_ino)
+        }.getOrNull() ?: return false
+        return modelLeases.acquire(this, identity) { nativeLoad(identity.canonicalPath) }
+            .also { success -> if (success) loaded = true }
     }
 
     fun generate(prompt: String, maxTokens: Int = 384): String = newGeneration().use { generate(prompt, maxTokens, it) }
@@ -67,10 +75,8 @@ class OrezNativeEngine {
     }
 
     private fun releaseModel() {
+        loaded = false
         if (!available) return
-        synchronized(modelLock) {
-            loaded = false
-            if (modelOwners.remove(this) && modelOwners.isEmpty()) nativeUnload()
-        }
+        modelLeases.release(this) { nativeUnload() }
     }
 }

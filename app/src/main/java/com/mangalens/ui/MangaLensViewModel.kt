@@ -2,7 +2,6 @@ package com.mangalens.ui
 
 import android.app.Application
 import android.net.Uri
-import android.graphics.BitmapFactory
 import android.webkit.CookieManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,29 +15,36 @@ import com.mangalens.core.reader.SavedChapter
 import com.mangalens.core.reader.ChapterPage
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.withLock
 import com.mangalens.core.reader.ProgressiveChapterRepository
 import com.mangalens.core.router.UrlEngineRouter
-import com.mangalens.core.translation.OcrInpaintingEngine
-import com.mangalens.engine.AdvancedTranslationEngine
 import com.mangalens.engine.MangaChapterScraper
 import com.mangalens.engine.MangaChapterCatalogScraper
 import com.mangalens.core.model.MangaChapter
 import com.mangalens.download.MediaDownloadManager
 import com.mangalens.download.MediaLinkResolver
-import com.mangalens.core.translation.TranslationService
-import com.mangalens.core.translation.TranslationStyleProfile
+import com.mangalens.core.translation.ChapterTranslationConfig
+import com.mangalens.core.translation.ChapterTranslationCommandScope
+import com.mangalens.core.translation.ChapterTranslationRequest
+import com.mangalens.core.translation.ChapterTranslationDisplay
+import com.mangalens.core.translation.ChapterTranslationJobs
+import com.mangalens.core.translation.ChapterTranslationPageStatus
+import com.mangalens.core.translation.ChapterTranslationStatus
+import com.mangalens.core.translation.ChapterTranslationStore
+import com.mangalens.core.translation.ChapterTranslationTask
 import com.mangalens.core.verification.CaptchaBridge
-import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.ui.reader.TranslationOverlay
 import com.mangalens.ui.theme.ThemeMode
 import com.mangalens.ui.video.VideoSourcePolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 
 data class MangaLensUiState(
     val library: List<SavedChapter> = emptyList(),
@@ -59,6 +65,8 @@ data class MangaLensUiState(
     val translationTotal: Int = 0,
     val translationEnabled: Boolean = false,
     val overlays: Map<Int, List<TranslationOverlay>> = emptyMap(),
+    val translatedBackgrounds: Map<Int, String> = emptyMap(),
+    val translationMessage: String? = null,
     val promoPages: Set<Int> = emptySet(),
     val error: String? = null,
     val translationError: Boolean = false,
@@ -76,6 +84,10 @@ data class MangaLensUiState(
 class MangaLensViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val prefs = application.getSharedPreferences("mangalens_preferences", Application.MODE_PRIVATE)
+    private val ocrPrefs = application.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE)
+    private val ocrPreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in setOf("script", "high_accuracy", "preserve_style", "local_refinement")) clearTranslations()
+    }
     private val statsStore = AdBlockStatsStore.shared
     private val router = UrlEngineRouter()
     private val persistenceMutex = kotlinx.coroutines.sync.Mutex()
@@ -86,19 +98,24 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         AdBlockEngine(statsStore),
         adBlockEnabled = { prefs.getBoolean("ad_block_enabled", true) }
     )
-    private val ocr = OcrInpaintingEngine()
-    private val advancedOcr = AdvancedTranslationEngine(application)
-    private val orezRefiner = com.mangalens.core.translation.TranslationOrezRefiner(application)
-    private val translationMutex = kotlinx.coroutines.sync.Mutex()
-    private val translationPause = MutableStateFlow(false)
-    private var translationJob: kotlinx.coroutines.Job? = null
+    private val translationCommands = kotlinx.coroutines.sync.Mutex()
+    private val translationSelectionEpoch = MutableStateFlow(0L)
+    private var displayedTranslation: ChapterTranslationTask? = null
+    private class PendingTranslation(val selection: TranslationSelection) {
+        val request = ChapterTranslationRequest()
+        val ownerRequestId = "reader-" + java.util.UUID.randomUUID()
+    }
+    private var pendingTranslation: PendingTranslation? = null
+    private var presentationOpen = true
     private var ingestionJob: kotlinx.coroutines.Job? = null
     private var translateWhenPagesReady = false
     private val chapterScraper = MangaChapterScraper(application)
     private val staticAcquirer = com.mangalens.core.acquisition.StaticChapterAcquirer()
     private val chapterCatalog = MangaChapterCatalogScraper(application)
-    private val mediaLinkResolver = MediaLinkResolver(siteExtractor = com.mangalens.download.YtDlpSiteMediaExtractor(application, allowSeparateStreams = true))
-    private val translator = TranslationService()
+    private val mediaLinkResolver = MediaLinkResolver(
+        siteExtractor = com.mangalens.download.YtDlpSiteMediaExtractor(application, allowSeparateStreams = true),
+        timeoutMs = 45_000L
+    )
     val captchaBridge = CaptchaBridge()
 
     private val _state = MutableStateFlow(
@@ -116,7 +133,20 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     )
     val state: StateFlow<MangaLensUiState> = _state
 
+    private data class TranslationSelection(
+        val chapterId: String, val language: String, val style: String, val custom: String,
+        val enabled: Boolean, val epoch: Long, val sources: List<Pair<Int, String?>>,
+        val configuration: ChapterTranslationConfig
+    )
+
+    private fun translationSelection(value: MangaLensUiState = _state.value) = TranslationSelection(
+        value.activeChapter?.id.orEmpty(), value.targetLanguage, value.translationStyle,
+        value.customTranslationStyle, value.mangaTranslationEnabled, translationSelectionEpoch.value,
+        value.pages.map { it.index to it.localPath }, capturedTranslationConfig(value.targetLanguage, value)
+    )
+
     init {
+        ocrPrefs.registerOnSharedPreferenceChangeListener(ocrPreferenceListener)
         viewModelScope.launch {
             val saved = withContext(Dispatchers.IO) { library.list() }
             val recent = saved.firstOrNull()
@@ -131,12 +161,77 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             if (pages.isNotEmpty()) persistCurrentChapter()
         } }
         viewModelScope.launch { statsStore.stats.collect { stats -> _state.value = _state.value.copy(adBlockStats = stats) } }
+        viewModelScope.launch {
+            try {
+                // Loading and validating the atomic journals never happens on the UI thread.
+                val store = withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app) }
+                launch(Dispatchers.IO) { ChapterTranslationJobs.recoverPending(app) }
+                var validatedSelection: TranslationSelection? = null
+                val selections = combine(_state.map { translationSelection(it) }.distinctUntilChanged(),
+                    translationSelectionEpoch) { _, _ -> translationSelection() }.distinctUntilChanged()
+                combine(store.states, selections) { tasks, selected -> tasks to selected }.collect { (tasks, selected) ->
+                    var task = if (selected.enabled) ChapterTranslationDisplay.select(tasks, selected.chapterId,
+                        selected.language, selected.style, selected.custom, selected.configuration) else null
+                    if (task != null && (task.validationPending || validatedSelection != selected)) {
+                        task = store.refresh(task.id)
+                        validatedSelection = selected
+                    }
+                    if (translationSelection() == selected && pendingTranslation?.selection != selected) {
+                        displayTranslation(task)
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                _state.update { it.copy(translationMessage = failure.message ?: "Saved translations could not be restored.", translationError = true) }
+            }
+        }
+    }
+
+    private fun displayTranslation(task: ChapterTranslationTask?) {
+        displayedTranslation = task?.takeUnless { it.validationPending }
+        if (task == null || task.validationPending) {
+            _state.update { it.copy(translating = false, translationPaused = false, translationDone = 0,
+                translationTotal = 0, translationEnabled = false, translationError = false,
+                translationMessage = null, overlays = emptyMap(), translatedBackgrounds = emptyMap(), promoPages = emptySet()) }
+            return
+        }
+        val currentPaths = _state.value.pages.associate { it.index to it.localPath }
+        val pages = task.pages.filter { it.sourcePath != null && it.sourcePath == currentPaths[it.index] }
+        val overlays = pages.filter { it.cleanedPath != null && it.imageWidth > 0 && it.imageHeight > 0 }
+            .associate { page -> page.index to page.lettering.map { text ->
+                TranslationOverlay(region = com.mangalens.core.translation.OcrRegion(text.source,
+                    text.sourceLeft, text.sourceTop, text.sourceRight, text.sourceBottom),
+                    translatedText = text.translated, textColorArgb = text.color, fontSizePx = text.size,
+                    imageWidthPx = page.imageWidth, imageHeightPx = page.imageHeight, lettering = text)
+            } }.filterValues { it.isNotEmpty() }
+        val active = task.status in setOf(ChapterTranslationStatus.QUEUED, ChapterTranslationStatus.RUNNING, ChapterTranslationStatus.PAUSED)
+        val failed = task.status in setOf(ChapterTranslationStatus.FAILED, ChapterTranslationStatus.PARTIAL)
+        val message = task.error ?: when {
+            task.status == ChapterTranslationStatus.PARTIAL -> "Some pages need another attempt. Successful translations are available."
+            task.status == ChapterTranslationStatus.FAILED -> "Chapter translation needs another attempt. Original pages are available."
+            task.status == ChapterTranslationStatus.CANCELLED -> "Translation cancelled. Saved pages are still available."
+            task.status == ChapterTranslationStatus.COMPLETED && overlays.isEmpty() -> "All pages were processed. No readable story text was detected."
+            else -> null
+        }
+        _state.update { it.copy(translating = active, translationPaused = task.status == ChapterTranslationStatus.PAUSED,
+            translationDone = task.processedPages, translationTotal = task.totalPages,
+            translationEnabled = overlays.isNotEmpty(), translationError = failed, translationMessage = message,
+            overlays = overlays, translatedBackgrounds = pages.mapNotNull { page -> page.cleanedPath?.let { page.index to it } }.toMap(),
+            promoPages = pages.filter { it.status == ChapterTranslationPageStatus.PROMO }.map { it.index }.toSet()) }
+    }
+
+    private fun capturedTranslationConfig(language: String, value: MangaLensUiState = _state.value): ChapterTranslationConfig {
+        val options = ocrPrefs.all
+        return ChapterTranslationConfig(language, value.translationStyle, value.customTranslationStyle,
+            options["script"] as? String ?: "AUTO", options["high_accuracy"] as? Boolean ?: true,
+            options["preserve_style"] as? Boolean ?: true, options["local_refinement"] as? Boolean ?: false)
     }
 
     fun setUrl(value: String) {
         val normalized = value.trim()
         prefs.edit().putString("last_url", normalized).apply()
         val changed = normalized != _state.value.url
+        if (changed) cancelIngestion()
         _state.value = _state.value.copy(
             url = normalized,
             mode = if (normalized.isBlank()) ContentType.GENERIC_WEB else router.classifyUrl(normalized),
@@ -147,7 +242,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             videoAudioHeaders = if (changed) emptyMap() else _state.value.videoAudioHeaders
         )
     }
-    fun setMode(mode: ContentType) { _state.value = _state.value.copy(mode = mode) }
+    fun setMode(mode: ContentType) {
+        if (mode != _state.value.mode) cancelIngestion()
+        _state.value = _state.value.copy(mode = mode)
+    }
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString("theme_mode", mode.name).apply()
         _state.value = _state.value.copy(themeMode = mode)
@@ -207,6 +305,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(error = "The detected media URL is not a safe HTTP or HTTPS address.")
             return
         }
+        cancelIngestion()
         val safeAudioUrl = audioUrl?.takeIf(UrlEngineRouter::isSafeWebUrl)
         val safePageUrl = pageUrl.takeIf(UrlEngineRouter::isSafeWebUrl)
         val allowed = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
@@ -268,6 +367,13 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         ingest()
     }
 
+    fun cancelIngestion() {
+        ingestionJob?.cancel()
+        ingestionJob = null
+        translateWhenPagesReady = false
+        _state.update { it.copy(loading = false) }
+    }
+
     fun ingest() {
         val previousIngestion = ingestionJob
         previousIngestion?.cancel()
@@ -287,9 +393,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         )
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
+            var videoSourceFailure: com.mangalens.download.MediaSourceFailure? = null
             try {
                 when (selectedMode) {
-                    ContentType.VIDEO_STREAM -> {
+                    ContentType.VIDEO_STREAM -> kotlinx.coroutines.withTimeout(45_000L) {
                         if (!VideoSourcePolicy.isSourcePage(target)) {
                             _state.value = _state.value.copy(
                                 mode = ContentType.VIDEO_STREAM,
@@ -304,24 +411,24 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                             val staticResolved = withContext(Dispatchers.IO) {
                                 try { mediaLinkResolver.resolveCancellable(target) }
                                 catch (cancelled: CancellationException) { throw cancelled }
-                                catch (_: Exception) { null }
-                            }?.takeIf { resolved ->
-                                resolved.mimeType?.startsWith("video/") == true ||
-                                    resolved.mimeType == "application/x-mpegURL" ||
-                                    resolved.mimeType == "application/dash+xml"
-                            }
+                                catch (failure: Exception) {
+                                    videoSourceFailure = com.mangalens.download.MediaSourceFailure.from(failure)
+                                    null
+                                }
+                            }?.takeIf { com.mangalens.ui.video.isPlayableRefresh(it) }
 
                             val resolved = staticResolved ?: run {
                                 val existingCookie = CookieManager.getInstance().getCookie(target)
                                 val rendered = acquirer.discoverWithCookie(target, 12_000L, existingCookie)
                                 VideoSourcePolicy.preferredMediaUrl(rendered.videoStreamUrls)?.let { mediaUrl ->
+                                    val mediaCookie = CookieManager.getInstance().getCookie(mediaUrl)
                                     com.mangalens.download.ResolvedMediaLink(
                                         url = mediaUrl,
                                         mimeType = null,
                                         provider = "web-sniff",
                                         sourcePageUrl = target,
                                         headers = buildMap {
-                                            if (!existingCookie.isNullOrBlank()) put("Cookie", existingCookie)
+                                            if (!mediaCookie.isNullOrBlank()) put("Cookie", mediaCookie)
                                             put("Referer", target)
                                             put("User-Agent", com.mangalens.ui.video.MediaRequestContext.USER_AGENT)
                                             put("Accept", "*/*")
@@ -369,7 +476,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                     videoAudioUrl = null,
                                     videoAudioHeaders = emptyMap(),
                                     loading = false,
-                                    error = "No accessible media stream was resolved. MangaLens tried direct extraction and rendered request discovery; protected/DRM media still requires the source site."
+                                    error = videoSourceFailure?.message
+                                        ?: "No accessible video stream was resolved. Retry or open the source page to check access."
                                 )
                             }
                         }
@@ -416,10 +524,20 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         _state.value = _state.value.copy(error = "No chapter images could be loaded. Check the URL, or open the source in Web if that site itself requires sign-in or verification.")
                     }
                 }
+            } catch (t: kotlinx.coroutines.TimeoutCancellationException) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                _state.update { it.copy(
+                    loading = false,
+                    error = if (selectedMode == ContentType.VIDEO_STREAM)
+                        videoSourceFailure?.message ?: "Video detection timed out. Retry or open the source page in Web."
+                    else "Chapter acquisition timed out. Retry or open the source page in Web."
+                ) }
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
-                _state.value = _state.value.copy(loading = false, error = t.message ?: "Acquisition failed")
+                _state.value = _state.value.copy(loading = false, error = if (selectedMode == ContentType.VIDEO_STREAM)
+                    videoSourceFailure?.message ?: com.mangalens.download.MediaSourceFailure.from(t).message
+                else t.message ?: "Acquisition failed")
             }
         }
     }
@@ -449,183 +567,73 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun translatePage(page: ChapterPage, targetLanguage: String = _state.value.targetLanguage) {
-        cancelTranslation()
         if (!_state.value.mangaTranslationEnabled) {
-            _state.value = _state.value.copy(translationError = true, error = "Manga translation is disabled in Settings → Translation Modules.")
+            _state.update { it.copy(translationError = true,
+                translationMessage = "Manga translation is disabled in Settings → Translation Modules.") }
             return
         }
-        val path = page.localPath ?: run {
-            _state.value = _state.value.copy(translationError = true, error = "This page is not available as a local image yet. Reopen the chapter or import the image from Files.")
+        val chapter = _state.value.activeChapter
+        val pages = _state.value.pages.toList()
+        if (chapter == null || page.localPath == null || pages.none { it.index == page.index && it.localPath == page.localPath }) {
+            _state.update { it.copy(translating = false, translationPaused = false, translationError = true,
+                translationMessage = "This page is not available as a local image yet. Reopen the chapter or import the image from Files.") }
             return
         }
-        translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
-            _state.value = _state.value.copy(translating = true, error = null, translationError = false)
-            try {
-                translatePageInternal(page, targetLanguage, requireText = true)
-                _state.value = _state.value.copy(translating = false)
-            } catch (t: kotlinx.coroutines.CancellationException) {
-                throw t
-            } catch (t: Throwable) {
-                _state.value = _state.value.copy(translating = false, translationError = true, error = t.message ?: "Local OCR translation failed")
-            }
-        } }
+        startChapterTranslation(chapter.copy(pages = pages), targetLanguage, listOf(page.index), forceReprocess = true)
     }
 
     fun translateChapter(targetLanguage: String = _state.value.targetLanguage) {
-        cancelTranslation()
-        val pages = _state.value.pages
-        if (pages.isEmpty()) {
-            _state.value = _state.value.copy(error = "No manga pages are available to translate.")
+        val chapter = _state.value.activeChapter
+        val pages = _state.value.pages.toList()
+        if (chapter == null || pages.isEmpty()) {
+            _state.update { it.copy(translationError = true, translationMessage = "No manga pages are available to translate.") }
             return
         }
-        prefs.edit().putBoolean("translation_manga", true).apply()
-        translationPause.value = false
-        _state.value = _state.value.copy(mangaTranslationEnabled = true, translating = true, translationPaused = false, translationDone = 0, translationTotal = pages.size, error = null, translationError = false)
-        translationJob = viewModelScope.launch(Dispatchers.Default) { translationMutex.withLock {
-            try {
-                val failedPages = mutableListOf<Int>()
-                for ((index, page) in pages.withIndex()) {
-                    translationPause.first { !it }
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    try { translatePageInternal(page, targetLanguage) }
-                    catch (cancelled: CancellationException) { throw cancelled }
-                    catch (failure: Exception) {
-                        failedPages += page.index
-
-                    }
-                    _state.value = _state.value.copy(translationDone = index + 1)
-                }
-                val hasTranslations = _state.value.overlays.values.any { it.isNotEmpty() }
-                _state.value = _state.value.copy(
-                    translating = false,
-                    translationPaused = false,
-                    translationEnabled = hasTranslations,
-                    translationError = failedPages.isNotEmpty() || !hasTranslations,
-                    error = when {
-                        failedPages.isNotEmpty() -> "${failedPages.size} of ${pages.size} pages could not be translated. Retry pages ${failedPages.take(10).joinToString(", ")}${if (failedPages.size > 10) "…" else ""}. Successful translations are still available."
-                        !hasTranslations -> "No readable text was detected in this chapter. Try another page or a clearer source."
-                        else -> null
-                    }
-                )
-            } catch (t: kotlinx.coroutines.CancellationException) {
-                throw t
-            } catch (t: Throwable) {
-                _state.value = _state.value.copy(translating = false, translationError = true, error = t.message ?: "Chapter translation failed")
-            }
-        } }
+        startChapterTranslation(chapter.copy(pages = pages), targetLanguage, null)
     }
 
-    private suspend fun translatePageInternal(page: ChapterPage, targetLanguage: String, requireText: Boolean = false) {
-        val path = page.localPath ?: error("Page ${page.index} is not available locally")
-        val bitmap = decodeForOcr(path) ?: error("Unable to decode page ${page.index}")
-        try {
-        val advancedRegions = advancedOcr.recognizeScriptAware(bitmap)
-        if (advancedRegions.isEmpty()) {
-            if (requireText) error("No readable text was detected on this page. Try a clearer, higher-resolution image.")
-            return // Artwork-only slices are normal in continuous chapters.
-        }
-        val detectedPageText = advancedRegions.joinToString("\n") { it.source }
-        if (com.mangalens.core.reader.ReaderPromoPolicy.isLikelyPromo(detectedPageText)) {
-            _state.value = _state.value.copy(promoPages = _state.value.promoPages + page.index)
-            return
-        } else if (page.index in _state.value.promoPages) {
-            _state.value = _state.value.copy(promoPages = _state.value.promoPages - page.index)
-        }
-        val style = currentTranslationStyle()
-        val chapterContext = _state.value.overlays.values.flatten().takeLast(12)
-            .joinToString("\n") { it.translatedText }
-        val translated = mutableListOf<TranslationOverlay>()
-        val preserveStyle = app.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE)
-            .getBoolean("preserve_style", true)
-        val reconstructedCanvas = if (bitmap.isMutable) android.graphics.Canvas(bitmap) else null
-        var rejectedRegions = 0
-        for (region in advancedRegions) {
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val localized = try { recallTranslation(region.source, targetLanguage, style) ?: run {
-                val sourceHint = when (region.sourceLanguage) {
-                    // Latin-script OCR alone is not a language detector. Only these
-                    // distinctive English dialogue tokens justify an English override.
-                    com.mangalens.engine.LocalSourceLanguage.ENGLISH -> "en".takeIf {
-                        Regex("""(?i)\b(beaten|pissed|would|should|you're|I've|I'm)\b""")
-                            .containsMatchIn(region.source)
-                    }
-                    com.mangalens.engine.LocalSourceLanguage.JAPANESE -> "ja"
-                    com.mangalens.engine.LocalSourceLanguage.KOREAN -> "ko"
-                    com.mangalens.engine.LocalSourceLanguage.HINDI -> "hi"
-                    // Han-only OCR cannot reliably distinguish Chinese from Japanese.
-                    else -> null
-                }
-                val draft = translator.translate(region.source, targetLanguage, sourceHint)
-                val refined = orezRefiner.refine(
-                    region.source,
-                    draft,
-                    targetLanguage,
-                    style,
-                    chapterContext = chapterContext,
-                )
-                com.mangalens.core.translation.TranslationQualityPolicy.choose(
-                    source = region.source,
-                    draft = draft,
-                    refined = refined,
-                    targetLanguage = targetLanguage
-                ).also { rememberTranslation(region.source, it, targetLanguage, style) }
-            } } catch (_: com.mangalens.core.translation.TranslationQualityException) {
-                rejectedRegions++
-                // A retry may still be displaying an older bad overlay. Revalidate it
-                // too, so an entirely rejected retry cannot leave source leakage visible.
-                val existing = _state.value.overlays[page.index].orEmpty().filter {
-                    com.mangalens.core.translation.TranslationQualityPolicy.isUsable(
-                        it.region.text, it.translatedText, targetLanguage
+    private fun startChapterTranslation(chapter: SavedChapter, language: String, requestedPages: List<Int>?,
+        forceReprocess: Boolean = false) {
+        // The explicit language overload also selects its result in the reader.
+        setTargetLanguage(language)
+        val config = capturedTranslationConfig(_state.value.targetLanguage)
+        prefs.edit().putBoolean("translation_manga", true).apply()
+        _state.update { it.copy(mangaTranslationEnabled = true, translating = true, translationPaused = false,
+            translationTotal = chapter.pages.size, translationMessage = null, translationError = false) }
+        val requestedSelection = translationSelection()
+        val pending = PendingTranslation(requestedSelection)
+        pendingTranslation = pending
+        ChapterTranslationCommandScope.scope.launch {
+            try {
+                translationCommands.withLock {
+                    val task = pending.request.dispatch(
+                        start = { ChapterTranslationJobs.start(app, chapter, config, requestedPages, pending.ownerRequestId,
+                            forceReprocess = forceReprocess) },
+                        pause = { ChapterTranslationJobs.pause(app, it.id, it.generation) },
+                        resume = { ChapterTranslationJobs.resume(app, it.id, it.generation) },
+                        cancel = { ChapterTranslationJobs.cancel(app, it.id, it.generation) }
                     )
+                    if (presentationOpen && task != null && translationSelection() == requestedSelection) {
+                        // Presentation observes the latest selected task; the pending request's
+                        // controls above always use only its own generation receipt.
+                        val visible = withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app).get(task.id) }
+                        if (translationSelection() == requestedSelection) displayTranslation(visible)
+                    }
                 }
-                val overlays = if (existing.isEmpty()) _state.value.overlays - page.index
-                    else _state.value.overlays + (page.index to existing)
-                _state.value = _state.value.copy(overlays = overlays,
-                    translationEnabled = overlays.values.any { it.isNotEmpty() })
-                continue // Keep the source visible; publish successful neighbouring bubbles.
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                if (presentationOpen && translationSelection() == requestedSelection) _state.update {
+                    it.copy(translating = false, translationError = true,
+                        translationMessage = failure.message ?: "Chapter translation could not be scheduled.")
+                }
+            } finally {
+                if (pendingTranslation === pending) {
+                    pendingTranslation = null
+                    // A short worker may have completed while its presentation was held
+                    // behind a pending control. Reconcile even when the task flow is quiet.
+                    translationSelectionEpoch.value += 1
+                }
             }
-            val patch = com.mangalens.core.translation.MangaLettering.prepare(
-                bitmap,
-                region.bounds,
-                region.lineBounds,
-                region.source,
-                preserveStyle
-            )
-            // Build later patches from a progressively cleaned page. Overlapping OCR regions on
-            // PDFs/flat speech surfaces can otherwise re-introduce text erased by an earlier patch,
-            // because every patch would contain a snapshot of the untouched original page.
-            reconstructedCanvas?.drawBitmap(
-                patch.background,
-                patch.bounds.left.toFloat(),
-                patch.bounds.top.toFloat(),
-                null
-            )
-            val overlay = TranslationOverlay(
-                region = com.mangalens.core.translation.OcrRegion(
-                    region.source, region.bounds.left.toInt(), region.bounds.top.toInt(),
-                    region.bounds.right.toInt(), region.bounds.bottom.toInt()
-                ),
-                translatedText = localized,
-                textColorArgb = region.textColor,
-                backgroundColorArgb = region.backgroundColor,
-                fontSizePx = region.textSize,
-                maxWidthPx = region.bounds.width(),
-                imageWidthPx = bitmap.width,
-                imageHeightPx = bitmap.height,
-                patch = patch
-            )
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            translated += overlay
-            // Publish complete reconstructed bubbles immediately; never blank source text
-            // while its translation is still pending.
-            _state.value = _state.value.copy(
-                translationEnabled = true,
-                overlays = _state.value.overlays + (page.index to translated.toList())
-            )
-        }
-        if (rejectedRegions > 0) throw com.mangalens.core.translation.TranslationQualityException()
-        } finally {
-            bitmap.recycle()
         }
     }
 
@@ -651,9 +659,17 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(activeChapter = null, pages = emptyList(), loading = false)
         }
         viewModelScope.launch {
-            persistenceMutex.withLock {
-                withContext(Dispatchers.IO) { library.remove(id) }
-                _state.value = _state.value.copy(library = _state.value.library.filterNot { it.id == id })
+            try {
+                translationCommands.withLock {
+                    ChapterTranslationJobs.removeChapter(app, id)
+                    persistenceMutex.withLock {
+                        withContext(Dispatchers.IO) { library.remove(id) }
+                        _state.update { it.copy(library = it.library.filterNot { saved -> saved.id == id }) }
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                _state.update { it.copy(error = failure.message ?: "Chapter could not be safely removed.") }
             }
         }
     }
@@ -696,118 +712,74 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun decodeForOcr(path: String, maxDimension: Int = 2400): android.graphics.Bitmap? {
-        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(path, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        // Preserve narrow webtoon glyphs instead of shrinking the entire strip to 2400 px tall.
-        while (bounds.outWidth / sample > maxDimension ||
-            (bounds.outWidth.toLong() / sample) * (bounds.outHeight / sample) > 12_000_000L) sample *= 2
-        val options = android.graphics.BitmapFactory.Options().apply {
-            inSampleSize = sample
-            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
-            // OCR is complete before lettering reconstruction starts, so the same bounded page
-            // bitmap can safely become the cumulative cleaned surface without allocating a second
-            // full-page ARGB copy.
-            inMutable = true
-        }
-        val decoded = runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull() ?: return null
-        if (decoded.isMutable) return decoded
-        return runCatching {
-            decoded.copy(android.graphics.Bitmap.Config.ARGB_8888, true).also { decoded.recycle() }
-        }.getOrElse {
-            decoded.recycle()
-            null
-        }
-    }
-
     fun pauseTranslation(paused: Boolean) {
-        translationPause.value = paused
-        _state.value = _state.value.copy(translationPaused = paused)
+        pendingTranslation?.takeIf { it.selection == translationSelection() }?.let {
+            it.request.setPaused(paused)
+            _state.update { state -> state.copy(translationPaused = paused) }
+            return
+        }
+        val task = displayedTranslation
+        if (task != null) {
+            controlChapterTranslation(task) { current ->
+                if (paused) ChapterTranslationJobs.pause(app, current.id, current.generation)
+                else ChapterTranslationJobs.resume(app, current.id, current.generation)
+            }
+            return
+        }
     }
 
     fun cancelTranslation() {
-        translationJob?.cancel()
-        translationPause.value = false
+        pendingTranslation?.takeIf { it.selection == translationSelection() }?.let {
+            it.request.cancel()
+            _state.update { state -> state.copy(translating = false, translationPaused = false,
+                translationMessage = "Translation cancelled. Saved pages are still available.", translationError = false) }
+            return
+        }
         _state.value = _state.value.copy(translating = false, translationPaused = false)
+        displayedTranslation?.let { task -> controlChapterTranslation(task) { current ->
+            ChapterTranslationJobs.cancel(app, current.id, current.generation)
+        } }
     }
 
     fun clearTranslations() {
-        translationJob?.cancel()
-        _state.value = _state.value.copy(translating = false, translationPaused = false, translationDone = 0, translationTotal = 0, translationEnabled = false, translationError = false, overlays = emptyMap(), promoPages = emptySet())
+        // Switching reader/configuration detaches its presentation. Durable work remains
+        // owned by WorkManager until the user explicitly pauses or cancels that task.
+        displayedTranslation = null
+        translationSelectionEpoch.value += 1
+        _state.update { it.copy(translating = false, translationPaused = false, translationDone = 0,
+            translationTotal = 0, translationEnabled = false, translationError = false, translationMessage = null,
+            overlays = emptyMap(), translatedBackgrounds = emptyMap(), promoPages = emptySet()) }
     }
 
-    private fun currentTranslationStyle(): TranslationStyleProfile =
-        if (_state.value.translationStyle == "custom") {
-            TranslationStyleProfile.custom(_state.value.customTranslationStyle)
-        } else {
-            TranslationStyleProfile.fromId(_state.value.translationStyle)
-        }
-
-    private fun translationMemoryScope(): String =
-        "chapter:" + (_state.value.activeChapter?.id ?: "unspecified")
-
-    private suspend fun recallTranslation(
-        source: String,
-        language: String,
-        style: TranslationStyleProfile
-    ): String? {
-        if (source.isBlank()) return null
-        return try {
-            OrezRoomDatabase.get(app).datasets().exactTranslationScoped(
-                source.trim(),
-                language.trim(),
-                style.memoryKey,
-                translationMemoryScope()
-            )?.takeIf {
-                com.mangalens.core.translation.TranslationQualityPolicy.isUsable(source, it, language)
+    private fun controlChapterTranslation(target: ChapterTranslationTask,
+        command: suspend (ChapterTranslationTask) -> ChapterTranslationTask?) {
+        ChapterTranslationCommandScope.scope.launch {
+            try {
+                translationCommands.withLock {
+                    val store = withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app) }
+                    // Commands are serialized, so a rapid Resume→Cancel follows the new
+                    // generation returned by Resume while staying scoped to this task ID.
+                    val current = store.get(target.id)?.takeUnless { it.validationPending } ?: return@withLock
+                    if (current.ownerRequestId != target.ownerRequestId ||
+                        (target.ownerRequestId == null && current.generation != target.generation)) return@withLock
+                    command(current)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                val visible = displayedTranslation
+                if (presentationOpen && visible?.id == target.id && visible.ownerRequestId == target.ownerRequestId &&
+                    (target.ownerRequestId != null || visible.generation == target.generation)) _state.update {
+                    it.copy(translationError = true, translationMessage = failure.message ?: "Translation control failed.")
+                }
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private suspend fun rememberTranslation(
-        source: String,
-        target: String,
-        language: String,
-        style: TranslationStyleProfile
-    ) {
-        if (source.isBlank() || target.isBlank()) return
-        try {
-            val scope = translationMemoryScope()
-            val identity = listOf(source.trim(), language.trim(), style.memoryKey, scope).joinToString("|")
-            val key = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(identity.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
-            OrezRoomDatabase.get(app).datasets().upsertTranslation(
-                com.mangalens.orez.OrezTranslationEntity(
-                    key = key,
-                    source = source.trim(),
-                    target = target.trim(),
-                    targetLanguage = language.trim(),
-                    style = style.memoryKey,
-                    scope = scope
-                )
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // Translation remains usable when the optional memory cannot be written.
         }
     }
 
     override fun onCleared() {
-        translationJob?.cancel()
+        presentationOpen = false
         ingestionJob?.cancel()
-        ocr.close()
-        advancedOcr.close()
-        orezRefiner.close()
-        translator.close()
+        ocrPrefs.unregisterOnSharedPreferenceChangeListener(ocrPreferenceListener)
+        // Durable workers own their resources and continue independently of this reader.
         super.onCleared()
     }
 }
-

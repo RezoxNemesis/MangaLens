@@ -5,12 +5,14 @@ import android.content.Context
 import android.media.AudioManager
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import androidx.activity.compose.BackHandler
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.mangalens.download.MediaDownloadManager
 import com.mangalens.download.MediaLinkResolver
 import com.mangalens.download.YtDlpSiteMediaExtractor
+import com.mangalens.download.MediaResolutionTimeoutException
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +35,10 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 @Composable
 fun NativeVideoPlayer(
@@ -40,7 +46,7 @@ fun NativeVideoPlayer(
     translationEnabled: Boolean,
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
-    onOpenWeb: () -> Unit = {},
+    onOpenWeb: (String) -> Unit = {},
     sourcePageUrl: String? = null,
     requestHeaders: Map<String, String> = emptyMap(),
     audioUrl: String? = null,
@@ -49,7 +55,7 @@ fun NativeVideoPlayer(
     val context = LocalContext.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var controlsLocked by remember { mutableStateOf(false) }
-    var playbackError by remember { mutableStateOf<String?>(null) }
+    var playbackError by remember(url, sourcePageUrl) { mutableStateOf<String?>(null) }
     var hudVisible by remember { mutableStateOf(true) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var downloadQuality by remember { mutableStateOf(com.mangalens.download.DownloadQuality.BEST) }
@@ -65,14 +71,22 @@ fun NativeVideoPlayer(
     var playbackHeight by remember { mutableIntStateOf(player.videoSize.height) }
     val scope = rememberCoroutineScope()
     val resolver = remember(context) {
-        MediaLinkResolver(siteExtractor = YtDlpSiteMediaExtractor(context.applicationContext, allowSeparateStreams = true))
+        MediaLinkResolver(
+            siteExtractor = YtDlpSiteMediaExtractor(context.applicationContext, allowSeparateStreams = true),
+            timeoutMs = 45_000L
+        )
     }
-    var activeUrl by remember(url) { mutableStateOf(url) }
-    var activeHeaders by remember(requestHeaders) { mutableStateOf(requestHeaders) }
-    var activeAudioUrl by remember(audioUrl) { mutableStateOf(audioUrl) }
-    var activeAudioHeaders by remember(audioHeaders) { mutableStateOf(audioHeaders) }
-    var refreshingStream by remember { mutableStateOf(false) }
-    var refreshAttempts by remember { mutableIntStateOf(0) }
+    var activeUrl by remember(url, sourcePageUrl) { mutableStateOf(url) }
+    var activeHeaders by remember(url, sourcePageUrl, requestHeaders) { mutableStateOf(requestHeaders) }
+    var activeAudioUrl by remember(url, sourcePageUrl, audioUrl) { mutableStateOf(audioUrl) }
+    var activeAudioHeaders by remember(url, sourcePageUrl, audioHeaders) { mutableStateOf(audioHeaders) }
+    var refreshingStream by remember(url, sourcePageUrl) { mutableStateOf(false) }
+    var refreshAttempts by remember(url, sourcePageUrl) { mutableIntStateOf(0) }
+    var refreshJob by remember(url, sourcePageUrl) { mutableStateOf<Job?>(null) }
+    val refreshRequests = remember(url, sourcePageUrl) { PlaybackRefreshRequests() }
+    val sourceForOpen = remember(url, sourcePageUrl) { playbackSourcePage(sourcePageUrl, url) }
+    val currentOnBack by rememberUpdatedState(onBack)
+    val currentOnOpenWeb by rememberUpdatedState(onOpenWeb)
     val fullSubtitleGenerator = remember(playerVm.speech, scope) {
         FullVideoSubtitleGenerator(context.applicationContext, playerVm.speech, scope)
     }
@@ -84,43 +98,106 @@ fun NativeVideoPlayer(
             label = "Online video"
         )
     }
+    LaunchedEffect(subtitleSource) { fullSubtitleGenerator.bind(subtitleSource) }
 
-    suspend fun refreshFromSource(): Boolean {
-        val page = sourcePageUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: return false
-        if (refreshingStream) return false
+    fun cancelRefresh(message: String? = null) {
+        refreshRequests.cancel()
+        refreshJob?.cancel()
+        refreshJob = null
+        refreshingStream = false
+        message?.let { playbackError = it }
+    }
+
+    fun goBack() {
+        cancelRefresh()
+        player.pause()
+        currentOnBack()
+    }
+
+    fun openSource() {
+        val page = sourceForOpen ?: return
+        cancelRefresh()
+        player.pause()
+        currentOnOpenWeb(page)
+    }
+
+    fun refreshFromSource() {
+        val page = sourcePageUrl?.takeIf { playbackSourcePage(it, "") == it }
+        if (page == null) {
+            playbackError = null
+            player.prepare()
+            player.play()
+            return
+        }
+        if (refreshingStream) return
+        val request = refreshRequests.begin()
         refreshingStream = true
-        return try {
-            val playbackQuality = if (refreshAttempts <= 1)
-                com.mangalens.download.DownloadQuality.BEST
-            else com.mangalens.download.DownloadQuality.P1080
-            val resolved = kotlinx.coroutines.withTimeoutOrNull(45_000L) {
-                runCatching { resolver.resolveCancellable(page, playbackQuality) }.getOrNull()
-            } ?: return false
-            val pageRef = resolved.sourcePageUrl ?: page
-            val videoCookie = runCatching { CookieManager.getInstance().getCookie(resolved.url) }.getOrNull().orEmpty()
-            activeUrl = resolved.url
-            activeHeaders = buildMap {
-                putAll(resolved.headers)
-                if (videoCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", videoCookie)
-                if (keys.none { it.equals("Referer", true) }) put("Referer", pageRef)
-                if (keys.none { it.equals("User-Agent", true) }) put("User-Agent", MediaRequestContext.USER_AGENT)
-                if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
-            }
-            activeAudioUrl = resolved.audioUrl
-            activeAudioHeaders = resolved.audioUrl?.let { audioStream ->
-                val audioCookie = runCatching { CookieManager.getInstance().getCookie(audioStream) }.getOrNull().orEmpty()
-                buildMap {
-                    putAll(resolved.audioHeaders)
-                    if (audioCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", audioCookie)
+        playbackError = null
+        val playbackQuality = if (refreshAttempts <= 1)
+            com.mangalens.download.DownloadQuality.BEST
+        else com.mangalens.download.DownloadQuality.P1080
+        refreshJob = scope.launch {
+            try {
+                val resolved = resolver.resolveCancellable(page, playbackQuality)?.takeIf(::isPlayableRefresh)
+                currentCoroutineContext().ensureActive()
+                if (!refreshRequests.isCurrent(request)) return@launch
+                if (resolved == null) {
+                    playbackError = "The source did not expose an accessible playable stream. Retry or open the source page."
+                    return@launch
+                }
+                val pageRef = resolved.sourcePageUrl ?: page
+                val videoCookie = runCatching { CookieManager.getInstance().getCookie(resolved.url) }.getOrNull().orEmpty()
+                val resolvedHeaders = buildMap {
+                    putAll(resolved.headers)
+                    if (videoCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", videoCookie)
                     if (keys.none { it.equals("Referer", true) }) put("Referer", pageRef)
                     if (keys.none { it.equals("User-Agent", true) }) put("User-Agent", MediaRequestContext.USER_AGENT)
                     if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
                 }
-            }.orEmpty()
-            playbackError = null
-            true
-        } finally {
-            refreshingStream = false
+                val resolvedAudioHeaders = resolved.audioUrl?.let { audioStream ->
+                    val audioCookie = runCatching { CookieManager.getInstance().getCookie(audioStream) }.getOrNull().orEmpty()
+                    buildMap {
+                        putAll(resolved.audioHeaders)
+                        if (audioCookie.isNotBlank() && keys.none { it.equals("Cookie", true) }) put("Cookie", audioCookie)
+                        if (keys.none { it.equals("Referer", true) }) put("Referer", pageRef)
+                        if (keys.none { it.equals("User-Agent", true) }) put("User-Agent", MediaRequestContext.USER_AGENT)
+                        if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
+                    }
+                }.orEmpty()
+                refreshRequests.publish(
+                    request,
+                    PlaybackStreamIdentity(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders),
+                    PlaybackStreamIdentity(resolved.url, resolvedHeaders, resolved.audioUrl, resolvedAudioHeaders),
+                    apply = {
+                        activeUrl = resolved.url
+                        activeHeaders = resolvedHeaders
+                        activeAudioUrl = resolved.audioUrl
+                        activeAudioHeaders = resolvedAudioHeaders
+                        playbackError = null
+                    },
+                    restartUnchanged = { player.prepare(); player.play() }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (refreshRequests.isCurrent(request)) {
+                    playbackError = if (failure is MediaResolutionTimeoutException) failure.message
+                        else com.mangalens.download.MediaSourceFailure.from(failure).message
+                }
+            } finally {
+                if (refreshRequests.finish(request)) {
+                    refreshingStream = false
+                    refreshJob = null
+                }
+            }
+        }
+    }
+
+    BackHandler { goBack() }
+    DisposableEffect(refreshRequests) {
+        onDispose {
+            refreshRequests.cancel()
+            refreshJob?.cancel()
         }
     }
 
@@ -157,7 +234,7 @@ fun NativeVideoPlayer(
         }
     }
 
-    DisposableEffect(player) {
+    DisposableEffect(player, url, sourcePageUrl, refreshRequests) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) { playbackHeight = videoSize.height }
@@ -165,20 +242,16 @@ fun NativeVideoPlayer(
                 val refreshable = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
                     error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
                     error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED
-                if (refreshable && !sourcePageUrl.isNullOrBlank() && refreshAttempts < 2) {
+                if (refreshable && !sourcePageUrl.isNullOrBlank() && refreshAttempts < 2 && !refreshingStream) {
                     refreshAttempts++
                     playbackError = "Refreshing the playable stream…"
-                    scope.launch {
-                        if (!refreshFromSource()) {
-                            playbackError = "Automatic stream refresh did not produce a playable source within 45 seconds. Retry once or open the source page."
-                        }
-                    }
+                    refreshFromSource()
                 } else {
                     playbackError = "Playback failed (${error.errorCodeName}). Retry or refresh the source stream."
                 }
             }
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == androidx.media3.common.Player.STATE_READY) {
+                if (state == androidx.media3.common.Player.STATE_READY && !refreshingStream) {
                     playbackError = null
                     refreshAttempts = 0
                 }
@@ -303,23 +376,18 @@ fun NativeVideoPlayer(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TextButton(onClick = onOpenWeb) { Text("Open source page") }
+                    TextButton(onClick = { cancelRefresh("Stream refresh cancelled. Retry or open the source page.") }) { Text("Cancel") }
+                    TextButton(onClick = { goBack() }) { Text("Back") }
+                    TextButton(onClick = { openSource() }, enabled = sourceForOpen != null) { Text("Open source page") }
                 }
             }
         } else if (playbackError != null) {
             Surface(Modifier.align(Alignment.Center).padding(24.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(playbackError!!)
-                    TextButton(onClick = {
-                        scope.launch {
-                            if (!refreshFromSource()) {
-                                playbackError = null
-                                player.prepare()
-                                player.play()
-                            }
-                        }
-                    }) { Text("Retry / refresh stream") }
-                    TextButton(onClick = onOpenWeb) { Text("Open source page") }
+                    TextButton(onClick = { refreshFromSource() }) { Text("Retry / refresh stream") }
+                    TextButton(onClick = { goBack() }) { Text("Back") }
+                    TextButton(onClick = { openSource() }, enabled = sourceForOpen != null) { Text("Open source page") }
                 }
             }
         }
@@ -340,7 +408,7 @@ fun NativeVideoPlayer(
         if (hudVisible && !controlsLocked) {
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = onBack) { Text("Back") }
+                    TextButton(onClick = { goBack() }) { Text("Back") }
                     Text("Stream", style = MaterialTheme.typography.titleMedium)
                     Text(playbackHeight.takeIf { it > 0 }?.let { "${it}p" } ?: "Auto", style = MaterialTheme.typography.titleMedium)
                 }

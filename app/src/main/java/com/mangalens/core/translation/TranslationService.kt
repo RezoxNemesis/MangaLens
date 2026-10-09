@@ -8,6 +8,7 @@ import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import java.util.Locale
 
 internal fun normalizeEnglishDialogueForHindi(value: String): String {
     var text = value.replace(Regex("\\s+"), " ").trim()
@@ -29,11 +30,19 @@ class TranslationService {
     private val translatorLock = Any()
     private val translators = LinkedHashMap<String, Translator>()
 
-    suspend fun translate(text: String, targetLanguage: String, sourceLanguage: String? = null): String {
+    suspend fun translate(text: String, targetLanguage: String, sourceLanguage: String? = null): String =
+        translateDraft(text, targetLanguage, sourceLanguage).text
+
+    suspend fun translateDraft(text: String, targetLanguage: String, sourceLanguage: String? = null): TranslationDraft {
         val sourceText = text.trim()
-        if (sourceText.isBlank()) return text
-        val target = TranslateLanguage.fromLanguageTag(targetLanguage.trim().lowercase())
+        if (sourceText.isBlank()) return TranslationDraft(text)
+        val romanHindi = HindiRomanization.isTarget(targetLanguage)
+        val targetTag = if (romanHindi) "hi" else targetLanguage.trim().lowercase(Locale.ROOT)
+        val target = TranslateLanguage.fromLanguageTag(targetTag)
             ?: throw IllegalArgumentException("Unsupported translation language: $targetLanguage")
+        // Roman Hindi already is the requested script/language. Do not feed it to the
+        // English model merely because its letters are Latin.
+        if (romanHindi && HindiRomanization.isRomanHindi(sourceText)) return TranslationDraft(HinglishTranslationOutput.alreadyRoman(sourceText))
         // OCR can identify a chapter script more reliably than language-ID can classify
         // a two-word fragment. Only a supported explicit hint overrides detection.
         val detected = sourceLanguage?.let(TranslateLanguage::fromLanguageTag)
@@ -43,7 +52,7 @@ class TranslationService {
         } else {
             TranslateLanguage.fromLanguageTag(detected) ?: TranslateLanguage.ENGLISH
         }
-        if (source == target) return text
+        if (source == target) return if (romanHindi) HinglishTranslationOutput.fromHindiDraft(sourceText, sourceText) else TranslationDraft(text)
         val translationInput = if (source == TranslateLanguage.ENGLISH && target == TranslateLanguage.HINDI) {
             normalizeEnglishDialogueForHindi(sourceText)
         } else sourceText
@@ -67,7 +76,7 @@ class TranslationService {
             }
         }
 
-        return suspendCancellableCoroutine { continuation ->
+        val draft = suspendCancellableCoroutine<String> { continuation ->
             translator.downloadModelIfNeeded()
                 .addOnSuccessListener {
                     if (!continuation.isActive) return@addOnSuccessListener
@@ -83,6 +92,9 @@ class TranslationService {
                     if (continuation.isActive) continuation.resumeWithException(failure)
                 }
         }
+        // Translator instances are keyed by the ML Kit language pair; rendered output
+        // and persisted memories retain the full hi-latn tag in their callers.
+        return if (romanHindi) HinglishTranslationOutput.fromHindiDraft(sourceText, draft) else TranslationDraft(draft)
     }
 
     private suspend fun detectSource(text: String): String {

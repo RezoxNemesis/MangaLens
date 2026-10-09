@@ -19,7 +19,29 @@ class OrezAgentPlanner(
             isAny(lower, "download this", "download the current", "save this video", "save media")
         }
 
+        if (OrezSubtitleRequest.isRequested(clean) && !OrezSubtitleRequest.isDownloadChain(clean)) {
+            val selection = context.selectedMedia ?: return null
+            val registry = OrezToolRegistry()
+            return OrezTaskPlan(objective = clean, steps = listOf(
+                OrezPlanStep(0, registry.call("inspect_selected_media", mapOf("sourceId" to selection.sourceId))),
+                subtitleStep(1, 0, OrezSubtitleRequest.target(clean, context.subtitleOptions.targetLanguage))
+            ))
+        }
+
         val actionable = OrezModelPlanDecoder.isActionRequest(clean) || lower in setOf("download manager", "downloads screen")
+        if (actionable && wantsTranslation(lower) &&
+            isAny(lower, "this chapter", "current chapter", "whole chapter", "entire chapter") && context.hasActiveChapter &&
+            context.activeChapterId != null) {
+            val registry = OrezToolRegistry()
+            val target = withTarget(registry.call("translate_saved_chapter",
+                mapOf("targetLanguage" to context.translationOptions.targetLanguage)), lower)
+            return OrezTaskPlan(objective = clean, steps = listOf(
+                OrezPlanStep(0, registry.call("inspect_saved_chapter", mapOf("chapterId" to context.activeChapterId))),
+                OrezPlanStep(1, target, dependsOn = setOf(0), references = mapOf(
+                    "chapterId" to OrezOutputReference(0, OrezOutputField.CHAPTER_ID),
+                    "sourceFingerprint" to OrezOutputReference(0, OrezOutputField.SOURCE_FINGERPRINT)))
+            ))
+        }
         val direct = if (actionable) when {
             isAny(lower, "open downloads", "show downloads", "download manager", "downloads screen") ->
                 tool(
@@ -150,6 +172,16 @@ class OrezAgentPlanner(
             // Conflicting per-item qualities need clarification, never silently choose one.
             val quality = if (qualities.size > 1) "AMBIGUOUS" else qualities.firstOrNull() ?: "BEST"
             val urls = explicitUrls.ifEmpty { listOf(url) }
+            if (OrezSubtitleRequest.isDownloadChain(clean)) {
+                // One exact native transfer is the only source of this typed dependency.
+                if (urls.size != 1) return null
+                return OrezTaskPlan(objective = clean, steps = listOf(
+                    OrezPlanStep(0, call.copy(arguments = mapOf("value" to urls.single(), "quality" to quality))),
+                    OrezPlanStep(1, OrezToolRegistry().call("inspect_downloaded_media", emptyMap()), dependsOn = setOf(0),
+                        references = mapOf("downloadId" to OrezOutputReference(0, OrezOutputField.DOWNLOAD_ID))),
+                    subtitleStep(2, 1, OrezSubtitleRequest.target(clean, context.subtitleOptions.targetLanguage))
+                ))
+            }
             return task(clean, urls.map { value -> call.copy(
                 summary = "Download and verify media (${if (quality == "BEST") "best available" else quality.removePrefix("P") + "p"})",
                 arguments = mapOf("value" to value, "quality" to quality)
@@ -158,9 +190,18 @@ class OrezAgentPlanner(
         return task(clean, listOf(withTarget(call, lower)))
     }
 
+    private fun subtitleStep(index: Int, sourceIndex: Int, target: String) = OrezPlanStep(index,
+        OrezToolRegistry().call("generate_subtitles", mapOf("targetLanguage" to "en")).let {
+            it.copy(arguments = mapOf("targetLanguage" to target))
+        }, dependsOn = setOf(sourceIndex), references = mapOf(
+            "sourceId" to OrezOutputReference(sourceIndex, OrezOutputField.MEDIA_SOURCE_ID),
+            "sourceFingerprint" to OrezOutputReference(sourceIndex, OrezOutputField.SOURCE_FINGERPRINT),
+            "speechModelSha256" to OrezOutputReference(sourceIndex, OrezOutputField.SPEECH_MODEL_SHA256)))
+
     private fun withTarget(call: OrezToolCall, input: String): OrezToolCall {
         if (call.capability != OrezCapability.TRANSLATION) return call
-        val languages = listOf("hi" to listOf("hindi", "हिंदी", "हिन्दी"),
+        val languages = listOf("hi-latn" to listOf("hinglish", "roman hindi", "hindi latin", "romanized hindi", "romanised hindi", "hi-latn"),
+            "hi" to listOf("hindi", "हिंदी", "हिन्दी"),
             "en" to listOf("english"), "ja" to listOf("japanese"), "ko" to listOf("korean"),
             "zh" to listOf("chinese"), "fr" to listOf("french"), "es" to listOf("spanish"), "de" to listOf("german"))
         val target = languages.firstOrNull { (_, names) -> names.any { name ->

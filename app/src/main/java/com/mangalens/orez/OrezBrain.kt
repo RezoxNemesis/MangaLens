@@ -3,6 +3,8 @@ package com.mangalens.orez
 import com.mangalens.engine.LiveSearchAnswer
 import com.mangalens.core.orez.OrezDomain
 import com.mangalens.core.orez.OrezIntentRouterV12
+import com.mangalens.core.translation.TranslationDraft
+import com.mangalens.core.translation.TranslationMemoryCodec
 import com.mangalens.core.translation.TranslationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -42,7 +44,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             Return only JSON: {"tool":"name","arguments":{}}. If unsupported, return {}.
             Never invent tools, URLs, unavailable chapters or permissions.
             Do not turn an open/show request into a download or translation.
-            A URL tool requires value. Translation optionally accepts targetLanguage: hi/en/ja/ko/zh/fr/es/de.
+            A URL tool requires value. Translation optionally accepts targetLanguage: hi/hi-latn/en/ja/ko/zh/fr/es/de.
             AVAILABLE TOOLS:
             ${com.mangalens.orez.agent.OrezToolRegistry().catalog()}
             APP STATE: activeChapter=${appState.hasActiveChapter}; activeURL=${appState.activeUrl.orEmpty().take(8192)}
@@ -160,25 +162,16 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         val contextualQuery=buildContextualQuery(clean,context)
         val engineMode = engineMode()
         if(intent==OrezIntent.TRANSLATION){
-            val sourceText = extractTranslationText(clean)
-            val translationTarget = extractTargetLanguage(clean, context.targetLanguage)
-            val result=retrieveTranslation(sourceText,translationTarget)
-            if(result!=null) return@withContext OrezBrainResponse(result,intent,usedLocalKnowledge=true)
-            val modelAnswer=localAnswer(
-                "Translate the following text to " + translationTarget + ". Return only the translation, not instructions or a description of how to translate.\nTEXT:\n" + sourceText,
-                context.recentMessages
+            val request = OrezChatTranslationPolicy.parse(clean, context.targetLanguage)
+            val result = OrezChatTranslationPolicy.resolve(
+                request,
+                cached = { retrieveTranslations(it.source, it.targetLanguage) },
+                model = { prompt -> localAnswer(prompt, context.recentMessages) },
+                fallback = { text, target -> fallbackTranslator.translateDraft(text, target) }
             )
-            if(!modelAnswer.isNullOrBlank()) return@withContext OrezBrainResponse(modelAnswer,intent,usedLocalKnowledge=true)
-            try {
-                val translated = fallbackTranslator.translate(sourceText,translationTarget)
-                if(translated.isNotBlank() && translated != sourceText) {
-                    return@withContext OrezBrainResponse(translated,intent,usedLocalKnowledge=true)
-                }
-            } catch (failure: Throwable) {
-                if(failure is kotlinx.coroutines.CancellationException) throw failure
-            }
+            if (result != null) return@withContext OrezBrainResponse(result, intent, usedLocalKnowledge = true)
             return@withContext OrezBrainResponse(
-                "I couldn't translate this yet. Check your connection so the language model can download, then retry. Text received: " + sourceText.take(180),
+                "I couldn't translate this yet. Check your connection so the language model can download, then retry. Text received: " + request.source.take(180),
                 intent
             )
         }
@@ -232,48 +225,6 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
 
     suspend fun warmLocalModel(): Boolean = localModel.warmUp()
     fun releaseLocalMemory() = localModel.releaseMemory()
-
-    private fun extractTranslationText(input:String):String {
-        var text = input.trim()
-        text = text.replace(
-            Regex("""(?i)^\s*(please\s+)?(translate kar do|translate karo|translation|translate|anuvad)\s*[:,-]?\s*"""),
-            ""
-        ).trim()
-        text = text.replace(
-            Regex("""(?i)^\s*(?:(?:this|the)\s+)?(?:text|sentence|phrase)?\s*(?:to|into|in)\s+(hindi|english|japanese|korean|chinese|spanish|french|roman hindi|hinglish)\s*[:,-]\s*"""),
-            ""
-        ).trim()
-        text = text.replace(
-            Regex("""(?i)\s+(to|into|in)\s+(hindi|english|japanese|korean|chinese|spanish|french|roman hindi|hinglish)\s*[.!?]*$"""),
-            ""
-        ).trim()
-        return text.removeSurrounding("\"").removeSurrounding("'").ifBlank { input.trim() }
-    }
-
-    private fun extractTargetLanguage(input:String, fallback:String):String {
-        val requested = Regex(
-            """(?i)\b(?:to|into|in)\s+(hindi|english|japanese|korean|chinese|spanish|french|german|arabic|bengali|gujarati|marathi|tamil|telugu|urdu|roman hindi|hinglish)\b"""
-        ).find(input)?.groupValues?.get(1)?.lowercase(Locale.ROOT) ?: return fallback
-        return when (requested) {
-            "roman hindi", "hinglish" -> "hi"
-            "hindi" -> "hi"
-            "english" -> "en"
-            "japanese" -> "ja"
-            "korean" -> "ko"
-            "chinese" -> "zh"
-            "spanish" -> "es"
-            "french" -> "fr"
-            "german" -> "de"
-            "arabic" -> "ar"
-            "bengali" -> "bn"
-            "gujarati" -> "gu"
-            "marathi" -> "mr"
-            "tamil" -> "ta"
-            "telugu" -> "te"
-            "urdu" -> "ur"
-            else -> fallback
-        }
-    }
 
     private fun isLibraryScopedRequest(input: String): Boolean {
         val text = input.lowercase(Locale.ROOT)
@@ -387,9 +338,22 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
         }
     }
 
-    private suspend fun retrieveTranslation(source:String,targetLanguage:String):String?{
-        heavyVault.exactTranslation(source.trim(),targetLanguage)?.let{return it}
-        return database.datasets().exactTranslation(source.trim(),targetLanguage)
+    private suspend fun retrieveTranslations(source: String, targetLanguage: String): List<TranslationDraft> {
+        val candidates = mutableListOf<TranslationDraft>()
+        // Keep both full-tag memories available: an invalid heavy-vault entry must
+        // not conceal a valid Room entry for the same source and script.
+        for (read in listOf<suspend () -> String?>(
+            { heavyVault.exactTranslation(source.trim(), targetLanguage) },
+            { database.datasets().exactTranslation(source.trim(), targetLanguage) }
+        )) {
+            try {
+                val value = read() ?: continue
+                TranslationMemoryCodec.decode(source, value, targetLanguage)?.let(candidates::add)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { /* The other memory and the native fallback remain available. */ }
+        }
+        return candidates
     }
 
     private fun buildEvidence(local: OrezConversationEntity?, heavy: HeavyKnowledgeEntity?): String {

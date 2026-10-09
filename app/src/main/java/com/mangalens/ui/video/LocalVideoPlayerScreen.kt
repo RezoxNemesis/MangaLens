@@ -78,6 +78,7 @@ fun LocalVideoPlayerScreen(
     val subtitleMediaSource = activeVideoUri?.let {
         SubtitleMediaSource(uri = it, cacheKey = it, label = "Local video")
     }
+    LaunchedEffect(subtitleMediaSource) { subtitleMediaSource?.let(fullSubtitleGenerator::bind) }
 
     fun immersive(enabled: Boolean) {
         fullscreen = enabled
@@ -112,6 +113,7 @@ fun LocalVideoPlayerScreen(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             activeVideoUri = it.toString()
+            fullSubtitleGenerator.bind(SubtitleMediaSource(uri = it.toString(), cacheKey = it.toString(), label = "Local video"))
             vm.open(it)
         }
     }
@@ -120,6 +122,7 @@ fun LocalVideoPlayerScreen(
     LaunchedEffect(initialUri) {
         initialUri?.let {
             activeVideoUri = it.toString()
+            fullSubtitleGenerator.bind(SubtitleMediaSource(uri = it.toString(), cacheKey = it.toString(), label = "Local video"))
             vm.open(it)
         }
     }

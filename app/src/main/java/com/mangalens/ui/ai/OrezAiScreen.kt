@@ -32,6 +32,10 @@ import com.mangalens.orez.agent.OrezTaskStatus
 import com.mangalens.orez.agent.OrezStepStatus
 import com.mangalens.orez.agent.OrezTaskPlan
 import com.mangalens.orez.agent.OrezToolRegistry
+import com.mangalens.orez.agent.OrezTranslationOptions
+import com.mangalens.orez.agent.OrezDurablePlanRules
+import com.mangalens.orez.agent.OrezTaskControls
+import com.mangalens.orez.agent.OrezPendingControl
 import com.mangalens.ui.components.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -41,6 +45,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class OrezAiViewModel @JvmOverloads constructor(
@@ -53,6 +58,7 @@ class OrezAiViewModel @JvmOverloads constructor(
     private val modelManager = OrezModelManager(app)
     private val agentRuntime = OrezAgentRuntime()
     private val taskStore = OrezTaskStore(db.tasks())
+    private val taskControls = OrezTaskControls(app, taskStore)
     private val toolRegistry = OrezToolRegistry()
     private val enginePrefs = app.getSharedPreferences("orez_engine", android.content.Context.MODE_PRIVATE)
 
@@ -92,6 +98,29 @@ class OrezAiViewModel @JvmOverloads constructor(
         }
         viewModelScope.launch {
             taskStore.pruneFinished()
+            // Reconcile accepted control intents once per restored screen. Failures retain
+            // their durable proof and remain visible for an explicit retry, with no busy loop.
+            db.tasks().observeActive().first().forEach { row ->
+                val task = taskStore.load(row.id) ?: return@forEach
+                taskControlMessage {
+                    when (task.pendingControl) {
+                        OrezPendingControl.CANCEL -> taskControls.cancel(task.id, restoreOnly = true)
+                        OrezPendingControl.PAUSE -> taskControls.pause(task.id, restoreOnly = true)
+                        null -> if (task.resuming) taskControls.resume(task.id, restoreOnly = true)
+                    }
+                }
+            }
+            // Repair a process loss after the durable journal commit and before enqueue.
+            db.tasks().observeActive().collect { tasks ->
+                tasks.filter { it.status in setOf("PLANNED", "RUNNING") }.forEach { row ->
+                    val task = taskStore.load(row.id) ?: return@forEach
+                    if (!task.pausedByUser && runCatching { OrezDurablePlanRules.validate(task) }.isSuccess)
+                        com.mangalens.orez.agent.OrezDownloadTaskWorker.enqueue(app, task.id,
+                            requiresNetwork = OrezDurablePlanRules.requiresNetwork(task))
+                }
+            }
+        }
+        viewModelScope.launch {
             if (dao.count() == 0) {
                 dao.insert(OrezMessageEntity(role = "OREZ", text = "Namaste! Main OREZ hoon. Main local knowledge, reasoning, OCR/translation workflows aur current web information ko coordinate kar sakta hoon."))
             }
@@ -115,10 +144,14 @@ class OrezAiViewModel @JvmOverloads constructor(
         hasActiveChapter: Boolean = chapterText.isNotBlank(),
         activeUrl: String? = null,
         onTargetLanguage: (String) -> Unit = {},
-        onRoute: (String, OrezRoute) -> Unit = { _, _ -> }
+        onRoute: (String, OrezRoute) -> Unit = { _, _ -> },
+        activeChapterId: String? = null,
+        selectedMedia: com.mangalens.orez.agent.OrezMediaSelection? = null,
+        subtitleOptions: com.mangalens.orez.agent.OrezSubtitleOptions = com.mangalens.orez.agent.OrezSubtitleOptions()
     ) {
         val input = query.trim()
         if (input.isBlank() || typing) return
+        val acceptedMedia = selectedMedia?.captured()
         typing = true
         thinkingStage = "Understanding your request…"
         replyJob = viewModelScope.launch {
@@ -128,14 +161,31 @@ class OrezAiViewModel @JvmOverloads constructor(
                 val appContext = OrezAgentContext(
                         hasActiveChapter = hasActiveChapter,
                         hasLibrary = libraryContext.isNotBlank(),
-                        activeUrl = activeUrl
+                        activeUrl = activeUrl,
+                        activeChapterId = activeChapterId,
+                        translationOptions = capturedTranslationOptions(),
+                        selectedMedia = acceptedMedia,
+                        subtitleOptions = subtitleOptions.normalized()
                     )
                 var agentDecision = agentRuntime.decide(input, appContext)
                 if (agentDecision.continueToBrain && answerRequest == null) {
                     brain.planAction(input, appContext)?.let { agentDecision = agentRuntime.decidePlan(it, appContext) }
                 }
                 activePlan = agentDecision.plan
-                agentDecision.plan?.let { taskStore.checkpoint(it, it.status) }
+                agentDecision.plan?.let { plan ->
+                    val background = plan.status == OrezTaskStatus.RUNNING && OrezDurablePlanRules.supports(plan)
+                    if (background && plan.steps.any { it.call.name == "translate_saved_chapter" })
+                        plan.authorization?.translation?.targetLanguage?.let(onTargetLanguage)
+                    if (background) {
+                        activePlan = null
+                        // Accepted background dispatch survives chat/viewmodel cancellation.
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            check(taskStore.checkpoint(plan, OrezTaskStatus.PLANNED)) { "Task journal changed before dispatch." }
+                            com.mangalens.orez.agent.OrezDownloadTaskWorker.enqueue(getApplication<android.app.Application>(), plan.id,
+                                requiresNetwork = OrezDurablePlanRules.requiresNetwork(plan))
+                        }
+                    } else check(taskStore.checkpoint(plan)) { "Task journal changed before dispatch." }
+                }
                 if (!agentDecision.continueToBrain) {
                     thinkingStage = if (agentDecision.requiresApproval) "Waiting for approval…" else "Executing MangaLens action…"
                     dao.insert(
@@ -144,19 +194,21 @@ class OrezAiViewModel @JvmOverloads constructor(
                             text = agentDecision.message.ifBlank { "I prepared the requested MangaLens action." }
                         )
                     )
+                    val durablePlan = agentDecision.plan?.takeIf {
+                        it.status == OrezTaskStatus.RUNNING && OrezDurablePlanRules.supports(it)
+                    }
+                    if (durablePlan != null) {
+                        activePlan = null
+                        if (durablePlan.steps.first().call.name == "enqueue_download")
+                            onRoute(agentDecision.routeValue, OrezRoute.DOWNLOADS)
+                        thinkingStage = "Task queued • runs in background"
+                        return@launch
+                    }
                     val route = agentDecision.immediateRoute
                     if (route != null) {
                         val plan = requireNotNull(agentDecision.plan)
                         val step = plan.steps.first()
                         toolRegistry.validate(step.call)
-                        if (step.call.name == "enqueue_download") {
-                            taskStore.checkpoint(plan, OrezTaskStatus.PLANNED)
-                            com.mangalens.orez.agent.OrezDownloadTaskWorker.enqueue(getApplication<android.app.Application>(), plan.id)
-                            activePlan = null
-                            onRoute(agentDecision.routeValue, route)
-                            thinkingStage = "Download queued • runs in background"
-                            return@launch
-                        }
                         activePlan = plan.copy(steps = listOf(step.copy(status = OrezStepStatus.RUNNING)))
                         taskStore.checkpoint(requireNotNull(activePlan))
                         step.call.arguments["targetLanguage"]?.let(onTargetLanguage)
@@ -233,8 +285,27 @@ class OrezAiViewModel @JvmOverloads constructor(
     }
 
     fun dismissTask(id: String) = viewModelScope.launch {
-        taskStore.load(id)?.let { taskStore.checkpoint(it, OrezTaskStatus.CANCELLED) }
-        androidx.work.WorkManager.getInstance(getApplication<android.app.Application>()).cancelUniqueWork("orez-task-$id")
+        taskControlMessage { taskControls.cancel(id) }
+    }
+
+    fun pauseTask(id: String) = viewModelScope.launch { taskControlMessage { taskControls.pause(id) } }
+
+    private fun capturedTranslationOptions(): OrezTranslationOptions {
+        val app = getApplication<android.app.Application>()
+        val prefs = app.getSharedPreferences("mangalens_preferences", android.content.Context.MODE_PRIVATE)
+        val ocr = app.getSharedPreferences("mangalens_ocr", android.content.Context.MODE_PRIVATE)
+        return OrezTranslationOptions(prefs.getString("translation_target", "hi") ?: "hi",
+            prefs.getString("translation_style", "natural") ?: "natural", prefs.getString("translation_custom_style", "") ?: "",
+            ocr.getString("script", "AUTO") ?: "AUTO", ocr.getBoolean("high_accuracy", true),
+            ocr.getBoolean("preserve_style", true), ocr.getBoolean("local_refinement", false)).normalized()
+    }
+
+    private suspend fun taskControlMessage(action: suspend () -> Unit) {
+        try { action() }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            dao.insert(OrezMessageEntity(role = "OREZ", text = "Task control stopped safely: " + failure.message.orEmpty().take(250)))
+        }
     }
 
     fun taskProgress(encoded: String): Pair<Int, Int>? = runCatching {
@@ -243,29 +314,13 @@ class OrezAiViewModel @JvmOverloads constructor(
     }.getOrNull()
 
     fun canResumeTask(encoded: String): Boolean = runCatching {
-        com.mangalens.orez.agent.OrezDurablePlanRules.validate(taskStore.decode(encoded))
-        true
+        val plan = taskStore.decode(encoded)
+        com.mangalens.orez.agent.OrezDurablePlanRules.validate(plan)
+        plan.pendingControl == null
     }.getOrDefault(false)
 
     fun resumeTask(id: String) = viewModelScope.launch {
-        val plan = taskStore.load(id) ?: return@launch
-        if (plan.status !in setOf(OrezTaskStatus.WAITING, OrezTaskStatus.FAILED)) return@launch
-        try {
-            com.mangalens.orez.agent.OrezDurablePlanRules.validate(plan)
-            val next = plan.steps.firstOrNull { it.status != OrezStepStatus.COMPLETED } ?: return@launch
-            com.mangalens.download.MediaDownloadManager(getApplication<android.app.Application>()).resume(
-                com.mangalens.orez.agent.OrezDurablePlanRules.requestId(id, next.index))
-            val resumable = plan.copy(status = OrezTaskStatus.PLANNED, steps = plan.steps.map {
-                if (it.status == OrezStepStatus.FAILED) it.copy(status = OrezStepStatus.PENDING) else it
-            })
-            if (taskStore.checkpoint(resumable)) {
-                com.mangalens.orez.agent.OrezDownloadTaskWorker.enqueue(getApplication<android.app.Application>(), id, replace = true)
-            }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            dao.insert(OrezMessageEntity(role = "OREZ", text = "Could not resume this task: " + failure.message.orEmpty().take(250)))
-        }
+        taskControlMessage { taskControls.resume(id) }
     }
 
     fun stopReply() {
@@ -285,7 +340,17 @@ class OrezAiViewModel @JvmOverloads constructor(
 
     fun downloadLocalModel() = modelManager.enqueue(modelManager.state.value.selectedTier)
     fun pauseLocalModel() = modelManager.pause()
-    fun refreshLocalModel() = modelManager.refresh()
+    fun refreshLocalModel() = modelManager.recheck()
+    fun rollbackLocalModel() {
+        val tier = modelManager.state.value.selectedTier
+        viewModelScope.launch {
+            try {
+                thinkingStage = if (modelManager.rollback(tier)) "Previous verified model selected"
+                    else "No verified previous model is available"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (failure: Exception) { thinkingStage = failure.message ?: "Model rollback failed" }
+        }
+    }
 
     fun deleteMessage(id: Long) = viewModelScope.launch {
         dao.deleteMessage(id)
@@ -324,8 +389,11 @@ fun OrezAiScreen(
     chapterText: String = "",
     hasActiveChapter: Boolean = chapterText.isNotBlank(),
     activeUrl: String? = null,
+    activeChapterId: String? = null,
     onTargetLanguage: (String) -> Unit = {},
     onImport: (List<android.net.Uri>) -> Unit = {},
+    selectedMedia: com.mangalens.orez.agent.OrezMediaSelection? = null,
+    subtitleOptions: com.mangalens.orez.agent.OrezSubtitleOptions = com.mangalens.orez.agent.OrezSubtitleOptions(),
     onRoute: (String, OrezRoute) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -440,6 +508,9 @@ fun OrezAiScreen(
                                 Text(it, maxLines = 3, style = MaterialTheme.typography.bodySmall)
                             }
                             Row {
+                                if (task.status in setOf("PLANNED", "RUNNING") && vm.canResumeTask(task.planJson)) {
+                                    TextButton(onClick = { vm.pauseTask(task.id) }) { Text("Pause task") }
+                                }
                                 if (task.status in setOf("WAITING", "FAILED") && vm.canResumeTask(task.planJson)) {
                                     TextButton(onClick = { vm.resumeTask(task.id) }) { Text("Resume task") }
                                 }
@@ -472,6 +543,7 @@ fun OrezAiScreen(
                                 Text("OREZ Engine", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                                 Text(
                                     when {
+                                        modelState.verifying -> "Verifying local model files…"
                                         modelState.downloading ->
                                             "Installing " + (modelState.selectedDescriptor?.label ?: modelState.selectedTier.displayName) +
                                                 " • " + ((modelState.progress * 100).toInt()) + "%"
@@ -490,6 +562,7 @@ fun OrezAiScreen(
                             }
                             NeonStatusPill(
                                 when {
+                                    modelState.verifying -> "Verifying"
                                     modelState.downloading -> "Installing"
                                     modelState.selectedInstalled -> modelState.selectedTier.displayName
                                     modelState.legacyInstalled -> "Legacy pack"
@@ -499,7 +572,9 @@ fun OrezAiScreen(
                             )
                         }
 
-                        if (modelState.downloading) {
+                        if (modelState.verifying) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        } else if (modelState.downloading) {
                             LinearProgressIndicator(progress = { modelState.progress }, modifier = Modifier.fillMaxWidth())
                             TextButton(vm::pauseLocalModel) { Text("Pause model download") }
                         }
@@ -557,7 +632,7 @@ fun OrezAiScreen(
                         )
                         TextButton(onClick = { confirmClear = true }) { Text("Clear conversation") }
 
-                        if (!modelState.downloading && !modelState.selectedInstalled) {
+                        if (!modelState.downloading && !modelState.verifying && !modelState.selectedInstalled) {
                             Button(
                                 vm::downloadLocalModel,
                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
@@ -568,8 +643,12 @@ fun OrezAiScreen(
                                         " model"
                                 )
                             }
-                        } else if (modelState.selectedInstalled) {
-                            TextButton(vm::refreshLocalModel) { Text("Recheck model health →") }
+                        }
+                        if (!modelState.downloading && !modelState.verifying) {
+                            TextButton(vm::refreshLocalModel) { Text("Recheck model health") }
+                            if (modelState.rollbackAvailable) {
+                                TextButton(vm::rollbackLocalModel) { Text("Roll back selected model") }
+                            }
                         }
                     }
                 }
@@ -698,7 +777,8 @@ fun OrezAiScreen(
                     onClick = {
                         val query = input
                         input = ""
-                        vm.sendMessage(query, libraryContext, chapterText, hasActiveChapter, activeUrl, onTargetLanguage, onRoute)
+                        vm.sendMessage(query, libraryContext, chapterText, hasActiveChapter, activeUrl, onTargetLanguage, onRoute,
+                            activeChapterId = activeChapterId, selectedMedia = selectedMedia, subtitleOptions = subtitleOptions)
                     },
                     enabled = input.isNotBlank(),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),

@@ -36,4 +36,16 @@ class UrlEngineRouterTest {
     fun testGenericWebFallback() {
         assertEquals(ContentType.GENERIC_WEB, router.classifyUrl("https://en.wikipedia.org/wiki/Main_Page"))
     }
+    @Test fun userSuppliedYouTubeShortAndInstagramReelOpenTheVideoRoute() {
+        assertEquals(ContentType.VIDEO_STREAM, router.classifyUrl("https://youtu.be/RzasqVwpLOA?si=vn3VhAdIZKeUXgZE"))
+        assertEquals(ContentType.VIDEO_STREAM, router.classifyUrl("https://www.instagram.com/reel/DeODl9XI0ex/?dlrf=MTljZnpjY21lbGh2Mw=="))
+        assertEquals(ContentType.VIDEO_STREAM, router.classifyUrl("https://instagram.com/reels/DeODl9XI0ex/"))
+    }
+    @Test fun instagramProfilesAndUnrelatedPostImagesKeepTheWebRoute() {
+        assertEquals(ContentType.GENERIC_WEB, router.classifyUrl("https://www.instagram.com/creator/"))
+        assertEquals(ContentType.GENERIC_WEB, router.classifyUrl("https://www.instagram.com/p/DeODl9XI0ex/"))
+        assertEquals(ContentType.GENERIC_WEB, router.classifyUrl("https://www.instagram.com.evil.example/reel/DeODl9XI0ex/"))
+        assertEquals(ContentType.GENERIC_WEB, router.classifyUrl("https://youtu.be.evil.example/RzasqVwpLOA"))
+        assertEquals(ContentType.GENERIC_WEB, router.classifyUrl("https://youtu.be/invalid"))
+    }
 }

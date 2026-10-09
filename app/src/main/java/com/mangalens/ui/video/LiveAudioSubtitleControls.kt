@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -200,25 +201,10 @@ fun FullSubtitleGeneratorCard(
     source: SubtitleMediaSource?,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val state by generator.state.collectAsState()
-    val scope = rememberCoroutineScope()
     var attachToPlayer by remember { mutableStateOf(true) }
-    var exportStatus by remember { mutableStateOf<String?>(null) }
-    val export = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/x-subrip")
-    ) { uri ->
-        if (uri != null && state.srt.isNotBlank()) scope.launch {
-            exportStatus = runCatching {
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use {
-                        it.write(state.srt.toByteArray())
-                    } ?: error("Cannot write subtitle file")
-                }
-                "English SRT exported"
-            }.getOrElse { it.message ?: "Export failed" }
-        }
-    }
+    val exports = rememberSubtitleExportActions(state, source)
+    LaunchedEffect(generator, source) { source?.let(generator::bind) }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -238,7 +224,7 @@ fun FullSubtitleGeneratorCard(
                 Column(Modifier.weight(1f)) {
                     Text("Generate Full English Subtitles", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Analyse the complete video audio, transcribe speech, translate non-English speech to English, build a timed SRT, cache it, and attach it to the player.",
+                        "Generate timed English subtitles from the complete video audio. Work continues in the background; completed windows survive pause and restart.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -292,10 +278,14 @@ fun FullSubtitleGeneratorCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (state.running) {
+                    OutlinedButton(onClick = generator::pause) { Text("Pause") }
                     Button(onClick = generator::cancel, modifier = Modifier.weight(1f)) {
                         Text("Cancel")
                     }
                 } else {
+                    if (state.status in setOf(SubtitleGenerationStatus.PAUSED, SubtitleGenerationStatus.PARTIAL, SubtitleGenerationStatus.FAILED)) {
+                        OutlinedButton(onClick = generator::resume) { Text("Resume") }
+                    }
                     Button(
                         enabled = source != null,
                         onClick = { source?.let { generator.generate(it, attachToPlayer = attachToPlayer, force = state.cues.isNotEmpty()) } },
@@ -310,17 +300,119 @@ fun FullSubtitleGeneratorCard(
                     modifier = Modifier.weight(1f)
                 ) { Text("Apply to player") }
                 OutlinedButton(
-                    enabled = state.srt.isNotBlank(),
-                    onClick = { export.launch("MangaLens-English.srt") },
+                    enabled = exports.srtEnabled,
+                    onClick = exports.srt,
                     modifier = Modifier.weight(1f)
-                ) { Text("Export SRT") }
+                ) { Text(exports.srtLabel) }
             }
+            TextButton(enabled = exports.vttEnabled, onClick = exports.vtt) { Text(exports.vttLabel) }
             if (source == null) {
                 Text("Open a local or online video first.", style = MaterialTheme.typography.bodySmall)
             }
-            exportStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            exports.status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
+}
+
+internal data class SubtitleExportActions(val srtEnabled: Boolean, val vttEnabled: Boolean, val srtLabel: String,
+    val vttLabel: String, val status: String?, val srt: () -> Unit, val vtt: () -> Unit)
+
+/** Only opaque tokens enter saved instance state; accepted bytes remain in app-private AtomicFiles. */
+@Composable
+internal fun rememberSubtitleExportActions(state: FullSubtitleState, source: SubtitleMediaSource?): SubtitleExportActions {
+    val context = LocalContext.current
+    val spool = remember(context.applicationContext) { SubtitleExportSpool.shared(context) }
+    val writing by spool.writing.collectAsState()
+    val scope = rememberCoroutineScope()
+    var pendingSrt by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingVtt by rememberSaveable { mutableStateOf<String?>(null) }
+    var waitingSrt by rememberSaveable { mutableStateOf(false) }
+    var waitingVtt by rememberSaveable { mutableStateOf(false) }
+    var status by rememberSaveable { mutableStateOf<String?>(null) }
+    var preparingSrt by remember { mutableStateOf(false) }
+    var preparingVtt by remember { mutableStateOf(false) }
+    fun receive(uri: android.net.Uri?, token: String?, format: String) {
+        if (uri == null) {
+            if (format == "srt") waitingSrt = false else waitingVtt = false
+            status = "Export cancelled"
+            if (format == "srt") pendingSrt = null else pendingVtt = null
+            token?.let { scope.launch(Dispatchers.IO) { runCatching { spool.remove(it) } } }
+            return
+        }
+        if (token == null) {
+            if (format == "srt") waitingSrt = false else waitingVtt = false
+            status = "Export request could not be restored. Export again."
+            return
+        }
+        val lease = try { spool.claim(token) } catch (failure: Exception) {
+            if (format == "srt") waitingSrt = false else waitingVtt = false
+            status = failure.message?.take(300) ?: "This subtitle export is already being written."
+            return
+        }
+        if (format == "srt") waitingSrt = false else waitingVtt = false
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            var available = false
+            val result = runCatching {
+                // A selected destination is an accepted write. Finish its bounded
+                // immutable bytes even if the Activity rotates during provider IO.
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                    try {
+                        spool.read(token)
+                        available = true
+                        spool.deliver(lease) { context.contentResolver.openOutputStream(uri) }
+                    } finally { spool.release(lease) }
+                }
+                "Requested English ${format.uppercase(java.util.Locale.ROOT)} exported"
+            }
+            status = result.getOrElse { it.message?.take(300) ?: "Export failed. Retry the export." }
+            if (result.isSuccess || !available) {
+                if (format == "srt" && pendingSrt == token) pendingSrt = null
+                if (format == "vtt" && pendingVtt == token) pendingVtt = null
+                if (!available) withContext(Dispatchers.IO) { runCatching { spool.remove(token) } }
+            }
+        }
+    }
+    val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { receive(it, pendingSrt, "srt") }
+    val vttLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/vtt")) { receive(it, pendingVtt, "vtt") }
+    fun request(format: String) {
+        val token = if (format == "srt") pendingSrt else pendingVtt
+        if (format == "srt" && (preparingSrt || waitingSrt) || format == "vtt" && (preparingVtt || waitingVtt) || token in writing) return
+        val receipt = if (token == null) source?.let { SubtitleExportReceipt.capture(state, it, format) } else null
+        if (token == null && receipt == null) { status = "Subtitles are not ready for export."; return }
+        if (format == "srt") preparingSrt = true else preparingVtt = true
+        scope.launch {
+            var prepared = false
+            try {
+                val durable = withContext(Dispatchers.IO) {
+                    if (token == null) spool.stage(receipt!!)
+                    else {
+                        check(token !in spool.writing.value) { "This subtitle export is already being written." }
+                        spool.read(token)
+                        token
+                    }
+                }
+                prepared = true
+                if (format == "srt") { pendingSrt = durable; waitingSrt = true } else { pendingVtt = durable; waitingVtt = true }
+                status = "Choose a destination for the requested ${format.uppercase(java.util.Locale.ROOT)} export."
+                if (format == "srt") srtLauncher.launch("MangaLens-English.srt") else vttLauncher.launch("MangaLens-English.vtt")
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                if (format == "srt") waitingSrt = false else waitingVtt = false
+                if (!prepared && token != null && token !in spool.writing.value) {
+                    if (format == "srt" && pendingSrt == token) pendingSrt = null
+                    if (format == "vtt" && pendingVtt == token) pendingVtt = null
+                }
+                status = failure.message?.take(300) ?: "Cannot prepare export. Try again."
+            }
+            finally { if (format == "srt") preparingSrt = false else preparingVtt = false }
+        }
+    }
+    val ready = state.cues.isNotEmpty() && state.sourceCacheKey == source?.cacheKey
+    return SubtitleExportActions(srtEnabled = !preparingSrt && !waitingSrt && pendingSrt?.let(writing::contains) != true && (pendingSrt != null || ready && state.srt.isNotBlank()),
+        vttEnabled = !preparingVtt && !waitingVtt && pendingVtt?.let(writing::contains) != true && (pendingVtt != null || ready && state.vtt.isNotBlank()),
+        srtLabel = if (pendingSrt == null) "Export SRT" else "Retry SRT",
+        vttLabel = if (pendingVtt == null) "Export VTT" else "Retry VTT", status = status,
+        srt = { request("srt") }, vtt = { request("vtt") })
 }
 
 private fun previewTime(ms: Long): String {

@@ -24,7 +24,6 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
- data class SpeechCue(val startMs: Long, val endMs: Long, val text: String)
  data class SpeechState(
     val enabled: Boolean = false,
     val ready: Boolean = false,
@@ -299,26 +298,40 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     suspend fun inferEnglishChunk(
         samples: FloatArray,
         startMs: Long,
-        sourceLanguage: String = language
+        sourceLanguage: String = language,
+        threads: Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
     ): List<SpeechCue> = withContext(Dispatchers.Default) {
         require(samples.isNotEmpty() && samples.size <= 16000 * 30) { "Speech chunks must be 30 seconds or shorter." }
         val started = android.os.SystemClock.elapsedRealtime()
+        val caller = currentCoroutineContext()
         val segments = lock.withLock {
             check(!closed && handle != 0L) { "Install or import a multilingual Whisper model first." }
             val requestedLanguage = if (sourceLanguage == "auto") detectedSourceLanguage ?: "auto" else sourceLanguage
-            native.infer(
-                handle,
-                samples,
-                requestedLanguage,
-                requestedLanguage != "en",
-                Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
-            ).also {
+            // A timeout/pause must abort native inference and wait for its actual return
+            // before a handle can be freed. Whisper resets its abort bit on entry, so
+            // repeat cancellation until completion also covers a queued native start.
+            withContext(NonCancellable) {
+                val pending = async(Dispatchers.Default) {
+                    caller.ensureActive()
+                    native.infer(handle, samples, requestedLanguage, requestedLanguage != "en", threads.coerceIn(1, 4))
+                }
+                try { withContext(caller) { pending.await() } }
+                catch (cancelled: CancellationException) {
+                    while (!pending.isCompleted) {
+                        synchronized(handleGuard) { if (handle != 0L) native.cancel(handle) }
+                        delay(50)
+                    }
+                    runCatching { pending.await() }
+                    throw cancelled
+                }
+            }.also {
                 if (sourceLanguage == "auto" && detectedSourceLanguage == null && handle != 0L) {
                     detectedSourceLanguage = runCatching { native.detectedLanguage(handle) }
                         .getOrNull()?.takeIf { detected -> detected.isNotBlank() && detected != "auto" }
                 }
             }
         }
+        caller.ensureActive()
         val duration = samples.size * 1000L / 16000
         val cues = segments.mapNotNull { line ->
             val parts = line.split('\t', limit = 3)
@@ -336,6 +349,8 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         cues
     }
 
+    internal fun detectedLanguageSnapshot(): String? = detectedSourceLanguage
+
     /** Display a finished generated track without continuing live transcription in the background. */
     fun applyGeneratedCues(cues: List<SpeechCue>) {
         synchronized(handleGuard) {
@@ -344,7 +359,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
             if (handle != 0L) native.cancel(handle)
         }
         while (chunks.tryReceive().isSuccess) { }
-        val cleaned = SpeechWindowPolicy.append(emptyList(), cues)
+        val cleaned = SubtitleFormats.normalizeGenerated(cues)
         mutable.value = mutable.value.copy(
             enabled = false,
             generated = true,

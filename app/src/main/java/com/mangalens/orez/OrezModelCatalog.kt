@@ -18,6 +18,22 @@ data class OrezModelDescriptor(
 )
 
 object OrezModelCatalog {
+    const val MANIFEST_VERSION = 1
+    const val RUNTIME_CONTEXT_TOKENS = 8_192
+
+    // Historical publisher pin from 734db03638f2625785a945dbf26170b53c7dba56.
+    // Retained for authenticated fallback only; it is not offered as a new download.
+    internal val legacy = OrezModelDescriptor(
+        id = "legacy-qwen2.5-0.5b-q6_k",
+        tier = OrezModelTier.LITE,
+        label = "Legacy Lite Q6_K",
+        fileName = "qwen2.5-0.5b-q6_k.gguf",
+        url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q6_k.gguf?download=true",
+        bytes = 650379104L,
+        sha256 = "2f82233630c349ccf6b8daccf48f9a7865713d9f08a2eadfa456cebe9b97c7f5",
+        minimumSuggestedRamBytes = 3L * 1024L * 1024L * 1024L
+    )
+
     val lite = OrezModelDescriptor(
         id = "qwen2.5-0.5b-q4_k_m",
         tier = OrezModelTier.LITE,

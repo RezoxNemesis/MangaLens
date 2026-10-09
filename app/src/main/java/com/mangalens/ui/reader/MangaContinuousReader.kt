@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import kotlinx.coroutines.launch
@@ -48,8 +49,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import coil.compose.AsyncImage
+import androidx.compose.ui.unit.dp
 import com.mangalens.core.reader.ChapterPage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
@@ -80,16 +85,25 @@ fun MangaContinuousReader(
     onRetry: () -> Unit = {},
     onOpenWeb: () -> Unit = {},
     onLongPressPage: (ChapterPage) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    translatedBackgrounds: Map<Int, String> = emptyMap(),
+    translationDone: Int = 0,
+    translationTotal: Int = 0,
+    translationPaused: Boolean = false,
+    onTranslationPaused: (Boolean) -> Unit = {},
+    onTranslationCancelled: () -> Unit = {}
 ) {
+    val density = LocalDensity.current
     val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("mangalens_reader", android.content.Context.MODE_PRIVATE)
     var textScale by remember { mutableFloatStateOf(prefs.getFloat("text_scale", 1f)) }
     var controls by remember { mutableStateOf(false) }
     var styleMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var positionRestored by rememberSaveable(chapterId) { mutableStateOf(false) }
-    var originalVisible by remember { mutableStateOf(false) }
+    var originalVisible by rememberSaveable(chapterId) { mutableStateOf(false) }
     var hudVisible by remember { mutableStateOf(true) }
+    var headerHeight by remember { mutableStateOf(76.dp) }
+    val translationActive = translating || translationPaused
     var scale by rememberSaveable(chapterId) { mutableFloatStateOf(1f) }
     var panX by rememberSaveable(chapterId) { mutableFloatStateOf(0f) }
     var panY by rememberSaveable(chapterId) { mutableFloatStateOf(0f) }
@@ -197,16 +211,19 @@ fun MangaContinuousReader(
                         )
                         return@items
                     }
+                    val surface = rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalVisible)
                     Box(Modifier.fillMaxWidth().pointerInput(page.sourceUrl) {
                         detectTapGestures(onTap = { hudVisible = !hudVisible },
                             onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
                             onLongPress = { onLongPressPage(page) })
                     }) {
-                        AsyncImage(model = page.localPath ?: page.sourceUrl,
-                            contentDescription = "Page ${page.index}", modifier = Modifier.fillMaxWidth(),
-                            contentScale = ContentScale.FillWidth)
+                        val imageModifier = surface.aspectRatio?.let { Modifier.fillMaxWidth().aspectRatio(it) } ?: Modifier.fillMaxWidth()
+                        ReaderMangaImage(model = surface.model,
+                            description = "Page ${page.index}", modifier = imageModifier,
+                            contentScale = ContentScale.FillWidth, viewportTransform = Triple(scale, panX, panY))
                         if (translated && !originalVisible) MangaTranslationOverlay(
-                            overlays = overlays[page.index].orEmpty(), textScale = textScale, modifier = Modifier.matchParentSize())
+                            overlays = overlays[page.index].orEmpty().filter { surface.cleaned || it.lettering == null },
+                            textScale = textScale, modifier = Modifier.matchParentSize())
                     }
                 }
             }
@@ -230,7 +247,8 @@ fun MangaContinuousReader(
                         }
                         return@HorizontalPager
                     }
-                    FittedMangaPage(page, modifier = Modifier.fillMaxSize().clipToBounds()
+                    val surface = rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalVisible)
+                    FittedMangaPage(page, surface, modifier = Modifier.fillMaxSize().clipToBounds()
                         .transformable(transformState)
                         .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
                         .pointerInput(page.sourceUrl, readingMode) {
@@ -244,7 +262,8 @@ fun MangaContinuousReader(
                                 onLongPress = { onLongPressPage(page) })
                         }) {
                         if (translated && !originalVisible) MangaTranslationOverlay(
-                            overlays = overlays[page.index].orEmpty(), textScale = textScale, modifier = Modifier.matchParentSize())
+                            overlays = overlays[page.index].orEmpty().filter { surface.cleaned || it.lettering == null },
+                            textScale = textScale, modifier = Modifier.matchParentSize())
                     }
                 }
             }
@@ -258,7 +277,7 @@ fun MangaContinuousReader(
         }
         if (error != null) {
             Surface(
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 76.dp, start = 12.dp, end = 12.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = if (hudVisible || translationActive) headerHeight + 8.dp else 76.dp, start = 12.dp, end = 12.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
                 shape = MaterialTheme.shapes.medium
@@ -271,7 +290,7 @@ fun MangaContinuousReader(
         }
 
         AnimatedVisibility(
-            visible = hudVisible,
+            visible = hudVisible || translationActive,
             enter = fadeIn(androidx.compose.animation.core.tween(220)) +
                 androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { -it / 5 },
             exit = fadeOut(androidx.compose.animation.core.tween(180)) +
@@ -279,26 +298,44 @@ fun MangaContinuousReader(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                modifier = Modifier.fillMaxWidth().onSizeChanged { headerHeight = with(density) { it.height.toDp() } }.statusBarsPadding(),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
                     MaterialTheme.colorScheme.primary.copy(alpha = .28f)
                 )
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    androidx.compose.material3.IconButton(onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
-                    Column(Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Page ${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelSmall)
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        androidx.compose.material3.IconButton(onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
+                        Column(Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Page ${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Row {
+                            if (translated) Text(if (originalVisible) "Original" else "Translated", color = MaterialTheme.colorScheme.secondary)
+                            TextButton(onClick = { controls = !controls; hudVisible = true }) { Text("Reader tools") }
+                        }
                     }
-                    Row {
-                        if (translated) Text("Translated", color = MaterialTheme.colorScheme.secondary)
-                        TextButton(onClick = { controls = !controls }) { Text("Reader tools") }
+                    if (translationTotal > 0) {
+                        val processed = translationDone.coerceIn(0, translationTotal)
+                        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("$processed / $translationTotal pages processed", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                                if (translationActive) {
+                                    TextButton(onClick = { onTranslationPaused(!translationPaused) }, modifier = Modifier.semantics {
+                                        contentDescription = if (translationPaused) "Resume chapter translation" else "Pause chapter translation"
+                                    }) { Text(if (translationPaused) "Resume" else "Pause") }
+                                    TextButton(onClick = onTranslationCancelled, modifier = Modifier.semantics { contentDescription = "Cancel chapter translation" }) { Text("Cancel") }
+                                }
+                            }
+                            androidx.compose.material3.LinearProgressIndicator(progress = { processed.toFloat() / translationTotal }, modifier = Modifier.fillMaxWidth())
+                        }
                     }
                 }
             }
@@ -316,6 +353,7 @@ fun MangaContinuousReader(
                 modifier = Modifier.fillMaxWidth(),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
                     MaterialTheme.colorScheme.primary.copy(alpha = .48f)
@@ -331,7 +369,7 @@ fun MangaContinuousReader(
                     }
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(pages, key = { it.index }) { page ->
-                            AsyncImage(page.localPath ?: page.sourceUrl, "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page)) }, contentScale = ContentScale.Crop)
+                            AsyncImage(rememberMangaThumbnailRequest(page.localPath ?: page.sourceUrl), "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page)) }, contentScale = ContentScale.Crop)
                         }
                     }
                     if (controls) {
@@ -375,7 +413,7 @@ fun MangaContinuousReader(
                             })
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton({ languageMenu = true }) { Text("Language: ${targetLanguage.uppercase()} ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
+                            TextButton({ languageMenu = true }) { Text("Language: ${if (com.mangalens.core.translation.HindiRomanization.isTarget(targetLanguage)) "Hinglish" else targetLanguage.uppercase()} ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
                             Box {
                                 TextButton({ styleMenu = true }) { Text("Style: $translationStyle ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
                                 androidx.compose.material3.DropdownMenu(styleMenu, { styleMenu = false }) {
@@ -391,16 +429,18 @@ fun MangaContinuousReader(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(
                             onTranslate,
-                            enabled = !translating && pages.isNotEmpty(),
+                            enabled = !translationActive && pages.isNotEmpty(),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
-                        ) { Text(if (translating) "Translating…" else "Translate", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
-                        TextButton({ originalVisible = !originalVisible }) { Text(if (originalVisible) "Translation" else "Original") }
+                        ) { Text(if (translationPaused) "Paused" else if (translating) "Translating…" else "Translate", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
+                        TextButton({ originalVisible = !originalVisible }, Modifier.semantics {
+                            contentDescription = if (originalVisible) "Show translated page" else "Show original page"
+                        }) { Text(if (originalVisible) "Translation" else "Original") }
                         if (readingMode == "vertical") TextButton({ autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause scroll" else "Auto-scroll") }
                         if (controls) { TextButton(onDownload) { Text("Download") }; TextButton(onMenu) { Text("More settings") } }
                     }
                     if (languageMenu) {
                         androidx.compose.material3.DropdownMenu(expanded = true, onDismissRequest = { languageMenu = false }) {
-                            listOf("hi" to "Hindi", "en" to "English", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese", "es" to "Spanish", "fr" to "French").forEach { (code, name) ->
+                            listOf("hi" to "Hindi", "hi-latn" to "Hinglish (Roman Hindi)", "en" to "English", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese", "es" to "Spanish", "fr" to "French").forEach { (code, name) ->
                                 androidx.compose.material3.DropdownMenuItem(text = { Text(name) }, onClick = { onTargetLanguageChanged(code); languageMenu = false })
                             }
                         }
@@ -443,23 +483,49 @@ private fun PromoPagePlaceholder(
 
 /** Keep overlays in image coordinates, including letterboxing in paged mode. */
 @Composable
-private fun FittedMangaPage(page: ChapterPage, modifier: Modifier, overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
-    var ratio by remember(page.localPath) { mutableFloatStateOf(1f) }
-    LaunchedEffect(page.localPath) {
-        ratio = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            page.localPath?.let { android.graphics.BitmapFactory.decodeFile(it, options) }
-            if (options.outWidth > 0 && options.outHeight > 0) options.outWidth.toFloat() / options.outHeight else 1f
-        }
-    }
+private fun FittedMangaPage(page: ChapterPage, surface: ReaderPageSurface, modifier: Modifier, overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    val ratio = surface.aspectRatio ?: 1f
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val width = minOf(maxWidth, maxHeight * ratio)
         val height = width / ratio
         Box(Modifier.size(width, height)) {
-            AsyncImage(page.localPath ?: page.sourceUrl, "Page ${page.index}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            ReaderMangaImage(surface.model, "Page ${page.index}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             overlay()
         }
     }
+}
+
+private data class ReaderPageSurface(val model: String, val aspectRatio: Float?, val cleaned: Boolean = false)
+
+/** The caller supplies checksum-verified journal paths; IO rechecks decodability and geometry. */
+@Composable
+private fun rememberReaderPageSurface(page: ChapterPage, cleanedPath: String?, showTranslation: Boolean): ReaderPageSurface {
+    val original = page.localPath ?: page.sourceUrl
+    var sourceRatio by remember(original, cleanedPath) { mutableStateOf<Float?>(null) }
+    var usableCleaned by remember(original, cleanedPath) { mutableStateOf<Pair<String, Float>?>(null) }
+    LaunchedEffect(original, cleanedPath) {
+        val checked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val sourceBounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            page.localPath?.let { android.graphics.BitmapFactory.decodeFile(it, sourceBounds) }
+            val ratio = if (sourceBounds.outWidth > 0 && sourceBounds.outHeight > 0) sourceBounds.outWidth.toFloat() / sourceBounds.outHeight else null
+            val usable = runCatching {
+                val candidate = cleanedPath?.let { java.io.File(it) } ?: return@runCatching null
+                if (!candidate.isFile || candidate.length() !in 1..com.mangalens.core.translation.ChapterTranslationStore.MAX_SURFACE_BYTES ||
+                    candidate.canonicalPath == page.localPath?.let { java.io.File(it).canonicalPath }) return@runCatching null
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(candidate.absolutePath, bounds)
+                if (bounds.outMimeType != "image/png" || bounds.outWidth <= 0 || bounds.outHeight <= 0 || ratio == null ||
+                    bounds.outWidth.toLong() * bounds.outHeight > com.mangalens.core.translation.ChapterTranslationStore.MAX_SURFACE_PIXELS) return@runCatching null
+                val outputRatio = bounds.outWidth.toFloat() / bounds.outHeight
+                if (kotlin.math.abs(outputRatio - ratio) / ratio > .01f) null else candidate.absolutePath to outputRatio
+            }.getOrNull()
+            ratio to usable
+        }
+        sourceRatio = checked.first
+        usableCleaned = checked.second
+    }
+    val translatedSurface = usableCleaned.takeIf { showTranslation }
+    return ReaderPageSurface(translatedSurface?.first ?: original, translatedSurface?.second ?: sourceRatio, translatedSurface != null)
 }
 
 @Composable

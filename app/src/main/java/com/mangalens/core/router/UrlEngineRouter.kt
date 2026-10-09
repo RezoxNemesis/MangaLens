@@ -27,21 +27,25 @@ class UrlEngineRouter {
         if (normalized.isBlank()) return ContentType.GENERIC_WEB
         if (!isSafeWebUrl(normalized)) return ContentType.GENERIC_WEB
         val uri = URI(normalized)
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+        val path = uri.rawPath.orEmpty()
+        if ((host == "youtu.be" && path.matches(Regex("/[A-Za-z0-9_-]{11}/?"))) ||
+            (host in setOf("instagram.com", "www.instagram.com", "m.instagram.com") &&
+                path.matches(Regex("/(reel|reels|tv)/[A-Za-z0-9_-]+/?")))) {
+            return ContentType.VIDEO_STREAM
+        }
         val lower = ((uri.host ?: "") + (uri.rawPath ?: "")).lowercase(Locale.ROOT)
 
         if (videoExtensions.any { lower.endsWith(it) || lower.contains("$it?") || lower.contains("$it#") }) {
             return ContentType.VIDEO_STREAM
         }
 
-        val path = runCatching { URI(normalized).rawPath.orEmpty() }
-            .getOrDefault(normalized.substringAfter("://", normalized).substringAfter("/", ""))
         if (mangaPathRegex.containsMatchIn("/$path")) return ContentType.IMAGE_CHAPTER
         if (mangaDomainKeywords.any { lower.contains(it) }) return ContentType.IMAGE_CHAPTER
         if (lower.contains("/chapter-") || lower.contains("/read/") || lower.contains("/page/") || lower.contains("/episode/")) {
             return ContentType.IMAGE_CHAPTER
         }
 
-        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
         val videoPath = path.lowercase(Locale.ROOT).split('/').filter(String::isNotBlank)
         if (
             videoDomainKeywords.any { host.contains(it) } ||

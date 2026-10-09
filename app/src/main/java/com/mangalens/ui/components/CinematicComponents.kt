@@ -21,6 +21,7 @@ import coil.compose.AsyncImage
 import com.mangalens.R
 import com.mangalens.core.reader.SavedChapter
 import com.mangalens.ui.theme.LocalAppearance
+import com.mangalens.ui.reader.rememberMangaThumbnailRequest
 
 @Composable fun BrandHeader(title: String = "MangaLens", subtitle: String? = null, action: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -86,7 +87,7 @@ import com.mangalens.ui.theme.LocalAppearance
 @Composable fun ChapterCover(chapter: SavedChapter, onClick: () -> Unit, modifier: Modifier = Modifier, menu: (@Composable () -> Unit)? = null) {
     Column(modifier.clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(.69f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            AsyncImage(chapter.pages.firstOrNull()?.localPath, chapter.title + " cover", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            AsyncImage(rememberMangaThumbnailRequest(chapter.pages.firstOrNull()?.localPath), chapter.title + " cover", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000)))))
             if (chapter.bookmarked) Icon(Icons.Outlined.Bookmark, "Bookmarked", Modifier.align(Alignment.TopStart).padding(6.dp).size(19.dp), tint = MaterialTheme.colorScheme.primary)
             menu?.let { Box(Modifier.align(Alignment.TopEnd)) { it() } }
@@ -100,7 +101,7 @@ import com.mangalens.ui.theme.LocalAppearance
 @Composable fun ContinueCard(chapter: SavedChapter, onClick: () -> Unit) {
     Surface(onClick, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            AsyncImage(chapter.pages.firstOrNull()?.localPath, null, Modifier.size(56.dp, 76.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+            AsyncImage(rememberMangaThumbnailRequest(chapter.pages.firstOrNull()?.localPath), null, Modifier.size(56.dp, 76.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(chapter.title, maxLines = 2, style = MaterialTheme.typography.titleSmall)
                 Text("Page ${(chapter.position + 1).coerceAtMost(chapter.pages.size)} of ${chapter.pages.size} · Offline", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

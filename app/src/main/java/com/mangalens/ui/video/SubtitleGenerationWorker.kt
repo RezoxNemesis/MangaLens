@@ -1,0 +1,253 @@
+package com.mangalens.ui.video
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import com.mangalens.orez.agent.OrezTaskRecovery
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.Uri
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.Operation
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import androidx.work.workDataOf
+import com.mangalens.MainActivity
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.security.MessageDigest
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+internal object SubtitleInputs {
+    suspend fun capture(context: Context, requested: SubtitleMediaSource): SubtitleSourceIdentity = withContext(Dispatchers.IO) {
+        val source = requested.captureSnapshot()
+        require(source.uri.length in 1..16000 && source.headers.size <= 32)
+        val uri = Uri.parse(source.uri)
+        val descriptor = listOf(source.uri, source.headers.toSortedMap().entries.joinToString("\n") { "${it.key}:${it.value}" })
+            .joinToString("|") { "${it.length}:$it" }
+        if (uri.scheme in listOf("content", "file", "android.resource") || uri.scheme == null) {
+            if (uri.scheme == "content") runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            val input = if (uri.scheme == null) File(source.uri).inputStream() else context.contentResolver.openInputStream(uri)
+                ?: error("This video is unavailable. Reopen it with the document picker.")
+            val hash = MessageDigest.getInstance("SHA-256"); val buffer = ByteArray(65536); var total = 0L
+            input.use { while (true) {
+                currentCoroutineContext().ensureActive()
+                val n = it.read(buffer); if (n < 0) break
+                total += n; require(total <= 4L * 1024 * 1024 * 1024) { "Use a video under 4 GiB." }; hash.update(buffer, 0, n)
+            } }
+            require(total > 0) { "Video source is empty." }
+            val contentHash = hash.digest().joinToString("") { "%02x".format(it) }
+            SubtitleSourceIdentity(source.copy(headers = source.headers.toMap()), SubtitleGenerationStore.digest(descriptor + contentHash), true)
+        } else {
+            require(uri.scheme == "http" || uri.scheme == "https") { "Unsupported video source." }
+            val validator = runCatching { SubtitleNetworkSource(source).use { it.proof() } }.getOrNull()
+            SubtitleSourceIdentity(source.copy(headers = source.headers.toMap()), SubtitleGenerationStore.digest(descriptor + validator?.fingerprint.orEmpty()),
+                validator != null, validator?.etag, validator?.size, validator?.url)
+        }
+    }
+    fun config(context: Context, sourceLanguage: String): SubtitleGenerationConfig {
+        val model = File(context.filesDir, "speech/whisper.bin")
+        return SubtitleGenerationConfig(sourceLanguage = sourceLanguage.trim().lowercase(java.util.Locale.ROOT),
+            modelSha256 = model.takeIf { it.isFile && it.length() in 1_000_000..600_000_000 }?.let(SubtitleGenerationStore::fileHash))
+    }
+    fun pcmHash(samples: FloatArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteBuffer.allocate(4096).order(ByteOrder.LITTLE_ENDIAN)
+        for (sample in samples) {
+            if (buffer.remaining() < 4) { digest.update(buffer.array(), 0, buffer.position()); buffer.clear() }
+            buffer.putFloat(sample)
+        }
+        digest.update(buffer.array(), 0, buffer.position())
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+}
+
+class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val id = inputData.getString("subtitle_task") ?: return@withContext Result.failure()
+        val generation = inputData.getString("subtitle_generation") ?: return@withContext Result.failure()
+        val store = SubtitleGenerationStore.shared(applicationContext)
+        try {
+            val captured = store.get(id)?.takeIf { it.generation == generation } ?: return@withContext Result.success()
+            suspend fun checkOwner() = enforceSubtitleOwnerGate(store, captured) {
+                OrezTaskRecovery.allowSubtitleWork(applicationContext, store, it)
+            }
+            checkOwner()
+            setForeground(notification(captured, "Checking video and speech model"))
+            generationLane.withLock {
+                checkOwner()
+                val source = SubtitleInputs.capture(applicationContext, captured.source.source)
+                when (assessSubtitleSource(captured.source, source)) {
+                    SubtitleSourceCheck.UNVERIFIED -> {
+                        store.fail(id, generation, "Cannot verify this online video version. Completed windows have been kept; retry when the source is available.", requireValidation = true)
+                        return@withLock Result.failure()
+                    }
+                    SubtitleSourceCheck.CHANGED -> {
+                        store.fail(id, generation, "Video source changed. Generate a new subtitle task for the current video.", invalidate = true)
+                        return@withLock Result.failure()
+                    }
+                    SubtitleSourceCheck.MATCH -> Unit
+                }
+                if (canTrustSubtitleSource(captured.source, source) || captured.windows.isEmpty()) store.confirmValidated(id, generation)
+                val installed = SubtitleInputs.config(applicationContext, captured.config.sourceLanguage)
+                check(installed.modelSha256 != null) { "Install or import a multilingual Whisper model first." }
+                check(installed.modelSha256 == captured.config.modelSha256) { "Speech model changed. Generate a new task to use the installed model." }
+                checkOwner()
+                val task = store.running(id, generation) ?: return@withLock Result.success()
+                val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                val engine = VideoSpeechEngine(applicationContext, workerScope)
+                try {
+                    engine.loadInstalled()
+                    check(engine.state.value.ready) { engine.state.value.status }
+                    check(SubtitleInputs.config(applicationContext, captured.config.sourceLanguage).modelSha256 == captured.config.modelSha256) {
+                        "Speech model changed while loading. Generate a task for the installed model."
+                    }
+                    var index = 0
+                    var requestedLanguage = task.detectedLanguage ?: task.config.sourceLanguage
+                    checkOwner()
+                    SubtitleAudioDecoder(applicationContext).decode(task.source.source, task.source.strongEtag, task.source.networkSize, task.source.networkUrl) { audio, startMs, progress, durationMs ->
+                        currentCoroutineContext().ensureActive()
+                        checkOwner()
+                        val endMs = startMs + audio.size * 1000L / 16000
+                        val hash = SubtitleInputs.pcmHash(audio)
+                        val previous = task.windows.getOrNull(index)
+                        if (previous != null) {
+                            if (previous.startMs != startMs || previous.endMs != endMs || previous.pcmSha256 != hash) {
+                                store.fail(id, generation, "Decoded video audio changed. Generate a fresh task for this source.", invalidate = true)
+                                throw CancellationException("Changed source audio invalidated its old checkpoints.")
+                            }
+                            checkOwner()
+                            if (index == task.windows.lastIndex) store.confirmValidated(id, generation, pcmVerified = true)
+                        } else {
+                            val silent = !SpeechWindowPolicy.hasActivity(audio)
+                            val cues = if (silent) emptyList() else withTimeout(120_000) {
+                                engine.inferEnglishChunk(audio, startMs, requestedLanguage, task.config.threads)
+                            }
+                            val detected = engine.detectedLanguageSnapshot()
+                            if (requestedLanguage == "auto" && detected != null) requestedLanguage = detected
+                            checkOwner()
+                            if (!store.checkpoint(id, generation, SubtitleWindow(index, startMs, endMs, hash, cues, silent), durationMs, detected))
+                                throw CancellationException("Subtitle checkpoint generation was replaced.")
+                        }
+                        index++
+                        val latest = store.get(id)?.takeIf { it.generation == generation } ?: throw CancellationException()
+                        setProgress(workDataOf("processed_windows" to index, "progress" to progress))
+                        setForeground(notification(latest, "${index} windows checked • ${(progress * 100).toInt()}%"))
+                    }
+                    check(index >= task.windows.size) { "Audio ended before all saved windows could be verified." }
+                    val finalSource = SubtitleInputs.capture(applicationContext, task.source.source)
+                    when (assessSubtitleSource(task.source, finalSource)) {
+                        SubtitleSourceCheck.UNVERIFIED -> {
+                            store.fail(id, generation, "Cannot verify the final online video version. Completed windows have been kept; resume to verify them before export.", requireValidation = true)
+                            return@withLock Result.failure()
+                        }
+                        SubtitleSourceCheck.CHANGED -> {
+                            store.fail(id, generation, "Video changed during subtitle generation. Generate a fresh task.", invalidate = true)
+                            return@withLock Result.failure()
+                        }
+                        SubtitleSourceCheck.MATCH -> Unit
+                    }
+                    check(SubtitleInputs.config(applicationContext, task.config.sourceLanguage).modelSha256 == task.config.modelSha256) {
+                        "Speech model changed during generation. Completed windows have been kept."
+                    }
+                    checkOwner()
+                    store.finish(id, generation)
+                    Result.success()
+                } finally {
+                    withContext(NonCancellable) { engine.close(); workerScope.cancel() }
+                }
+            }
+        } catch (blocked: SubtitleOwnedWorkBlocked) {
+            // A workflow stop is authoritative. An unacknowledged IO failure
+            // defers work without replacing the pending stop with native FAILED.
+            if (blocked.retry) {
+                runCatching { store.interrupted(id, generation) }
+                if (store.current(id, generation)) Result.retry() else Result.success()
+            } else Result.success()
+        } catch (unverified: SubtitleNetworkUnverified) {
+            store.fail(id, generation, unverified.message ?: "Video byte version could not be verified.", requireValidation = true)
+            Result.failure()
+        } catch (changed: SubtitleNetworkChanged) {
+            store.fail(id, generation, changed.message ?: "Video bytes changed during generation.", invalidate = true)
+            Result.failure()
+        } catch (timeout: TimeoutCancellationException) {
+            store.fail(id, generation, "A speech window exceeded its two-minute budget. Resume with the same model, or generate a new task with a smaller model.")
+            Result.failure()
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) { runCatching { store.interrupted(id, generation) } }
+            throw cancelled
+        } catch (failure: Exception) {
+            store.fail(id, generation, failure.message ?: "Subtitle generation failed. Completed windows have been kept.")
+            Result.failure()
+        }
+    }
+    private fun notification(task: SubtitleGenerationTask, stage: String): ForegroundInfo {
+        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(NotificationChannel("full_subtitles", "Video subtitle generation", NotificationManager.IMPORTANCE_LOW))
+        val notificationId = 200_000 + ((task.id + task.generation).hashCode() and 0x0fffffff)
+        val open = PendingIntent.getActivity(applicationContext, notificationId, Intent(applicationContext, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(applicationContext, "full_subtitles").setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Subtitles • " + task.source.source.label.take(70)).setContentText(stage).setContentIntent(open)
+            .setOnlyAlertOnce(true).setOngoing(true).build()
+        return ForegroundInfo(notificationId, notification, if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0)
+    }
+    companion object { private val generationLane = Mutex() }
+}
+
+object SubtitleGenerationJobs {
+    suspend fun start(context: Context, source: SubtitleSourceIdentity, config: SubtitleGenerationConfig, force: Boolean = false,
+        ownerRequestId: String? = null, allowOwnerReplacement: Boolean = true): SubtitleGenerationTask =
+        withContext(NonCancellable + Dispatchers.IO) {
+            val store = SubtitleGenerationStore.shared(context)
+            val outcome = store.startResult(source, config, force, ownerRequestId, allowOwnerReplacement)
+            val task = outcome.task
+            outcome.replaced?.takeIf { it.generation != task.generation }?.let { WorkManager.getInstance(context).cancelUniqueWork(name(it)).awaitCompletion() }
+            enqueue(context, store, task)
+            store.commandSnapshot(task)
+        }
+    suspend fun pause(context: Context, id: String, generation: String): SubtitleGenerationTask? = withContext(NonCancellable + Dispatchers.IO) {
+        val store = SubtitleGenerationStore.shared(context); val task = store.pause(id, generation) ?: return@withContext null
+        WorkManager.getInstance(context).cancelUniqueWork(name(task)).awaitCompletion(); store.commandSnapshot(task)
+    }
+    suspend fun resume(context: Context, id: String, generation: String): SubtitleGenerationTask? = withContext(NonCancellable + Dispatchers.IO) {
+        val store = SubtitleGenerationStore.shared(context); val old = store.get(id)?.takeIf { it.generation == generation } ?: return@withContext null
+        val task = store.resume(id, generation) ?: return@withContext null
+        WorkManager.getInstance(context).cancelUniqueWork(name(old)).awaitCompletion(); enqueue(context, store, task); store.commandSnapshot(task)
+    }
+    suspend fun cancel(context: Context, id: String, generation: String): SubtitleGenerationTask? = withContext(NonCancellable + Dispatchers.IO) {
+        val store = SubtitleGenerationStore.shared(context); val task = store.cancel(id, generation) ?: return@withContext null
+        WorkManager.getInstance(context).cancelUniqueWork(name(task)).awaitCompletion(); store.commandSnapshot(task)
+    }
+    suspend fun recoverPending(context: Context) = withContext(Dispatchers.IO) {
+        val store = SubtitleGenerationStore.shared(context)
+        for (task in store.states.value) if (store.current(task.id, task.generation)) runCatching { enqueue(context, store, task) }
+    }
+    private suspend fun enqueue(context: Context, store: SubtitleGenerationStore, task: SubtitleGenerationTask) {
+        if (!store.current(task.id, task.generation)) return
+        try {
+            val request = OneTimeWorkRequestBuilder<SubtitleGenerationWorker>().setInputData(workDataOf("subtitle_task" to task.id,
+                "subtitle_generation" to task.generation)).addTag("full-subtitles").addTag(name(task))
+                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 15, java.util.concurrent.TimeUnit.SECONDS).build()
+            WorkManager.getInstance(context).enqueueUniqueWork(name(task), ExistingWorkPolicy.KEEP, request).awaitCompletion()
+        } catch (failure: Exception) { store.fail(task.id, task.generation, "Unable to schedule subtitles: " + (failure.message ?: "WorkManager failed")); throw failure }
+    }
+    private fun name(task: SubtitleGenerationTask) = "full-subtitles-${task.id}-${task.generation}"
+    private suspend fun Operation.awaitCompletion() = suspendCancellableCoroutine<Unit> { continuation ->
+        result.addListener({ try { result.get(); if (continuation.isActive) continuation.resume(Unit) }
+        catch (failure: Exception) { if (continuation.isActive) continuation.resumeWithException(if (failure is ExecutionException) failure.cause ?: failure else failure) } }, Executor { it.run() })
+    }
+}

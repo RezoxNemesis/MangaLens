@@ -32,4 +32,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
-dependencies { implementation("androidx.annotation:annotation:1.9.1") }
+dependencies {
+    implementation("androidx.annotation:annotation:1.9.1")
+    testImplementation("junit:junit:4.13.2")
+}

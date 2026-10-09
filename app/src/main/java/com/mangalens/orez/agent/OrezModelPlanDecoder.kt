@@ -16,6 +16,9 @@ class OrezModelPlanDecoder {
             args.getString(key)
         }
         val call = OrezToolRegistry().call(root.getString("tool"), arguments)
+        require(call.route != null) {
+            "Native workflows require captured app scope and typed dependencies."
+        }
         call.arguments["value"]?.takeIf { it.isNotBlank() }?.let { proposed ->
             val approved = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
                 .findAll(objective).map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }.toSet() + listOfNotNull(context.activeUrl)

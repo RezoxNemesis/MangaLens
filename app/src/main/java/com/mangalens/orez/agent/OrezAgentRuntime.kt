@@ -5,19 +5,41 @@ class OrezAgentRuntime(
     private val policy: OrezPolicyEngine = OrezPolicyEngine()
 ) {
     fun decide(input: String, context: OrezAgentContext): OrezAgentDecision {
-        val plan = planner.plan(input, context)
-            ?: return OrezAgentDecision(continueToBrain = true)
+        if (OrezSubtitleRequest.isRequested(input) && !OrezSubtitleRequest.isDownloadChain(input) &&
+            (context.selectedMedia == null || !OrezSubtitleRequest.matchesSelection(input, context.selectedMedia))) {
+            return OrezAgentDecision(message = "Select the requested playable video in MangaLens before generating subtitles.")
+        }
+        val plan = planner.plan(input, context) ?: return if (OrezSubtitleRequest.isRequested(input))
+            OrezAgentDecision(message = "Choose one explicit playable source or download one source before generating subtitles.")
+            else OrezAgentDecision(continueToBrain = true)
         return decidePlan(plan, context)
     }
 
     fun decidePlan(plan: OrezTaskPlan, context: OrezAgentContext): OrezAgentDecision {
+        // Discard proposed authority. A model-suggested plan has no right to widen app scope.
+        val captured = plan.copy(authorization = OrezTaskAuthorization(
+            origin = context.origin,
+            explicitUserRequest = context.explicitUserRequest,
+            chapterIds = setOfNotNull(context.activeChapterId),
+            urls = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE).findAll(plan.objective)
+                .map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }.toSet() + listOfNotNull(context.activeUrl),
+            translation = context.translationOptions.copy(targetLanguage = plan.steps.firstOrNull {
+                it.call.name != "generate_subtitles" && it.call.capability == OrezCapability.TRANSLATION
+            }?.call?.arguments?.get("targetLanguage") ?: context.translationOptions.targetLanguage).normalized(),
+            selectedMedia = context.selectedMedia?.captured()?.takeIf { plan.steps.any { it.call.name == "inspect_selected_media" } },
+            subtitle = context.subtitleOptions.copy(targetLanguage = plan.steps.firstOrNull {
+                it.call.name == "generate_subtitles"
+            }?.call?.arguments?.get("targetLanguage") ?: context.subtitleOptions.targetLanguage).normalized().takeIf {
+                plan.steps.any { it.call.name in setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles") }
+            }
+        ))
         val invalid = runCatching {
-            require(plan.steps.isNotEmpty()) { "The task has no executable steps." }
-            if (plan.steps.size > 1 || plan.steps.first().call.name == "enqueue_download") OrezDurablePlanRules.validate(plan)
-            plan.steps.forEach { OrezToolRegistry().validate(it.call) }
+            require(captured.steps.isNotEmpty()) { "The task has no executable steps." }
+            if (captured.steps.size > 1 || OrezDurablePlanRules.supports(captured)) OrezDurablePlanRules.validate(captured)
+            captured.steps.forEach { OrezToolRegistry().validate(it.call) }
         }.exceptionOrNull()
         if (invalid != null) return OrezAgentDecision(
-            plan = plan.copy(status = OrezTaskStatus.FAILED),
+            plan = captured.copy(status = OrezTaskStatus.FAILED),
             message = invalid.message ?: "Invalid tool request"
         )
 
@@ -25,7 +47,7 @@ class OrezAgentRuntime(
         val denied = verdicts.firstOrNull { !it.second.allowed }
         if (denied != null) {
             return OrezAgentDecision(
-                plan = plan.copy(status = OrezTaskStatus.FAILED),
+                plan = captured.copy(status = OrezTaskStatus.FAILED),
                 message = denied.second.reason.ifBlank { "That action is blocked by Orez safety policy." },
                 continueToBrain = false
             )
@@ -34,7 +56,7 @@ class OrezAgentRuntime(
         val approval = verdicts.firstOrNull { it.second.requiresApproval }
         if (approval != null) {
             return OrezAgentDecision(
-                plan = plan.copy(status = OrezTaskStatus.WAITING_APPROVAL),
+                plan = captured.copy(status = OrezTaskStatus.WAITING_APPROVAL),
                 message = approval.second.reason,
                 continueToBrain = false,
                 requiresApproval = true
@@ -45,7 +67,7 @@ class OrezAgentRuntime(
             ?: return OrezAgentDecision(continueToBrain = true)
 
         return OrezAgentDecision(
-            plan = plan.copy(status = OrezTaskStatus.RUNNING),
+            plan = captured.copy(status = OrezTaskStatus.RUNNING),
             immediateRoute = first.route,
             routeValue = first.arguments["value"].orEmpty(),
             message = buildString {
@@ -56,7 +78,7 @@ class OrezAgentRuntime(
                 if (plan.steps.size > 1) append(" • ").append(plan.steps.size).append(" steps")
                 append(".")
             },
-            continueToBrain = first.route == null
+            continueToBrain = first.route == null && !OrezDurablePlanRules.supports(captured)
         )
     }
 }

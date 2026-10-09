@@ -15,6 +15,9 @@ import com.mangalens.core.reader.SavedChapter
 import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.orez.OrezTranslationEntity
 import com.mangalens.ui.MangaLensViewModel
+import com.mangalens.core.translation.ChapterTranslationJobs
+import com.mangalens.core.translation.ChapterTranslationStatus
+import com.mangalens.core.translation.ChapterTranslationStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -40,6 +43,7 @@ class ReaderTranslationRecoveryTest {
         lateinit var viewModel: MangaLensViewModel
         val settings = app.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE)
         val oldEnabled = settings.getBoolean("translation_manga", false)
+        val oldTarget = settings.getString("translation_target", null)
         val database = OrezRoomDatabase.get(app)
         try {
             files.forEach { writeTextPage(it) }
@@ -73,8 +77,8 @@ class ReaderTranslationRecoveryTest {
             assertTrue(completed.translationEnabled)
             assertTrue(completed.translationError)
             assertEquals(setOf(1, 3), completed.overlays.keys)
-            assertTrue(completed.error.orEmpty().contains("1 of 4"))
-            assertTrue(completed.error.orEmpty().contains("Retry pages 2"))
+            assertTrue(completed.translationMessage.orEmpty().contains("1 of 4"))
+            assertEquals(setOf(1, 3), completed.translatedBackgrounds.keys)
             val firstPage = completed.overlays[1]
             val thirdPage = completed.overlays[3]
 
@@ -84,25 +88,44 @@ class ReaderTranslationRecoveryTest {
             }
             assertFalse(viewModel.state.value.translating)
             assertFalse(viewModel.state.value.translationPaused)
-            assertNotNull(viewModel.state.value.error)
+            assertNotNull(viewModel.state.value.translationMessage)
 
             writeTextPage(files[1])
             instrumentation.runOnMainSync { viewModel.translatePage(pages[1], "en") }
             val repaired = withTimeout(120_000) {
                 viewModel.state.first { !it.translating && it.overlays.containsKey(2) }
             }
-            assertNull(repaired.error)
+            assertNull(repaired.translationMessage)
             assertFalse(repaired.translationError)
             assertEquals(setOf(1, 2, 3), repaired.overlays.keys)
             assertEquals(firstPage, repaired.overlays[1])
             assertEquals(thirdPage, repaired.overlays[3])
+            assertEquals(setOf(1, 2, 3), repaired.translatedBackgrounds.keys)
+            val task = ChapterTranslationStore.shared(app).latest(id, "en")!!
+            assertEquals(ChapterTranslationStatus.COMPLETED, task.status)
+            val repairedFile = repaired.translatedBackgrounds[2]!!
+            // A new reader must restore the page-local repair from the same atomic task.
+            instrumentation.runOnMainSync {
+                store.clear()
+                viewModel = MangaLensViewModel(app)
+                store.put("qa-reopened", viewModel)
+            }
+            withTimeout(30_000) { viewModel.state.first { it.library.any { saved -> saved.id == id } } }
+            instrumentation.runOnMainSync { viewModel.openSavedChapter(id) }
+            val restored = withTimeout(30_000) { viewModel.state.first { it.overlays.keys == setOf(1, 2, 3) } }
+            assertEquals(repairedFile, restored.translatedBackgrounds[2])
+            assertEquals(repaired.overlays[2], restored.overlays[2])
+            assertEquals(4, restored.translationDone)
+            assertTrue(restored.overlays.values.flatten().all { it.patch == null && it.lettering != null })
         } finally {
             instrumentation.runOnMainSync { store.clear() }
+            ChapterTranslationJobs.removeChapter(app, id)
             ChapterLibrary(app).remove(id)
             files.forEach { it.delete() }
             database.openHelper.writableDatabase.execSQL("DELETE FROM orez_translations WHERE scope = ?", arrayOf("chapter:$id"))
             prefs.edit().putString("script", oldScript).putBoolean("high_accuracy", oldAccuracy).commit()
             settings.edit().putBoolean("translation_manga", oldEnabled).commit()
+            settings.edit().putString("translation_target", oldTarget).commit()
         }
     }
 

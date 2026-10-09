@@ -26,7 +26,9 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_com_mangalens_whisper_WhisperNati
     params.n_threads = std::max(1, std::min(4, static_cast<int>(threads)));
     params.translate = translateToEnglish == JNI_TRUE;
     params.language = language;
-    params.detect_language = std::strcmp(language, "auto") == 0 || std::strlen(language) == 0;
+    // `language="auto"` already detects the language during normal transcription.
+    // detect_language=true is the upstream detect-only mode and returns no captions.
+    params.detect_language = false;
     // whisper.cpp normally keeps the model's 1500-frame (~30 s) audio context even
     // for a 3-8 second live-caption window. Scale the encoder context to the actual
     // clip length so phone CPUs are not doing near-30-second work for every tiny window.
