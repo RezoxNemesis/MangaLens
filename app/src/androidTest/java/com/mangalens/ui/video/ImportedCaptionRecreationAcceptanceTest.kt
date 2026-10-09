@@ -180,7 +180,11 @@ class ImportedCaptionRecreationAcceptanceTest {
             val f = Fixture(active, requireNotNull(owner), id, directory, tone, files)
             f.renderControls()
             f.await("Real tone media failed to prepare") { f.mainValue { f.vm.player.playbackState == Player.STATE_READY && f.vm.player.duration >= 31_000 } }
-            check(f)
+            try { check(f) } catch (failure: Throwable) {
+                // Capture while the actual failing Activity/player still exist, before cleanup.
+                f.captureFailure()
+                throw failure
+            }
         } finally {
             try { scenario?.close() } finally {
                 instrumentation.runOnMainSync { store.clear() }
@@ -195,6 +199,39 @@ class ImportedCaptionRecreationAcceptanceTest {
         val scenario: ActivityScenario<MainActivity>, val vm: LocalVideoPlayerViewModel, val id: String,
         val directory: File, val tone: File, val ownedCaptionFiles: MutableList<File>
     ) {
+        fun captureFailure() {
+            runCatching {
+                val folder = File(context.filesDir, "qa-private/caption-recreation/$id").apply { mkdirs() }
+                val json = mainValue {
+                    org.json.JSONObject().put("sourceRevision", vm.sourceRevision)
+                        .put("captionPresent", vm.currentCaptionTrack != null)
+                        .put("captionLanguage", vm.currentCaptionTrack?.language)
+                        .put("captionSha256", vm.currentCaptionTrack?.sha256)
+                        .put("playbackState", vm.player.playbackState).put("paused", !vm.player.playWhenReady)
+                        .put("positionMs", vm.player.currentPosition).put("speed", vm.player.playbackParameters.speed)
+                        .put("playerErrorPresent", vm.player.playerError != null)
+                        .put("textDisabled", vm.player.trackSelectionParameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT))
+                        .put("preferredTextLanguages", org.json.JSONArray(vm.player.trackSelectionParameters.preferredTextLanguages))
+                        .put("selectUndetermined", vm.player.trackSelectionParameters.selectUndeterminedTextLanguage)
+                        .put("trackGroups", org.json.JSONArray().also { groups ->
+                            vm.player.currentTracks.groups.forEach { group ->
+                                groups.put(org.json.JSONObject().put("type", group.type).put("selected", group.isSelected)
+                                    .put("formats", org.json.JSONArray().also { formats ->
+                                        repeat(group.length) { index ->
+                                            val format = group.getTrackFormat(index)
+                                            formats.put(org.json.JSONObject().put("language", format.language)
+                                                .put("mime", format.sampleMimeType).put("flags", format.selectionFlags)
+                                                .put("selected", group.isTrackSelected(index)).put("supported", group.isTrackSupported(index)))
+                                        }
+                                    }))
+                            }
+                        })
+                }
+                File(folder, "player-state.json").writeText(json.toString(2))
+                device.dumpWindowHierarchy(File(folder, "failure.xml"))
+                device.takeScreenshot(File(folder, "failure.png"))
+            }
+        }
         fun renderControls() = scenario.onActivity { activity -> activity.setContent {
             key("real-caption-recreation-controls") {
                 MaterialTheme { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {

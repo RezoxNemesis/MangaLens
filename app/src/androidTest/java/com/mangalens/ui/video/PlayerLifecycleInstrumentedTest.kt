@@ -19,12 +19,14 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.mangalens.MainActivity
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 import java.io.File
 import java.nio.ByteBuffer
@@ -52,9 +54,20 @@ class PlayerLifecycleInstrumentedTest {
     private val app get() = context.applicationContext as Application
     private val device get() = UiDevice.getInstance(instrumentation)
 
+    private var previousIdleWait = 10_000L
+
     @Before fun allowNotificationsForThisControlledMediaServiceFixture() {
+        val ui = Configurator.getInstance()
+        previousIdleWait = ui.waitForIdleTimeout
+        // A 10s UI-driver idle wait misses the player's 3s controls. The actual
+        // production control/media assertions keep their original 8s/15s limits.
+        ui.waitForIdleTimeout = 100L
         if (android.os.Build.VERSION.SDK_INT >= 33)
             instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    @After fun restoreUiDriverIdlePolicy() {
+        Configurator.getInstance().waitForIdleTimeout = previousIdleWait
     }
 
     @Test fun actualForegroundServiceOwnsPlaybackAndMediaControlsAfterScreenClose() = withTonePlayer { scenario, vm, _, store ->
@@ -278,7 +291,11 @@ class PlayerLifecycleInstrumentedTest {
                 generator = FullVideoSubtitleGenerator(context, vm.speech, scope, vm::canAttachGenerated, vm::selectGeneratedCaption)
                 generator.bind(source)
             }
-            await { generator.state.value.generation == old.generation }
+            try { await { generator.state.value.generation == old.generation } }
+            catch (failure: AssertionError) {
+                recordOldGeneratorBindFailure(old, generator.state.value, store.get(old.id), vm.speech.language)
+                throw failure
+            }
             val replacement = store.start(identity, config, force = true, ownerRequestId = "orez-new-${UUID.randomUUID()}")
             store.running(replacement.id, replacement.generation)
             val complete = completeControlledTask(store, replacement, tone)
@@ -335,14 +352,14 @@ class PlayerLifecycleInstrumentedTest {
             server.start()
             val first = server.url("/original.wav").toString()
             val replacement = server.url("/refresh.wav").toString()
-            onMain { assertTrue(vm.openHttp(first, headers = mapOf("X-Lifecycle-Fixture" to "first"))) }
+            onMain { assertTrue(vm.openHttp(first, headers = mapOf("User-Agent" to "MangaLens-Lifecycle-First"))) }
             await { onMainValue { vm.player.playbackState == Player.STATE_READY && vm.player.duration >= 31_000 } }
             val capturedRevision = onMainValue { vm.sourceRevision }
-            val headers = linkedMapOf("X-Lifecycle-Fixture" to "refresh")
+            val headers = linkedMapOf("User-Agent" to "MangaLens-Lifecycle-Refresh")
             onMain {
                 vm.player.pause(); vm.player.seekTo(7300); vm.player.setPlaybackSpeed(1.5f)
                 assertTrue(vm.openHttp(replacement, headers = headers, refreshFromRevision = capturedRevision))
-                headers["X-Lifecycle-Fixture"] = "caller-mutated"
+                headers["User-Agent"] = "MangaLens-Lifecycle-Caller-Mutated"
                 assertFalse("Source refresh resumed the user's paused player", vm.player.playWhenReady)
                 assertEquals(1.5f, vm.player.playbackParameters.speed)
             }
@@ -354,18 +371,42 @@ class PlayerLifecycleInstrumentedTest {
                 assertEquals(1.5f, vm.player.playbackParameters.speed)
                 assertTrue(vm.sourceRevision > capturedRevision)
                 val accepted = vm.session.sourceSnapshot()
-                assertEquals("refresh", accepted?.headers?.get("X-Lifecycle-Fixture"))
-                assertFalse(vm.openHttp(first, headers = mapOf("X-Lifecycle-Fixture" to "stale"), refreshFromRevision = capturedRevision))
+                assertEquals("MangaLens-Lifecycle-Refresh", accepted?.headers?.get("User-Agent"))
+                assertFalse(vm.openHttp(first, headers = mapOf("User-Agent" to "MangaLens-Lifecycle-Stale"), refreshFromRevision = capturedRevision))
                 assertEquals(accepted, vm.session.sourceSnapshot())
                 assertFalse(vm.player.playWhenReady)
                 assertTrue(vm.player.currentPosition in 7000..7700)
                 assertEquals(1.5f, vm.player.playbackParameters.speed)
             }
             assertTrue("No real refreshed HTTP source request retained its captured header",
-                requests.any { it.path == "/refresh.wav" && it.getHeader("X-Lifecycle-Fixture") == "refresh" })
+                requests.any { it.path == "/refresh.wav" && it.getHeader("User-Agent") == "MangaLens-Lifecycle-Refresh" })
         } finally {
             onMain { if (!vm.session.policy.closed) vm.player.stop() }
             server.shutdown()
+        }
+    }
+
+    /** Failure-only, private diagnostics; never relax or replace the original bounded assertion. */
+    private fun recordOldGeneratorBindFailure(expected: SubtitleGenerationTask, state: FullSubtitleState,
+        native: SubtitleGenerationTask?, language: String) {
+        runCatching {
+            val json = org.json.JSONObject().put("phase", "old_generator_bind_timeout")
+                .put("expectedTaskId", expected.id).put("expectedGeneration", expected.generation)
+                .put("expectedSourceFingerprint", expected.source.fingerprint).put("expectedConfigFingerprint", expected.config.fingerprint())
+                .put("expectedSourceLanguage", expected.config.sourceLanguage).put("expectedSpeechModelSha256", expected.config.modelSha256)
+                .put("expectedThreads", expected.config.threads).put("currentSpeechLanguage", language)
+                .put("currentAvailableProcessors", Runtime.getRuntime().availableProcessors())
+                .put("currentModelBytes", File(context.filesDir, "speech/whisper.bin").length())
+                .put("observedStage", state.stage).put("observedErrorPresent", state.error != null)
+                .put("observedTaskId", state.taskId).put("observedGeneration", state.generation).put("observedStatus", state.status?.name)
+                .put("nativeTaskPresent", native != null).put("nativeGeneration", native?.generation)
+                .put("nativeConfigFingerprint", native?.config?.fingerprint()).put("nativeOwnerStillExpected", native?.ownerRequestId == expected.ownerRequestId)
+                .put("nativeStatus", native?.status?.name)
+            val folder = File(context.filesDir, "qa-private/player-lifecycle").apply { mkdirs() }
+            val atomic = android.util.AtomicFile(File(folder, "old-generator-bind.json"))
+            val stream = atomic.startWrite()
+            try { stream.write(json.toString(2).toByteArray(Charsets.UTF_8)); atomic.finishWrite(stream) }
+            catch (failure: Throwable) { atomic.failWrite(stream); throw failure }
         }
     }
 

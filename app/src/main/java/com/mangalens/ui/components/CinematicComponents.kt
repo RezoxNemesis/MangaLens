@@ -13,10 +13,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.constrainHeight
 import coil.compose.AsyncImage
 import com.mangalens.R
 import com.mangalens.core.reader.SavedChapter
@@ -24,22 +29,44 @@ import com.mangalens.ui.theme.LocalAppearance
 import com.mangalens.ui.reader.rememberMangaThumbnailRequest
 
 @Composable fun BrandHeader(title: String = "MangaLens", subtitle: String? = null, action: @Composable RowScope.() -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(42.dp)
-                .clip(RoundedCornerShape(15.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(15.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(painterResource(R.drawable.mangalens_approved_logo), "MangaLens logo", Modifier.size(40.dp))
+    val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
+    val titleStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+    val titleWidth = textMeasurer.measure(title, titleStyle, softWrap = false, maxLines = 1).size.width
+    SubcomposeLayout(Modifier.fillMaxWidth().padding(vertical = 8.dp)) { constraints ->
+        val width = constraints.maxWidth
+        val textWidth = (width - with(density) { 54.dp.roundToPx() }).coerceAtLeast(1)
+        // Keep the full brand even when accessibility text alone exceeds the available row.
+        val scale = (textWidth.toFloat() / (titleWidth + 1).coerceAtLeast(1)).coerceAtMost(1f)
+        val childConstraints = Constraints(maxWidth = width)
+        val brand = subcompose("brand") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(42.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(15.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(painterResource(R.drawable.mangalens_approved_logo), "MangaLens logo", Modifier.size(40.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(title, style = titleStyle.copy(fontSize = titleStyle.fontSize * scale), maxLines = 1, softWrap = false)
+                    subtitle?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        }.single().measure(childConstraints)
+        val actions = subcompose("actions") {
+            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, content = action)
+        }.single().measure(childConstraints)
+        val stack = brandHeaderStacksActions(width, brand.width, actions.width, with(density) { 12.dp.roundToPx() })
+        val gap = if (stack) with(density) { 8.dp.roundToPx() } else 0
+        val height = if (stack) brand.height + gap + actions.height else maxOf(brand.height, actions.height)
+        layout(width, constraints.constrainHeight(height)) {
+            brand.placeRelative(0, if (stack) 0 else (height - brand.height) / 2)
+            actions.placeRelative(width - actions.width, if (stack) brand.height + gap else (height - actions.height) / 2)
         }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-            subtitle?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        action()
     }
 }
 

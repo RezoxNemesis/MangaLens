@@ -12,6 +12,7 @@ import com.mangalens.core.reader.ReaderPromoPolicy
 import com.mangalens.engine.AdvancedTranslationEngine
 import com.mangalens.engine.LocalSourceLanguage
 import com.mangalens.engine.OcrSourceQuality
+import com.mangalens.engine.OcrSourceResolutionProof
 import com.mangalens.engine.TranslationRegion
 import com.mangalens.orez.OrezRoomDatabase
 import com.mangalens.orez.OrezTranslationEntity
@@ -56,12 +57,24 @@ internal class ChapterPageTranslator(
         check(page.sourceSha256 != null && ChapterTranslationStore.sha256(source) == page.sourceSha256) {
             "Source page changed. Resume to translate the current page."
         }
-        val bitmap = decodeBounded(source) ?: error("Unable to decode source page ${page.index}.")
+        val decoded = decodeBounded(source) ?: error("Unable to decode source page ${page.index}.")
+        val bitmap = decoded.bitmap
         var generated: File? = null
         try {
+            val proof = OcrSourceResolutionProof(task.id, task.generation, task.chapterId, page.index,
+                source.canonicalPath, requireNotNull(page.sourceSha256), decoded.originalWidth, decoded.originalHeight,
+                bitmap.width, bitmap.height)
+            val originalSource = ChapterOriginalOcrSource(proof, source.parentFile!!) {
+                checkActive()
+                val current = store.get(task.id)
+                val currentPage = current?.pages?.firstOrNull { it.index == page.index }
+                proof.takeIf { current?.generation == task.generation && current.chapterId == task.chapterId &&
+                    current.config == task.config && currentPage?.sourceSha256 == proof.sourceSha256 &&
+                    currentPage.sourcePath?.let { store.sourceFile(currentPage)?.canonicalPath } == proof.sourcePath }
+            }
             // The engine waits for each active native ML Kit task to finish before cancellation
             // reaches this finally block, so it cannot read a prematurely recycled source/tile.
-            val regions = ocr.recognizeScriptAware(bitmap, AdvancedTranslationEngine.OcrOptions(config.ocrScript, config.highAccuracy))
+            val regions = ocr.recognizeScriptAware(bitmap, AdvancedTranslationEngine.OcrOptions(config.ocrScript, config.highAccuracy), originalSource)
             checkActive()
             if (regions.isEmpty()) return if (page.lettering.isNotEmpty()) page.copy(
                 status = ChapterTranslationPageStatus.PARTIAL,
@@ -234,7 +247,9 @@ internal class ChapterPageTranslator(
         return Rect(left, top, ceil(bounds.right).toInt().coerceIn(left + 1, width), ceil(bounds.bottom).toInt().coerceIn(top + 1, height))
     }
 
-    private fun decodeBounded(file: File): Bitmap? {
+    private data class DecodedPage(val bitmap: Bitmap, val originalWidth: Int, val originalHeight: Int)
+
+    private fun decodeBounded(file: File): DecodedPage? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth.toLong() * bounds.outHeight > 100_000_000L) return null
@@ -247,8 +262,8 @@ internal class ChapterPageTranslator(
         val decoded = BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
             inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = true
         }) ?: return null
-        if (decoded.isMutable) return decoded
-        return try { decoded.copy(Bitmap.Config.ARGB_8888, true) } finally { decoded.recycle() }
+        val mutable = if (decoded.isMutable) decoded else try { decoded.copy(Bitmap.Config.ARGB_8888, true) } finally { decoded.recycle() }
+        return mutable?.let { DecodedPage(it, bounds.outWidth, bounds.outHeight) }
     }
 
     private fun persistCleanSurface(bitmap: Bitmap, output: File): String {

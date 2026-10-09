@@ -2,6 +2,9 @@ package com.mangalens.ui.video
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.*
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -26,7 +29,7 @@ internal class PlaybackSession(private val app: Application) {
     val lifecycle = kotlinx.coroutines.flow.MutableStateFlow(PlaybackLifecycleSnapshot())
     private var capturedSource: PlaybackSessionSource? = null
     private val captionPublication = CaptionPublication()
-    var currentCaptionTrack: PlayerCaptionTrack? = null
+    var currentCaptionTrack: PlayerCaptionTrack? by mutableStateOf(null)
         private set
     private val positions = app.getSharedPreferences("mangalens_video_positions", 0)
     private fun positionKey(value: Uri) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toString().toByteArray()).joinToString("") { "%02x".format(it) }

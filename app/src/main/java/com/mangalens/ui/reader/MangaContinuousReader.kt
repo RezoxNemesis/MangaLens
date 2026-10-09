@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -240,11 +245,13 @@ fun MangaContinuousReader(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).pointerInput(Unit) {
             detectTapGestures(onTap = { hudVisible = !hudVisible; observeReader("surface_hud_tap") })
         }
     ) {
+        val navigationHeight = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
+        val toolsHeight = readerHudToolsHeight(maxHeight.value, headerHeight.value, navigationHeight.value).dp
         if (readingMode == "vertical") {
             LazyColumn(
                 state = listState,
@@ -417,7 +424,7 @@ fun MangaContinuousReader(
                 shadowElevation = 14.dp,
                 tonalElevation = 2.dp
             ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Column(Modifier.heightIn(max = toolsHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         TextButton({ goToPage(positionState.page - 1, "previous_button") }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
                         Text("${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelMedium)

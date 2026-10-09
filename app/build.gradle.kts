@@ -12,8 +12,8 @@ android {
         applicationId = "com.mangalens"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "2.3.0-preview"
+        versionCode = 10
+        versionName = "2.3.0-preview.1"
         val sourceSha = (System.getenv("MANGALENS_GIT_SHA") ?: System.getenv("GITHUB_SHA")
             ?: runCatching { ProcessBuilder("git", "rev-parse", "HEAD").directory(rootDir).start().inputStream.bufferedReader().readText().trim() }.getOrDefault("local"))
             .takeIf { it.matches(Regex("[a-fA-F0-9]{7,40}")) } ?: "local"
