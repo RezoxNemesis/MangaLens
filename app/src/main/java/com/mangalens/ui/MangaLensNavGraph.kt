@@ -55,7 +55,9 @@ fun MangaLensNavGraph(
     onTranslationCancelled: () -> Unit,
     onImportImages: (List<android.net.Uri>) -> Unit,
     onResolvedVideo: (String, Map<String, String>, String, String?, Map<String, String>) -> Unit,
-    onIngestionCancelled: () -> Unit = {}
+    onIngestionCancelled: () -> Unit = {},
+    onVideoRefreshed: (VideoPlaybackSelection, VideoPlaybackSelection, () -> Boolean) -> Boolean = { _, _, _ -> false },
+    onVideoReady: (VideoReadyObservation) -> Unit = {}
 ) {
     val context = LocalContext.current
     val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -149,13 +151,9 @@ fun MangaLensNavGraph(
                     } },
                     activeUrl = state.url.takeIf { it.isNotBlank() }, onTargetLanguage = onTargetLanguageChanged,
                     library = state.library, chapterText = state.overlays.values.flatten().joinToString("\n") { it.translatedText },
-                    selectedMedia = state.videoUrl?.takeIf { it.isNotBlank() }?.let { resolved ->
-                        com.mangalens.orez.agent.OrezMediaSelection(
-                            uri = resolved,
-                            cacheKey = state.videoPageUrl ?: resolved,
-                            label = "Video",
-                            headers = state.videoHeaders.toMap()
-                        )
+                    selectedMedia = state.capturedVideoSelection()?.toOrezSelection(),
+                    onOpenSubtitleResult = { result ->
+                        navController.navigate("orez_subtitle/${android.net.Uri.encode(result.planId)}/${result.stepIndex}/${result.taskId}/${result.generation}")
                     },
                     onImport = { onImportImages(it); navController.navigate("reader") }) { value, route ->
                     if (value.isNotBlank()) onUrlChanged(value)
@@ -175,6 +173,14 @@ fun MangaLensNavGraph(
                 }
             }
             composable("downloads") { DownloadsScreen(onBack = { navController.popBackStack() }, appState = state, onImport = { onImportImages(it); navController.navigate("reader") }, onOpenLibrary = { navController.navigate("library") }, onOpenTools = { navController.navigate("settings") }, onPlayVideo = { value -> onUrlChanged(value); onModeSelected(ContentType.VIDEO_STREAM); onIngest(); navController.navigate("video") }, onPauseTranslation = onTranslationPaused, onCancelTranslation = onTranslationCancelled) }
+            composable("orez_subtitle/{planId}/{stepIndex}/{taskId}/{generation}", arguments = listOf(
+                androidx.navigation.navArgument("stepIndex") { type = androidx.navigation.NavType.IntType }
+            )) { entry ->
+                com.mangalens.ui.ai.OrezSubtitleResultScreen(com.mangalens.orez.agent.OrezSubtitleResultReference(
+                    entry.arguments?.getString("planId").orEmpty(), entry.arguments?.getInt("stepIndex") ?: -1,
+                    entry.arguments?.getString("taskId").orEmpty(), entry.arguments?.getString("generation").orEmpty()
+                ), onBack = { navController.popBackStack() })
+            }
             composable("settings") {
                 SettingsScreen(
                     state = state,
@@ -230,7 +236,10 @@ fun MangaLensNavGraph(
                         sourcePageUrl = state.videoPageUrl,
                         requestHeaders = state.videoHeaders,
                         audioUrl = state.videoAudioUrl,
-                        audioHeaders = state.videoAudioHeaders
+                        audioHeaders = state.videoAudioHeaders,
+                        resolutionId = state.videoResolutionId,
+                        onSourceRefreshed = onVideoRefreshed,
+                        onReadySource = onVideoReady
                     )
                 } ?: Column(
                     Modifier.fillMaxSize().padding(24.dp),

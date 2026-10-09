@@ -92,14 +92,14 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
         val guard = MediaProcessGuard(session, processId, timeoutMs, YoutubeDL::destroyProcessById)
-        return try {
-            session.checkActive()
+        return try { guard.run {
+            guard.checkActive()
             AndroidNativeExtractorNetworking.configure(app, request, url, session::checkActive)
-            session.checkActive()
+            guard.checkActive()
             val response = YoutubeDL.execute(request, processId = processId, callback = null)
-            session.checkActive()
+            guard.checkActive()
             SiteMediaInfoParser.parse(response.out, url, allowSeparateStreams)
-        } finally {
+        } } finally {
             guard.close()
             browserCookies?.delete()
         }

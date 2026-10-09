@@ -51,7 +51,10 @@ fun NativeVideoPlayer(
     sourcePageUrl: String? = null,
     requestHeaders: Map<String, String> = emptyMap(),
     audioUrl: String? = null,
-    audioHeaders: Map<String, String> = emptyMap()
+    audioHeaders: Map<String, String> = emptyMap(),
+    resolutionId: String? = null,
+    onSourceRefreshed: (VideoPlaybackSelection, VideoPlaybackSelection, () -> Boolean) -> Boolean = { _, _, commit -> commit() },
+    onReadySource: (VideoReadyObservation) -> Unit = {}
 ) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -82,6 +85,8 @@ fun NativeVideoPlayer(
     var activeHeaders by remember(url, sourcePageUrl, requestHeaders) { mutableStateOf(requestHeaders) }
     var activeAudioUrl by remember(url, sourcePageUrl, audioUrl) { mutableStateOf(audioUrl) }
     var activeAudioHeaders by remember(url, sourcePageUrl, audioHeaders) { mutableStateOf(audioHeaders) }
+    var activeResolutionId by remember(url, sourcePageUrl, resolutionId) { mutableStateOf(resolutionId) }
+    var readyBinding by remember(player) { mutableStateOf<Pair<VideoPlaybackSelection, Long>?>(null) }
     var refreshingStream by remember(url, sourcePageUrl) { mutableStateOf(false) }
     var refreshAttempts by remember(url, sourcePageUrl) { mutableIntStateOf(0) }
     var refreshJob by remember(url, sourcePageUrl) { mutableStateOf<Job?>(null) }
@@ -89,6 +94,8 @@ fun NativeVideoPlayer(
     val sourceForOpen = remember(url, sourcePageUrl) { playbackSourcePage(sourcePageUrl, url) }
     val currentOnBack by rememberUpdatedState(onBack)
     val currentOnOpenWeb by rememberUpdatedState(onOpenWeb)
+    val currentOnSourceRefreshed by rememberUpdatedState(onSourceRefreshed)
+    val currentOnReadySource by rememberUpdatedState(onReadySource)
     val fullSubtitleGenerator = remember(playerVm.speech, scope) {
         FullVideoSubtitleGenerator(context.applicationContext, playerVm.speech, scope)
     }
@@ -101,6 +108,18 @@ fun NativeVideoPlayer(
         )
     }
     LaunchedEffect(subtitleSource) { fullSubtitleGenerator.bind(subtitleSource) }
+
+    fun activeSelection(): VideoPlaybackSelection? = activeResolutionId?.let { id ->
+        VideoPlaybackSelection(id, activeUrl, activeHeaders.toMap(), sourcePageUrl, activeAudioUrl, activeAudioHeaders.toMap())
+    }
+
+    fun publishReadySource() {
+        val bound = readyBinding ?: return
+        VideoPlaybackPublication.readyObservation(bound.first, bound.second, playerVm.sourceRevision,
+            player.currentMediaItem?.localConfiguration?.uri?.toString(),
+            player.playbackState == androidx.media3.common.Player.STATE_READY, player.duration,
+            player.isCurrentMediaItemLive, player.isCurrentMediaItemDynamic)?.let(currentOnReadySource)
+    }
 
     fun cancelRefresh(message: String? = null) {
         refreshRequests.cancel()
@@ -134,6 +153,7 @@ fun NativeVideoPlayer(
         if (refreshingStream) return
         val request = refreshRequests.begin()
         val refreshFromRevision = playerVm.sourceRevision
+        val refreshFromSelection = activeSelection()?.captured()
         refreshingStream = true
         playbackError = null
         val playbackQuality = if (refreshAttempts <= 1)
@@ -167,27 +187,31 @@ fun NativeVideoPlayer(
                         if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
                     }
                 }.orEmpty()
+                val expectedRoot = refreshFromSelection
+                val replacement = VideoPlaybackPublication.capture(resolved.url, resolvedHeaders, sourcePageUrl,
+                    resolved.audioUrl, resolvedAudioHeaders)
                 refreshRequests.publish(
                     request,
                     PlaybackStreamIdentity(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders),
-                    PlaybackStreamIdentity(resolved.url, resolvedHeaders, resolved.audioUrl, resolvedAudioHeaders),
+                    PlaybackStreamIdentity(replacement.videoUrl, replacement.videoHeaders, replacement.audioUrl, replacement.audioHeaders),
                     apply = {
                         activeUrl = resolved.url
-                        activeHeaders = resolvedHeaders
-                        activeAudioUrl = resolved.audioUrl
-                        activeAudioHeaders = resolvedAudioHeaders
+                        activeHeaders = replacement.videoHeaders
+                        activeAudioUrl = replacement.audioUrl
+                        activeAudioHeaders = replacement.audioHeaders
+                        activeResolutionId = if (expectedRoot == null) null else replacement.resolutionId
                         playbackError = null
                     },
                     restartUnchanged = { player.prepare(); player.play() },
                     beforeApply = {
-                        playerVm.openHttp(
-                            resolved.url,
-                            referer = sourcePageUrl,
-                            headers = resolvedHeaders,
-                            audioUrl = resolved.audioUrl,
-                            audioHeaders = resolvedAudioHeaders,
-                            refreshFromRevision = refreshFromRevision
-                        )
+                        val commit = {
+                            playerVm.openHttp(replacement.videoUrl, referer = replacement.pageUrl, headers = replacement.videoHeaders,
+                                audioUrl = replacement.audioUrl, audioHeaders = replacement.audioHeaders,
+                                refreshFromRevision = refreshFromRevision).also { accepted ->
+                                if (accepted) readyBinding = if (expectedRoot == null) null else replacement to playerVm.sourceRevision
+                            }
+                        }
+                        if (expectedRoot == null) commit() else currentOnSourceRefreshed(expectedRoot, replacement, commit)
                     }
                 )
             } catch (cancelled: CancellationException) {
@@ -214,15 +238,17 @@ fun NativeVideoPlayer(
         }
     }
 
-    LaunchedEffect(activeUrl, sourcePageUrl, activeHeaders, activeAudioUrl, activeAudioHeaders) {
+    LaunchedEffect(activeUrl, sourcePageUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, activeResolutionId) {
         playbackError = null
-        playerVm.openHttp(
+        val accepted = playerVm.openHttp(
             activeUrl,
             referer = sourcePageUrl,
             headers = activeHeaders,
             audioUrl = activeAudioUrl,
             audioHeaders = activeAudioHeaders
         )
+        readyBinding = if (accepted) activeSelection()?.let { it to playerVm.sourceRevision } else null
+        if (accepted) publishReadySource()
     }
     LaunchedEffect(translationEnabled) { if (!translationEnabled) liveTranslationEnabled = false }
 
@@ -247,7 +273,7 @@ fun NativeVideoPlayer(
         }
     }
 
-    DisposableEffect(player, url, sourcePageUrl, refreshRequests) {
+    DisposableEffect(player, url, sourcePageUrl, requestHeaders, audioUrl, audioHeaders, resolutionId, refreshRequests) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) { playbackHeight = videoSize.height }
@@ -268,7 +294,9 @@ fun NativeVideoPlayer(
                     playbackError = null
                     refreshAttempts = 0
                 }
+                if (state == androidx.media3.common.Player.STATE_READY) publishReadySource()
             }
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) { publishReadySource() }
         }
         val owner = context as? androidx.lifecycle.LifecycleOwner
         val lifecycleListener = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -276,6 +304,7 @@ fun NativeVideoPlayer(
         }
         owner?.lifecycle?.addObserver(lifecycleListener)
         player.addListener(listener)
+        publishReadySource()
         onDispose { owner?.lifecycle?.removeObserver(lifecycleListener); player.removeListener(listener); player.pause(); playerView?.player = null }
     }
 

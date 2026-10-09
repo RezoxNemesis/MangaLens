@@ -115,6 +115,12 @@ interface OrezTaskDao {
     suspend fun pruneFinished(before: Long)
 }
 
+@Dao
+interface OrezCompletedTaskDao {
+    @Query("SELECT * FROM orez_tasks WHERE status = 'COMPLETED' ORDER BY updatedAt DESC LIMIT 20")
+    fun observe(): Flow<List<OrezTaskEntity>>
+}
+
 @Database(
     entities = [
         OrezMessageEntity::class,
@@ -129,6 +135,7 @@ abstract class OrezRoomDatabase : RoomDatabase() {
     abstract fun messages(): OrezMessageDao
     abstract fun datasets(): OrezDatasetDao
     abstract fun tasks(): OrezTaskDao
+    abstract fun completedTasks(): OrezCompletedTaskDao
 
     companion object {
         @Volatile private var INSTANCE: OrezRoomDatabase? = null

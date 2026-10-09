@@ -23,8 +23,9 @@ internal data class ReaderPositionState(
             offset = 0, request = request + 1, restoring = true, animate = false)
     }
 
-    fun restored(captured: ReaderPositionState, physicalPage: Int, physicalOffset: Int, count: Int): ReaderPositionState {
-        if (captured.request != request || captured.mode != mode || count <= 0) return this
+    fun restored(captured: ReaderPositionState, physicalPage: Int, physicalOffset: Int, count: Int,
+        geometryChecked: Boolean = true): ReaderPositionState {
+        if (!geometryChecked || captured.request != request || captured.mode != mode || count <= 0) return this
         return copy(page = physicalPage.coerceIn(0, count - 1),
             offset = if (mode == "vertical") physicalOffset.coerceAtLeast(0) else 0,
             restoring = false, animate = false)

@@ -115,4 +115,46 @@ class ReaderPositionStateTest {
         assertEquals(2, before.navigate(100, 3).page)
         assertEquals(before, before.switchMode("unexpected", 0, 0, 3))
     }
+
+    @Test fun returningToVerticalCannotAcceptTheTemporaryZeroHeightViewport() {
+        val rtl = settled("rtl", 1)
+        val vertical = rtl.switchMode("vertical", 1, 0, 3)
+        val waiting = vertical.restored(vertical, 0, 0, 3, geometryChecked = false)
+        assertEquals(vertical, waiting)
+        assertEquals(1, waiting.page)
+        assertTrue(waiting.restoring)
+        assertNull(waiting.checkpoint())
+        val complete = waiting.restored(vertical, 1, 0, 3, geometryChecked = true)
+        assertEquals(1, complete.page)
+        assertFalse(complete.restoring)
+    }
+
+    @Test fun coldSavedPageAndOffsetWaitForMetadataBeforeAcceptingLayout() {
+        val saved = ReaderPositionState.initial("vertical", 2, 123)
+        val waiting = saved.restored(saved, 0, 0, 4, geometryChecked = false)
+        assertEquals(saved, waiting)
+        assertEquals(123, waiting.offset)
+        assertNull(waiting.checkpoint())
+        val actual = waiting.restored(saved, 2, 123, 4, geometryChecked = true)
+        assertEquals(2, actual.page)
+        assertEquals(123, actual.offset)
+    }
+
+    @Test fun cancelledScrollBeforeGeometryCompletesDoesNotPublishAFalseCheckpoint() {
+        val pending = settled("vertical", 0).navigate(1, 3)
+        val cancelled = pending.restored(pending, 0, 0, 3, geometryChecked = false)
+        assertTrue(cancelled.restoring)
+        assertEquals(1, cancelled.page)
+        assertNull(cancelled.checkpoint())
+    }
+
+    @Test fun checkedGeometryStillAcceptsTheRealTailClampAndKeepsGenerationFence() {
+        val old = settled("vertical").navigate(2, 3)
+        val current = old.navigate(1, 3)
+        assertEquals(current, current.restored(old, 0, 0, 3, geometryChecked = true))
+        val actual = old.restored(old, 1, 180, 3, geometryChecked = true)
+        assertEquals(1, actual.page)
+        assertEquals(180, actual.offset)
+        assertFalse(actual.restoring)
+    }
 }

@@ -113,6 +113,15 @@ fun MangaContinuousReader(
     var revealedPromoPages by remember(chapterId) { mutableStateOf(emptySet<Int>()) }
     val currentPages by key(chapterId) { rememberUpdatedState(pages) }
     val currentPositionCallback by key(chapterId) { rememberUpdatedState(onPositionChanged) }
+    // Metadata belongs to the chapter, so a layout-mode switch cannot recreate zero-height pages.
+    // Only bounds/managed-surface checks run here; bitmap decoding stays with visible images.
+    val pageSurfaces = pages.associate { page ->
+        page.index to key(chapterId, page.sourceUrl) {
+            rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalVisible)
+        }
+    }
+    val geometryChecked = pages.isNotEmpty() && pageSurfaces.values.all { it.geometryChecked }
+    val currentGeometryChecked by key(chapterId) { rememberUpdatedState(geometryChecked) }
     val listState = rememberLazyListState()
     val modeKey = "mode_" + title.substringBefore("Chapter", title).trim().ifBlank { chapterId }
     var positionState by rememberSaveable(chapterId, stateSaver = listSaver<ReaderPositionState, Any>(
@@ -146,8 +155,8 @@ fun MangaContinuousReader(
         hudVisible = true
     }
 
-    LaunchedEffect(chapterId, readingMode, positionState.request, pages.isNotEmpty()) {
-        if (pages.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(chapterId, readingMode, positionState.request, pages.isNotEmpty(), geometryChecked) {
+        if (pages.isEmpty() || !geometryChecked) return@LaunchedEffect
         val captured = positionState
         val target = captured.page.coerceIn(0, pages.lastIndex)
         try {
@@ -163,11 +172,12 @@ fun MangaContinuousReader(
             // Only the matching request can accept the actual viewport in either case.
             val physical = if (captured.mode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
             val offset = if (captured.mode == "vertical") listState.firstVisibleItemScrollOffset else 0
-            positionState = positionState.restored(captured, physical, offset, currentPages.size)
+            positionState = positionState.restored(captured, physical, offset, currentPages.size,
+                geometryChecked = currentGeometryChecked)
         }
     }
-    LaunchedEffect(chapterId, readingMode, positionState.request, positionRestored) {
-        if (!positionRestored) return@LaunchedEffect
+    LaunchedEffect(chapterId, readingMode, positionState.request, positionRestored, geometryChecked) {
+        if (!positionRestored || !geometryChecked) return@LaunchedEffect
         val captured = positionState
         snapshotFlow {
             if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
@@ -193,8 +203,8 @@ fun MangaContinuousReader(
             val position = positionState
             val (physical, offset) = currentViewport()
             currentPositionCallback(chapterId,
-                if (position.restoring) position.page.coerceIn(0, currentPages.lastIndex) else physical,
-                if (position.restoring) position.offset else offset)
+                if (position.restoring || !currentGeometryChecked) position.page.coerceIn(0, currentPages.lastIndex) else physical,
+                if (position.restoring || !currentGeometryChecked) position.offset else offset)
         }
     } }
     LaunchedEffect(autoScroll, speed) {
@@ -236,7 +246,7 @@ fun MangaContinuousReader(
                         )
                         return@items
                     }
-                    val surface = rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalVisible)
+                    val surface = pageSurfaces.getValue(page.index)
                     Box(Modifier.fillMaxWidth().pointerInput(page.sourceUrl) {
                         detectTapGestures(onTap = { hudVisible = !hudVisible },
                             onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
@@ -272,7 +282,7 @@ fun MangaContinuousReader(
                         }
                         return@HorizontalPager
                     }
-                    val surface = rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalVisible)
+                    val surface = pageSurfaces.getValue(page.index)
                     FittedMangaPage(page, surface, modifier = Modifier.fillMaxSize().clipToBounds()
                         .transformable(transformState)
                         .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
@@ -403,8 +413,10 @@ fun MangaContinuousReader(
                             listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL").forEach { (mode, label) ->
                                 androidx.compose.material3.FilterChip(selected = readingMode == mode, onClick = {
                                     if (mode != positionState.mode) {
-                                        val physical = if (readingMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
-                                        val offset = if (readingMode == "vertical") listState.firstVisibleItemScrollOffset else 0
+                                        val physical = if (!geometryChecked) positionState.page
+                                            else if (readingMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
+                                        val offset = if (!geometryChecked) positionState.offset
+                                            else if (readingMode == "vertical") listState.firstVisibleItemScrollOffset else 0
                                         positionState = positionState.switchMode(mode, physical, offset, pages.size)
                                         autoScroll = false
                                         scale = 1f; panX = 0f; panY = 0f
@@ -514,14 +526,16 @@ private fun FittedMangaPage(page: ChapterPage, surface: ReaderPageSurface, modif
     }
 }
 
-private data class ReaderPageSurface(val model: String, val aspectRatio: Float?, val cleaned: Boolean = false)
+private data class ReaderPageSurface(val model: String, val aspectRatio: Float?, val cleaned: Boolean = false,
+    val geometryChecked: Boolean = false)
 
 /** The caller supplies checksum-verified journal paths; IO rechecks decodability and geometry. */
 @Composable
 private fun rememberReaderPageSurface(page: ChapterPage, cleanedPath: String?, showTranslation: Boolean): ReaderPageSurface {
     val original = page.localPath ?: page.sourceUrl
-    var sourceRatio by remember(original, cleanedPath) { mutableStateOf<Float?>(null) }
+    var sourceRatio by remember(original) { mutableStateOf<Float?>(null) }
     var usableCleaned by remember(original, cleanedPath) { mutableStateOf<Pair<String, Float>?>(null) }
+    var geometryChecked by remember(original, cleanedPath) { mutableStateOf(false) }
     LaunchedEffect(original, cleanedPath) {
         val checked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val sourceBounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -542,9 +556,11 @@ private fun rememberReaderPageSurface(page: ChapterPage, cleanedPath: String?, s
         }
         sourceRatio = checked.first
         usableCleaned = checked.second
+        geometryChecked = true
     }
     val translatedSurface = usableCleaned.takeIf { showTranslation }
-    return ReaderPageSurface(translatedSurface?.first ?: original, translatedSurface?.second ?: sourceRatio, translatedSurface != null)
+    return ReaderPageSurface(translatedSurface?.first ?: original, translatedSurface?.second ?: sourceRatio,
+        translatedSurface != null, geometryChecked)
 }
 
 @Composable

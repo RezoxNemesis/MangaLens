@@ -23,6 +23,10 @@ interface OrezChapterHost {
     suspend fun inspect(chapterId: String): OrezChapterSnapshot?
     suspend fun start(chapter: OrezChapterSnapshot, options: OrezTranslationOptions, requestId: String, allowReplacement: Boolean): OrezChapterReceipt
     suspend fun observe(taskId: String): OrezChapterReceipt?
+    suspend fun observe(taskId: String, requestId: String, chapter: OrezChapterSnapshot, options: OrezTranslationOptions,
+        expectedGeneration: String): OrezChapterReceipt? = observe(taskId)?.takeIf {
+        it.ownerRequestId == requestId && it.generation == expectedGeneration
+    }?.also { OrezChapterTools.verify(it, chapter, options, requestId) }
     suspend fun findOwned(requestId: String): OrezChapterReceipt?
     suspend fun pause(receipt: OrezChapterReceipt): OrezChapterReceipt?
     suspend fun resume(receipt: OrezChapterReceipt): OrezChapterReceipt?
@@ -51,10 +55,13 @@ class OrezChapterTools(
             val previousTaskId = step.outputs["translationTaskId"]
             val receipt = if (previousTaskId != null) {
                 require(step.outputs["requestId"] == requestId) { "Native receipt belongs to another request." }
-                requireNotNull(host.observe(previousTaskId)) { "Saved translation receipt is missing. Start a new request." }.also {
+                requireNotNull(host.observe(previousTaskId, requestId, chapter, options, step.outputs.getValue("generation"))) {
+                    "Saved translation receipt is missing or replaced. Start a new request."
+                }.also {
                     require(it.generation == step.outputs["generation"]) { "The native translation was replaced by another generation. Start a new request." }
                 }
             } else {
+                options.requireCapturedChapterRefinement()
                 // After process loss, native start is idempotent for this stable owner. A running
                 // replay may not overwrite a slot now owned by a different user request.
                 host.start(chapter, options, requestId, allowReplacement = step.status == OrezStepStatus.PENDING)
@@ -107,6 +114,8 @@ class OrezChapterTools(
         fun OrezChapterReceipt.outputs(requestId: String) = chapter.outputs(requestId) + mapOf(
             "ownerRequestId" to ownerRequestId.orEmpty(), "translationTaskId" to taskId, "generation" to generation,
             "targetLanguage" to options.targetLanguage, "status" to status.name, "completedPages" to completedPages.toString(),
-            "translatedRegions" to translatedRegions.toString())
+            "translatedRegions" to translatedRegions.toString()) + options.refinementRequestFingerprint()?.let {
+                mapOf("refinementRequestFingerprint" to it)
+            }.orEmpty()
     }
 }

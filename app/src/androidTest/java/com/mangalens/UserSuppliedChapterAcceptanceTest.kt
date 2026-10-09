@@ -35,6 +35,8 @@ class UserSuppliedChapterAcceptanceTest {
             val reopened = ChapterLibrary(context).list().single { it.id == chapter.id }
             assertEquals(chapter.pages, reopened.pages)
             showReader(reopened, emptyMap(), emptyMap(), "hi") { capture("real-source-reader") }
+            val dialogue = reopened.copy(pages = listOf(reopened.pages.single { it.index == 2 }))
+            showReader(dialogue, emptyMap(), emptyMap(), "hi") { capture("real-dialogue-source-reader") }
             record.put("status", "passed")
         } catch (failure: Throwable) {
             record.put("status", "failed").put("failure", failure.toString())

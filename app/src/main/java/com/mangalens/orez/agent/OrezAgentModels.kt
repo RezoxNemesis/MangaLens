@@ -5,6 +5,7 @@ import java.util.UUID
 import java.util.Locale
 import java.security.MessageDigest
 import com.mangalens.core.translation.TranslationStyleProfile
+import com.mangalens.core.translation.TranslationRefinementRequest
 import com.mangalens.ui.video.SubtitleOutputMode
 import com.mangalens.ui.video.SubtitlePipeline
 import com.mangalens.ui.video.SubtitleRefinementPin
@@ -131,7 +132,8 @@ data class OrezTranslationOptions(
     val ocrScript: String = "AUTO",
     val highAccuracy: Boolean = true,
     val preserveStyle: Boolean = true,
-    val localRefinement: Boolean = false
+    val localRefinement: Boolean = false,
+    val refinementRequest: TranslationRefinementRequest? = null
 ) {
     fun normalized() = copy(targetLanguage = targetLanguage.trim().lowercase(Locale.ROOT), styleId = styleId.trim().lowercase(Locale.ROOT),
         customStyle = if (styleId.trim().equals("custom", ignoreCase = true)) customStyle.trim() else "", ocrScript = ocrScript.trim().uppercase(Locale.ROOT))

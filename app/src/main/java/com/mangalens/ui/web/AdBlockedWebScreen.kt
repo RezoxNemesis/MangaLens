@@ -161,6 +161,7 @@ fun AdBlockedWebScreen(
     }
 
     fun beginNavigation(target: String) {
+        webView?.let { (it.webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(it) }
         pageLoad = pageLoad.start(target)
         currentUrl = target
         detectedMedia = null
@@ -299,7 +300,10 @@ fun AdBlockedWebScreen(
     }
 
     LaunchedEffect(translationEnabled) { translated = translationEnabled }
-    LaunchedEffect(adBlockEnabled) { siteAdBlockEnabled = adBlockEnabled }
+    LaunchedEffect(adBlockEnabled) {
+        siteAdBlockEnabled = adBlockEnabled
+        webView?.let { (it.webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(it) }
+    }
     LaunchedEffect(autoScroll, speed, webView) {
         while (autoScroll && webView != null) {
             webView?.evaluateJavascript("window.scrollBy(0, " + (2.5f * speed) + ");", null)
@@ -313,6 +317,7 @@ fun AdBlockedWebScreen(
         }
     }
     DisposableEffect(translator) { onDispose {
+        (webView?.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
         observeBrowser("dispose")
         webView?.apply { stopLoading(); webChromeClient = null; webViewClient = android.webkit.WebViewClient(); destroy() }
         webView = null
@@ -492,7 +497,7 @@ fun AdBlockedWebScreen(
                         if (event.actionMasked == MotionEvent.ACTION_UP) hudVisible = true
                         false
                     }
-                    webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && latestSiteAdBlockEnabled }) {
+                    webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && siteAdBlockEnabled }) {
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val blocked = super.shouldOverrideUrlLoading(view, request)
                             observeBrowser("override_navigation", view, callbackUrl = request?.url?.toString(), detail = "blocked=$blocked")
@@ -506,6 +511,9 @@ fun AdBlockedWebScreen(
                             view: WebView?,
                             request: WebResourceRequest?
                         ): android.webkit.WebResourceResponse? {
+                            return com.mangalens.core.adblock.interceptBeforeMediaObservation({
+                                super.shouldInterceptRequest(view, request)
+                            }) {
                             val mediaUrl = request?.url?.toString()
                             if (mediaUrl != null && VideoSourcePolicy.isLikelyMediaRequest(mediaUrl, request?.requestHeaders.orEmpty())) {
                                 val allowed = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
@@ -535,7 +543,7 @@ fun AdBlockedWebScreen(
                                     }
                                 }
                             }
-                            return super.shouldInterceptRequest(view, request)
+                            }
                         }
 
                         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: Bitmap?) {
@@ -601,6 +609,7 @@ fun AdBlockedWebScreen(
                         }
                     }
                     webView = this
+                    (webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(this)
                 }
             },
             update = { view -> if (webView !== view) webView = view }

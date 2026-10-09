@@ -141,7 +141,7 @@ internal object MediaResolutionRunner {
 internal class MediaProcessGuard(
     private val session: MediaResolutionSession,
     private val processId: String,
-    timeoutMs: Long,
+    private val timeoutMs: Long,
     private val destroy: (String) -> Boolean
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
@@ -159,6 +159,25 @@ internal class MediaProcessGuard(
     private val watcher = MediaResolutionRunner.timer.scheduleAtFixedRate({
         if (session.isStopped() || System.nanoTime() - deadlineNanos >= 0L) stopIfOpen()
     }, 0L, 100L, TimeUnit.MILLISECONDS)
+
+    fun checkActive() {
+        session.checkActive()
+        if (System.nanoTime() - deadlineNanos >= 0L) throw MediaResolutionTimeoutException(timeoutMs)
+        if (closed.get()) throw InterruptedException("Media process attempt already closed")
+    }
+
+    fun <T> run(block: () -> T): T {
+        checkActive()
+        try { return block().also { checkActive() } }
+        catch (failure: Exception) {
+            try { checkActive() }
+            catch (stopped: Exception) {
+                if (stopped !== failure) stopped.addSuppressed(failure)
+                throw stopped
+            }
+            throw failure
+        }
+    }
 
     override fun close() {
         if (closed.compareAndSet(false, true)) {

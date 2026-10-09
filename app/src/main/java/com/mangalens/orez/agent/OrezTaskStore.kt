@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.withLock
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.ui.video.SubtitleOutputMode
 import com.mangalens.ui.video.SubtitlePipeline
+import com.mangalens.core.translation.TranslationRefinementRequestCodec
 import com.mangalens.ui.video.SubtitleRefinementPin
 
 /**
@@ -31,7 +32,7 @@ class OrezTaskStore(
         require(encoded.length <= 128 * 1024) { "Orez journal exceeds the safe limit" }
         val root = JSONObject(encoded)
         val schema = root.getInt("schema")
-        require(schema in 1..3) { "Unsupported Orez task schema" }
+        require(schema in 1..4) { "Unsupported Orez task schema" }
         val steps = root.getJSONArray("steps")
         require(steps.length() in 1..32) { "Invalid task step count" }
         return OrezTaskPlan(
@@ -43,9 +44,14 @@ class OrezTaskStore(
                 OrezTaskAuthorization(OrezTrustOrigin.valueOf(scope.getString("origin")), scope.getBoolean("explicitUserRequest"),
                     strings(scope.getJSONArray("chapterIds")).toSet(), strings(scope.getJSONArray("urls")).toSet(),
                     scope.optJSONObject("translation")?.let { options ->
+                        if (schema >= 4) require(options.has("refinementRequest")) { "Captured chapter refinement scope is incomplete." }
                         OrezTranslationOptions(options.getString("targetLanguage"), options.getString("styleId"),
                             options.getString("customStyle"), options.getString("ocrScript"), options.getBoolean("highAccuracy"),
-                            options.getBoolean("preserveStyle"), options.getBoolean("localRefinement"))
+                            options.getBoolean("preserveStyle"), options.getBoolean("localRefinement"),
+                            if (schema < 4 || options.isNull("refinementRequest")) null else options.getJSONObject("refinementRequest").let { request ->
+                                require(request.has("model")) { "Captured chapter model scope is incomplete." }
+                                TranslationRefinementRequestCodec.decode(request)
+                            })
                     },
                     scope.optJSONObject("selectedMedia")?.let { source -> selection(source, schema) },
                     scope.optJSONObject("subtitle")?.let { options -> subtitle(options, schema) })
@@ -188,7 +194,8 @@ class OrezTaskStore(
 
     private fun encode(plan: OrezTaskPlan): String {
         val root = JSONObject()
-            .put("schema", if (plan.authorization?.let { it.selectedMedia != null || it.subtitle != null } == true) 3 else
+            .put("schema", if (plan.authorization?.translation?.refinementRequest != null) 4 else
+                if (plan.authorization?.let { it.selectedMedia != null || it.subtitle != null } == true) 3 else
                 if (plan.authorization != null || plan.executionEpoch != 0L || plan.pausedByUser || plan.resuming || plan.pendingControl != null ||
                 plan.steps.any { it.dependsOn.isNotEmpty() || it.references.isNotEmpty() || it.outputKind != null }) 2 else 1)
             .put("id", plan.id)
@@ -203,7 +210,8 @@ class OrezTaskStore(
             scope.translation?.let { options -> authorization.put("translation", JSONObject()
                 .put("targetLanguage", options.targetLanguage).put("styleId", options.styleId).put("customStyle", options.customStyle)
                 .put("ocrScript", options.ocrScript).put("highAccuracy", options.highAccuracy)
-                .put("preserveStyle", options.preserveStyle).put("localRefinement", options.localRefinement)) }
+                .put("preserveStyle", options.preserveStyle).put("localRefinement", options.localRefinement)
+                .put("refinementRequest", options.refinementRequest?.let(TranslationRefinementRequestCodec::encode) ?: JSONObject.NULL)) }
             scope.selectedMedia?.let { source -> authorization.put("selectedMedia", JSONObject()
                 .put("uri", source.uri).put("cacheKey", source.cacheKey).put("label", source.label).put("headers", JSONObject(source.headers))
                 .put("resolutionId", source.resolutionId ?: JSONObject.NULL).put("expectedDurationUs", source.expectedDurationUs ?: JSONObject.NULL)

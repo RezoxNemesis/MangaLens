@@ -26,6 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangalens.engine.OrezLiveSearchConnector
 import com.mangalens.orez.*
 import com.mangalens.orez.agent.OrezAgentContext
+import com.mangalens.orez.agent.OrezChapterPlanCapture
 import com.mangalens.orez.agent.OrezAgentRuntime
 import com.mangalens.orez.agent.OrezTaskStore
 import com.mangalens.orez.agent.OrezTaskStatus
@@ -65,6 +66,8 @@ class OrezAiViewModel @JvmOverloads constructor(
     val modelState get() = modelManager.state
     val messages = dao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val activeTasks = db.tasks().observeActive()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val completedTasks = db.completedTasks().observe()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _engineMode = MutableStateFlow(readMode())
@@ -170,6 +173,14 @@ class OrezAiViewModel @JvmOverloads constructor(
                 var agentDecision = agentRuntime.decide(input, appContext)
                 if (agentDecision.continueToBrain && answerRequest == null) {
                     brain.planAction(input, appContext)?.let { agentDecision = agentRuntime.decidePlan(it, appContext) }
+                }
+                agentDecision.plan?.let { proposed ->
+                    val captured = OrezChapterPlanCapture.capture(proposed) { style ->
+                        val refiner = com.mangalens.core.translation.TranslationOrezRefiner(getApplication<android.app.Application>())
+                        try { refiner.captureRequest(true, style) }
+                        finally { refiner.close() }
+                    }
+                    agentDecision = agentDecision.copy(plan = captured)
                 }
                 activePlan = agentDecision.plan
                 agentDecision.plan?.let { plan ->
@@ -319,6 +330,9 @@ class OrezAiViewModel @JvmOverloads constructor(
         plan.pendingControl == null
     }.getOrDefault(false)
 
+    fun subtitleResultReferences(encoded: String): List<com.mangalens.orez.agent.OrezSubtitleResultReference> =
+        runCatching { com.mangalens.orez.agent.OrezSubtitleResult.references(taskStore.decode(encoded)) }.getOrDefault(emptyList())
+
     fun resumeTask(id: String) = viewModelScope.launch {
         taskControlMessage { taskControls.resume(id) }
     }
@@ -394,6 +408,7 @@ fun OrezAiScreen(
     onImport: (List<android.net.Uri>) -> Unit = {},
     selectedMedia: com.mangalens.orez.agent.OrezMediaSelection? = null,
     subtitleOptions: com.mangalens.orez.agent.OrezSubtitleOptions = com.mangalens.orez.agent.OrezSubtitleOptions(),
+    onOpenSubtitleResult: (com.mangalens.orez.agent.OrezSubtitleResultReference) -> Unit = {},
     onRoute: (String, OrezRoute) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -401,6 +416,7 @@ fun OrezAiScreen(
     val modelState by vm.modelState.collectAsState()
     val engineMode by vm.engineMode.collectAsState()
     val activeTasks by vm.activeTasks.collectAsState()
+    val completedTasks by vm.completedTasks.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
     var showEngine by rememberSaveable { mutableStateOf(false) }
     var selectedMessage by remember { mutableStateOf<OrezMessageEntity?>(null) }
@@ -516,6 +532,21 @@ fun OrezAiScreen(
                                 }
                                 TextButton(onClick = { input = task.objective }) { Text("Review request") }
                                 TextButton(onClick = { vm.dismissTask(task.id) }) { Text("Dismiss task") }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                val results = completedTasks.flatMap { task -> vm.subtitleResultReferences(task.planJson).map { task to it } }.take(5)
+                if (results.isNotEmpty()) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Saved subtitle results", style = MaterialTheme.typography.titleMedium)
+                            results.forEach { (task, reference) ->
+                                Text(task.objective, maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { onOpenSubtitleResult(reference) }) { Text("Open subtitle result") }
                             }
                         }
                     }

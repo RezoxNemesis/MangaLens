@@ -1,10 +1,13 @@
 package com.mangalens
 
 import android.content.Context
+import android.app.Activity
+import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.Bundle
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
@@ -15,8 +18,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
-import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.Configurator
@@ -32,6 +33,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
 
 /** Interacts with the actual shared-link and local-import routes; no resolver/player injection. */
 @OptIn(UnstableApi::class)
@@ -43,7 +45,35 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
     private val previousIdleTimeout = configurator.waitForIdleTimeout
     private val prefs = context.getSharedPreferences("mangalens_preferences", Context.MODE_PRIVATE)
     private val previousPrefs = listOf("last_url", "translation_video").associateWith { prefs.all[it] }
-    init { screenshots.mkdirs(); configurator.setWaitForIdleTimeout(100) }
+    private val ownerId = UUID.randomUUID().toString()
+    private val lifecycle = ProviderUiLifecycle<MainActivity>()
+    private val application = context.applicationContext as Application
+    private val lifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = record(activity, ProviderUiLifecycle.State.CREATED)
+        override fun onActivityStarted(activity: Activity) = record(activity, ProviderUiLifecycle.State.STARTED)
+        override fun onActivityResumed(activity: Activity) = record(activity, ProviderUiLifecycle.State.RESUMED)
+        override fun onActivityPaused(activity: Activity) = record(activity, ProviderUiLifecycle.State.PAUSED)
+        override fun onActivityStopped(activity: Activity) = record(activity, ProviderUiLifecycle.State.STOPPED)
+        override fun onActivityDestroyed(activity: Activity) = record(activity, ProviderUiLifecycle.State.DESTROYED)
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+    }
+    init {
+        screenshots.mkdirs()
+        main { application.registerActivityLifecycleCallbacks(lifecycleCallbacks) }
+        configurator.setWaitForIdleTimeout(100)
+    }
+
+    private fun record(activity: Activity, state: ProviderUiLifecycle.State) {
+        if (activity !is MainActivity || activity.intent?.getStringExtra(OWNER_EXTRA) != ownerId) return
+        val epoch = activity.intent.getLongExtra(EPOCH_EXTRA, 0L)
+        if (epoch <= 0L) return
+        if (lifecycle.observe(activity, epoch, state) && !activity.isFinishing) activity.finish()
+        detachIfClosed()
+    }
+
+    private fun detachIfClosed() {
+        if (lifecycle.canDetach()) application.unregisterActivityLifecycleCallbacks(lifecycleCallbacks)
+    }
 
     fun openSource(fixture: ProviderFixture) {
         prefs.edit().putBoolean("translation_video", false).commit()
@@ -51,7 +81,8 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
             action = Intent.ACTION_SEND; type = "text/plain"; putExtra(Intent.EXTRA_TEXT, fixture.source)
         })
         waitFor("Shared provider link did not enter the video route", 15_000) {
-            val state = state(); state.mode == ContentType.VIDEO_STREAM && state.url == fixture.source
+            val state = stateIfResumed()
+            state?.mode == ContentType.VIDEO_STREAM && state.url == fixture.source
         }
     }
 
@@ -66,10 +97,30 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             device.executeShellCommand("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
         }
-        main { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) }
+        main {
+            val epoch = lifecycle.beginLaunch()
+            lifecycle.retired().filterNot { it.isFinishing || it.isDestroyed }.forEach { it.finish() }
+            try {
+                context.startActivity(intent.apply {
+                    putExtra(OWNER_EXTRA, ownerId); putExtra(EPOCH_EXTRA, epoch)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                })
+            } catch (failure: Throwable) {
+                lifecycle.launchFailed(epoch)
+                throw failure
+            }
+        }
     }
 
-    fun state(): MangaLensUiState = main { ViewModelProvider(activity())[MangaLensViewModel::class.java].state.value }
+    private fun stateIfResumed(): MangaLensUiState? = main {
+        lifecycle.resumed()?.let { ViewModelProvider(it)[MangaLensViewModel::class.java].state.value }
+    }
+
+    fun state(): MangaLensUiState {
+        var result: MangaLensUiState? = null
+        waitFor("Owned provider activity did not resume") { stateIfResumed().also { result = it } != null }
+        return requireNotNull(result)
+    }
 
     fun awaitResolved(): MangaLensUiState {
         waitFor("The 45-second provider video route did not leave loading", 50_000) { !state().loading }
@@ -121,7 +172,8 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
 
     fun assertBackReturnedHome(timeoutMs: Long = 8_000) {
         waitFor("Back did not return to the actual Home screen", timeoutMs) {
-            device.hasObject(By.text("READ · WATCH · BROWSE").pkg(context.packageName)) &&
+            main { lifecycle.resumed() != null } &&
+                device.hasObject(By.text("READ · WATCH · BROWSE").pkg(context.packageName)) &&
                 !device.hasObject(By.text("My Library").pkg(context.packageName)) &&
                 !device.hasObject(By.text("Cancel detection").pkg(context.packageName)) &&
                 !device.hasObject(By.text("Retry detection").pkg(context.packageName))
@@ -129,8 +181,7 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
     }
 
     fun verifyHomeOracleRejectsLibrary() {
-        launch(Intent(context, MainActivity::class.java))
-        assertBackReturnedHome()
+        openHome()
         node(By.desc("Library").pkg(context.packageName)).click()
         node(By.text("My Library").pkg(context.packageName))
         check(device.hasObject(By.desc("Home").pkg(context.packageName))) { "Negative Home oracle was not on a bottom-nav route" }
@@ -139,8 +190,26 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
         assertBackReturnedHome()
     }
 
+    internal fun openHome() {
+        launch(Intent(context, MainActivity::class.java))
+        assertBackReturnedHome()
+    }
+
+    internal fun recreateOwnedActivity() {
+        val previous = main { activity().also { it.recreate() } }
+        waitFor("Owned provider activity recreation did not resume") {
+            main { lifecycle.resumed()?.let { it !== previous } == true }
+        }
+        assertBackReturnedHome()
+    }
+
+    internal fun ownedActivity(): MainActivity = main { activity() }
+    internal fun cleanupComplete(): Boolean = lifecycle.canDetach()
+
     fun probeActualPlayer(): JSONObject {
-        waitFor("Actual native player view was not attached", 15_000) { main { findPlayerView(activity().window.decorView) != null } }
+        waitFor("Actual native player view was not attached", 15_000) {
+            main { lifecycle.resumed()?.let { findPlayerView(it.window.decorView) } != null }
+        }
         main { player().seekTo(0); player().play() }
         waitFor("Provider media did not render video and decoded audio", 45_000) {
             val current = snapshot()
@@ -190,8 +259,7 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
             .also { result -> player.playerError?.let { result.put("error_code", it.errorCodeName) } }
     }
 
-    private fun activity(): MainActivity = ActivityLifecycleMonitorRegistry.getInstance()
-        .getActivitiesInStage(Stage.RESUMED).filterIsInstance<MainActivity>().single()
+    private fun activity(): MainActivity = requireNotNull(lifecycle.resumed()) { "Owned provider activity is not resumed" }
 
     private fun player(): ExoPlayer = findPlayerView(activity().window.decorView)?.player as? ExoPlayer
         ?: throw AssertionError("Production ExoPlayer is unavailable")
@@ -224,11 +292,14 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
     }
 
     override fun close() {
+        // Publish the close fence even when Main is busy; accepted late creation is still owned.
+        val finishing = lifecycle.close()
         try {
-            main {
-                ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-                    .filterIsInstance<MainActivity>().forEach { it.finishAndRemoveTask() }
+            Handler(Looper.getMainLooper()).post {
+                finishing.filterNot { it.isFinishing || it.isDestroyed }.forEach { it.finish() }
+                detachIfClosed()
             }
+            main { }
         } finally {
             val edit = prefs.edit()
             previousPrefs.forEach { (key, value) -> when (value) {
@@ -240,5 +311,10 @@ internal class ProviderUiHarness(private val screenshots: File) : AutoCloseable 
             edit.commit()
             configurator.setWaitForIdleTimeout(previousIdleTimeout)
         }
+    }
+
+    private companion object {
+        const val OWNER_EXTRA = "com.mangalens.qa.PROVIDER_UI_OWNER"
+        const val EPOCH_EXTRA = "com.mangalens.qa.PROVIDER_UI_EPOCH"
     }
 }

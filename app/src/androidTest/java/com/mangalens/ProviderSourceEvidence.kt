@@ -77,10 +77,21 @@ internal class ProviderSourceEvidence(context: Context, val name: String, fixtur
             null -> "REQUEST_CANCELLED"
             else -> "FAIL_APP_OR_SOURCE_UNDETERMINED"
         }
+        val trace = ProviderFailureDiagnostics.capture(failure)
+        val locations = JSONArray().apply { trace.forEach { node ->
+            put(JSONObject().put("type", node.type).put("relation", node.relation)
+                .put("parent", node.parent ?: JSONObject.NULL).put("frames", JSONArray().apply {
+                    node.frames.forEach { frame ->
+                        put(JSONObject().put("class", frame.owner).put("method", frame.method)
+                            .put("line", frame.line ?: JSONObject.NULL))
+                    }
+                }))
+        } }
         operations.put(JSONObject().put("operation", operation).put("status", status)
             .put("failure_kind", safe?.kind?.name ?: "REQUEST_CANCELLED")
             .put("user_message", safe?.message ?: "Request cancelled before acceptance could be verified.")
-            .put("failure_class", failure.javaClass.name)
+            .put("failure_class", trace.firstOrNull()?.type ?: "other.Throwable")
+            .put("failure_trace", locations)
             .put("elapsed_ms", SystemClock.elapsedRealtime() - started))
         save()
         return safe

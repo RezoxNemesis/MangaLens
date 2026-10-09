@@ -67,8 +67,7 @@ object OrezTaskRecovery {
                 val producer = plan.steps[step.references.getValue("chapterId").stepIndex]
                 val chapter = OrezChapterSourceEvidence.snapshot(task.chapterId, task.title,
                     task.pages.map { OrezChapterSource(it.index, it.sourcePath, it.sourceSha256) })
-                val options = task.config.let { OrezTranslationOptions(it.targetLanguage, it.styleId, it.customStyle, it.ocrScript,
-                    it.highAccuracy, it.preserveStyle, it.localRefinement) }
+                val options = task.config.orezChapterOptions()
                 require(task.requestedPages == null && chapter.chapterId == resolved.call.arguments["chapterId"] &&
                     chapter.sourceFingerprint == resolved.call.arguments["sourceFingerprint"] && chapter.pageCount.toString() == producer.outputs["pageCount"] &&
                     options == plan.authorization!!.translation) { "Native stop does not match captured chapter/configuration/source scope." }

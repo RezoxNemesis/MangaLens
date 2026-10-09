@@ -146,7 +146,9 @@ class MainActivity : ComponentActivity() {
                     onTranslationCancelled = viewModel::cancelTranslation,
                     onImportImages = viewModel::importLocalImages,
                     onResolvedVideo = viewModel::acceptResolvedVideo,
-                    onIngestionCancelled = viewModel::cancelIngestion
+                    onIngestionCancelled = viewModel::cancelIngestion,
+                    onVideoRefreshed = viewModel::acceptVideoRefresh,
+                    onVideoReady = viewModel::acceptVideoReady
                 )
                 val verificationRequest = verification.request
                 if (

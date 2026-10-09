@@ -117,6 +117,7 @@ object OrezDurablePlanRules {
         require(options.customStyle.length <= 1200 && options.ocrScript in setOf("AUTO", "LATIN", "DEVANAGARI", "CHINESE", "JAPANESE", "KOREAN")) {
             "Invalid captured translation options"
         }
+        options.nativeChapterConfig()
     }
 
     fun resolve(plan: OrezTaskPlan, step: OrezPlanStep): OrezPlanStep {
@@ -155,6 +156,9 @@ object OrezDurablePlanRules {
             require(outputs["translationTaskId"]?.matches(Regex("[a-f0-9]{32}")) == true &&
                 outputs["generation"]?.matches(Regex("[a-f0-9]{32}")) == true) { "Native translation identity is missing." }
             require(outputs["targetLanguage"] == plan.authorization.translation!!.targetLanguage) { "Translation result has another target language." }
+            val refinement = plan.authorization.translation.refinementRequestFingerprint()
+            if (refinement != null) require(outputs["refinementRequestFingerprint"] == refinement) { "Native receipt has another captured refinement request." }
+            else require(outputs["refinementRequestFingerprint"].isNullOrEmpty()) { "A legacy request cannot claim a captured refinement model." }
             if (completed) {
                 require(outputs["status"] == "COMPLETED" && outputs["completedPages"] == outputs["pageCount"] &&
                     outputs["destination"] == "chapter-translation:${outputs["translationTaskId"]}") {

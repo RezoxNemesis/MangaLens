@@ -84,6 +84,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
     implementation("org.jsoup:jsoup:1.18.3")
+    implementation("androidx.webkit:webkit:1.12.1")
     // Bundled free, on-device yt-dlp site extractors (no external resolver service).
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     testImplementation("junit:junit:4.13.2")

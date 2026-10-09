@@ -7,6 +7,7 @@ import java.net.UnknownHostException
 import java.security.cert.CertificateException
 import java.util.Collections
 import java.util.IdentityHashMap
+import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.CancellationException
 import javax.net.ssl.SSLException
@@ -23,14 +24,17 @@ data class MediaSourceFailure(val kind: MediaSourceFailureKind, val message: Str
         fun from(failure: Throwable): MediaSourceFailure {
             val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
             val chain = mutableListOf<Throwable>()
-            var current: Throwable? = failure
-            while (current != null && chain.size < 16 && seen.add(current)) {
+            val waiting = ArrayDeque<Throwable>().apply { add(failure) }
+            while (waiting.isNotEmpty() && chain.size < 16) {
+                val current = waiting.removeLast()
+                if (!seen.add(current)) continue
                 if (current is CancellationException || current is InterruptedException) throw current
                 chain += current
-                current = current.cause
+                current.suppressed.take(15).asReversed().forEach { if (waiting.size < 32) waiting.add(it) }
+                current.cause?.let { waiting.add(it) }
             }
-            chain.filterIsInstance<MediaSourceException>().firstOrNull()?.let { return it.failure }
-            return chain.map(::classifyOne).maxByOrNull { priority(it) }?.let(::forKind)
+            return chain.map { if (it is MediaSourceException) it.failure.kind else classifyOne(it) }
+                .maxByOrNull { priority(it) }?.let(::forKind)
                 ?: forKind(MediaSourceFailureKind.EXTRACTOR_FAILURE)
         }
 
@@ -109,6 +113,9 @@ class MediaSourceException(val failure: MediaSourceFailure, cause: Throwable?) :
     companion object {
         fun fromFailures(failures: List<Throwable>) = MediaSourceException(
             MediaSourceFailure.fromFailures(failures), failures.lastOrNull()
-        )
+        ).also { combined ->
+            // The final cause remains compatible; earlier native failures stay available to safe diagnostics.
+            failures.dropLast(1).take(15).forEach(combined::addSuppressed)
+        }
     }
 }

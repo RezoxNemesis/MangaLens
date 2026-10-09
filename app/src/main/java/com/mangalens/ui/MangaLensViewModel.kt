@@ -33,10 +33,14 @@ import com.mangalens.core.translation.ChapterTranslationPageStatus
 import com.mangalens.core.translation.ChapterTranslationStatus
 import com.mangalens.core.translation.ChapterTranslationStore
 import com.mangalens.core.translation.ChapterTranslationTask
+import com.mangalens.core.translation.ChapterTranslationSourceIdentity
 import com.mangalens.core.verification.CaptchaBridge
 import com.mangalens.ui.reader.TranslationOverlay
 import com.mangalens.ui.theme.ThemeMode
 import com.mangalens.ui.video.VideoSourcePolicy
+import com.mangalens.ui.video.VideoPlaybackSelection
+import com.mangalens.ui.video.VideoPlaybackPublication
+import com.mangalens.ui.video.VideoReadyObservation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -58,6 +62,9 @@ data class MangaLensUiState(
     val videoHeaders: Map<String, String> = emptyMap(),
     val videoAudioUrl: String? = null,
     val videoAudioHeaders: Map<String, String> = emptyMap(),
+    val videoResolutionId: String? = null,
+    val videoAudioResolutionId: String? = null,
+    val videoExpectedDurationUs: Long? = null,
     val loading: Boolean = false,
     val translating: Boolean = false,
     val translationPaused: Boolean = false,
@@ -79,6 +86,21 @@ data class MangaLensUiState(
     val customTranslationStyle: String = "",
     val adBlockEnabled: Boolean = true,
     val adBlockStats: AdBlockStats = AdBlockStats(),
+)
+
+internal fun MangaLensUiState.capturedVideoSelection(): VideoPlaybackSelection? {
+    if (mode != ContentType.VIDEO_STREAM || videoUrl.isNullOrBlank() || videoResolutionId == null ||
+        videoAudioUrl != null && videoAudioResolutionId != videoResolutionId) return null
+    return VideoPlaybackSelection(videoResolutionId, videoUrl, videoHeaders.toMap(), videoPageUrl,
+        videoAudioUrl, videoAudioHeaders.toMap(), videoExpectedDurationUs)
+}
+
+private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelection?): MangaLensUiState = copy(
+    videoUrl = selection?.videoUrl, videoPageUrl = selection?.pageUrl,
+    videoHeaders = selection?.videoHeaders.orEmpty(), videoAudioUrl = selection?.audioUrl,
+    videoAudioHeaders = selection?.audioHeaders.orEmpty(), videoResolutionId = selection?.resolutionId,
+    videoAudioResolutionId = selection?.resolutionId?.takeIf { selection.audioUrl != null },
+    videoExpectedDurationUs = selection?.durationUs
 )
 
 class MangaLensViewModel(application: Application) : AndroidViewModel(application) {
@@ -196,7 +218,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
         val currentPaths = _state.value.pages.associate { it.index to it.localPath }
-        val pages = task.pages.filter { it.sourcePath != null && it.sourcePath == currentPaths[it.index] }
+        val managedSources = java.io.File(app.filesDir, "chapters")
+        val pages = task.pages.filter {
+            ChapterTranslationSourceIdentity.matches(it.sourcePath, currentPaths[it.index], managedSources)
+        }
         val overlays = pages.filter { it.cleanedPath != null && it.imageWidth > 0 && it.imageHeight > 0 }
             .associate { page -> page.index to page.lettering.map { text ->
                 TranslationOverlay(region = com.mangalens.core.translation.OcrRegion(text.source,
@@ -239,12 +264,16 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             videoPageUrl = if (changed) null else _state.value.videoPageUrl,
             videoHeaders = if (changed) emptyMap() else _state.value.videoHeaders,
             videoAudioUrl = if (changed) null else _state.value.videoAudioUrl,
-            videoAudioHeaders = if (changed) emptyMap() else _state.value.videoAudioHeaders
+            videoAudioHeaders = if (changed) emptyMap() else _state.value.videoAudioHeaders,
+            videoResolutionId = if (changed) null else _state.value.videoResolutionId,
+            videoAudioResolutionId = if (changed) null else _state.value.videoAudioResolutionId,
+            videoExpectedDurationUs = if (changed) null else _state.value.videoExpectedDurationUs
         )
     }
     fun setMode(mode: ContentType) {
         if (mode != _state.value.mode) cancelIngestion()
-        _state.value = _state.value.copy(mode = mode)
+        _state.value = if (mode == _state.value.mode) _state.value else
+            _state.value.withVideoSelection(null).copy(mode = mode)
     }
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString("theme_mode", mode.name).apply()
@@ -301,33 +330,36 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         audioUrl: String?,
         audioHeaders: Map<String, String>
     ) {
-        if (!UrlEngineRouter.isSafeWebUrl(url)) {
-            _state.value = _state.value.copy(error = "The detected media URL is not a safe HTTP or HTTPS address.")
-            return
+        val selected = try { VideoPlaybackPublication.capture(url, headers, pageUrl, audioUrl, audioHeaders) }
+        catch (failure: IllegalArgumentException) {
+            _state.value = _state.value.copy(error = failure.message); return
         }
         cancelIngestion()
-        val safeAudioUrl = audioUrl?.takeIf(UrlEngineRouter::isSafeWebUrl)
-        val safePageUrl = pageUrl.takeIf(UrlEngineRouter::isSafeWebUrl)
-        val allowed = setOf("accept", "accept-language", "cookie", "origin", "referer", "user-agent")
-        fun sanitize(values: Map<String, String>): Map<String, String> = values
-            .filter { (name, value) ->
-                name.lowercase() in allowed &&
-                    value.length <= 16_384 &&
-                    value.none { it == '\r' || it == '\n' || it == '\u0000' }
-            }
-            .toMap()
-        safePageUrl?.let { prefs.edit().putString("last_url", it).apply() }
-        _state.value = _state.value.copy(
-            url = safePageUrl ?: _state.value.url,
+        selected.pageUrl?.let { prefs.edit().putString("last_url", it).apply() }
+        _state.value = _state.value.withVideoSelection(selected).copy(
+            url = selected.pageUrl ?: _state.value.url,
             mode = ContentType.VIDEO_STREAM,
-            videoUrl = url,
-            videoPageUrl = safePageUrl,
-            videoHeaders = sanitize(headers),
-            videoAudioUrl = safeAudioUrl,
-            videoAudioHeaders = if (safeAudioUrl != null) sanitize(audioHeaders) else emptyMap(),
             loading = false,
             error = null
         )
+    }
+
+    /** Called synchronously on the player/UI thread; both source guards precede player mutation. */
+    fun acceptVideoRefresh(expected: VideoPlaybackSelection, replacement: VideoPlaybackSelection,
+        commitPlayback: () -> Boolean): Boolean {
+        if (!VideoPlaybackPublication.canReplace(_state.value.capturedVideoSelection(), expected, replacement)) return false
+        if (!commitPlayback()) return false
+        val latest = _state.value
+        if (!VideoPlaybackPublication.canReplace(latest.capturedVideoSelection(), expected, replacement)) return false
+        _state.value = latest.withVideoSelection(replacement.captured()).copy(error = null)
+        return true
+    }
+
+    fun acceptVideoReady(observed: VideoReadyObservation) {
+        _state.update { current ->
+            val selected = VideoPlaybackPublication.acceptReady(current.capturedVideoSelection(), observed)
+            if (selected == null) current else current.withVideoSelection(selected)
+        }
     }
 
     fun importLocalImages(uris: List<Uri>) {
@@ -336,7 +368,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         previousIngestion?.cancel()
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
-            _state.value = _state.value.copy(loading = true, translating = false, error = null, overlays = emptyMap(), translationEnabled = false)
+            _state.value = _state.value.withVideoSelection(null).copy(loading = true, translating = false, error = null, overlays = emptyMap(), translationEnabled = false)
             try {
                 repository.clearChapterCache()
                 val imported = com.mangalens.core.reader.DocumentImporter.prepare(app, uris)
@@ -384,12 +416,10 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             _state.value = _state.value.copy(error = "Enter a complete HTTP or HTTPS URL.", loading = false)
             return
         }
-        _state.value = _state.value.copy(
+        _state.value = _state.value.withVideoSelection(null).copy(
             loading = true,
             error = null,
-            videoUrl = if (selectedMode == ContentType.VIDEO_STREAM) null else _state.value.videoUrl,
-            videoPageUrl = if (selectedMode == ContentType.VIDEO_STREAM) target else _state.value.videoPageUrl,
-            videoHeaders = if (selectedMode == ContentType.VIDEO_STREAM) emptyMap() else _state.value.videoHeaders
+            videoPageUrl = if (selectedMode == ContentType.VIDEO_STREAM) target else null
         )
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
@@ -398,13 +428,11 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 when (selectedMode) {
                     ContentType.VIDEO_STREAM -> kotlinx.coroutines.withTimeout(45_000L) {
                         if (!VideoSourcePolicy.isSourcePage(target)) {
-                            _state.value = _state.value.copy(
+                            ensureActive()
+                            if (_state.value.url != target || _state.value.mode != selectedMode) return@withTimeout
+                            val selected = VideoPlaybackPublication.capture(target, emptyMap(), null, null, emptyMap())
+                            _state.value = _state.value.withVideoSelection(selected).copy(
                                 mode = ContentType.VIDEO_STREAM,
-                                videoUrl = target,
-                                videoPageUrl = null,
-                                videoHeaders = emptyMap(),
-                                videoAudioUrl = null,
-                                videoAudioHeaders = emptyMap(),
                                 loading = false
                             )
                         } else {
@@ -457,24 +485,18 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                         if (keys.none { it.equals("Accept", true) }) put("Accept", "*/*")
                                     }
                                 }.orEmpty()
-                                _state.value = _state.value.copy(
+                                ensureActive()
+                                if (_state.value.url != target || _state.value.mode != selectedMode) return@withTimeout
+                                val selected = VideoPlaybackPublication.capture(resolved.url, playbackHeaders, pageUrl, resolved.audioUrl, audioHeaders)
+                                _state.value = _state.value.withVideoSelection(selected).copy(
                                     mode = ContentType.VIDEO_STREAM,
-                                    videoUrl = resolved.url,
-                                    videoPageUrl = pageUrl,
-                                    videoHeaders = playbackHeaders,
-                                    videoAudioUrl = resolved.audioUrl,
-                                    videoAudioHeaders = audioHeaders,
                                     loading = false,
                                     error = null
                                 )
                             } else {
-                                _state.value = _state.value.copy(
+                                _state.value = _state.value.withVideoSelection(null).copy(
                                     mode = ContentType.VIDEO_STREAM,
-                                    videoUrl = null,
                                     videoPageUrl = target,
-                                    videoHeaders = emptyMap(),
-                                    videoAudioUrl = null,
-                                    videoAudioHeaders = emptyMap(),
                                     loading = false,
                                     error = videoSourceFailure?.message
                                         ?: "No accessible video stream was resolved. Retry or open the source page to check access."
@@ -678,7 +700,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         val chapter = _state.value.library.firstOrNull { it.id == id } ?: return
         ingestionJob?.cancel()
         clearTranslations()
-        _state.value = _state.value.copy(activeChapter = chapter, url = chapter.sourceUrl, mode = ContentType.IMAGE_CHAPTER, loading = false)
+        _state.value = _state.value.withVideoSelection(null).copy(activeChapter = chapter, url = chapter.sourceUrl, mode = ContentType.IMAGE_CHAPTER, loading = false)
         repository.restorePages(chapter.pages)
     }
 
