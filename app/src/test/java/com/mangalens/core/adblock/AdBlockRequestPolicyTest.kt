@@ -82,4 +82,13 @@ class AdBlockRequestPolicyTest {
         assertNull(interceptBeforeMediaObservation<Any>({ calls.add("intercept"); null }, { calls.add("sniff") }))
         assertEquals(listOf("intercept", "sniff"), calls)
     }
+    @Test fun dedicatedPopupNetworksAreBlockedWithoutBlockingProviderPlaybackAndControlRequests() {
+        for (host in listOf("monetag.com", "onclckstr.com", "popadscdn.net", "adsterra.net", "highperformanceformat.com"))
+            assertNotNull(AdBlockRequestPolicy.blockingReason("https://cdn.$host/resource.js"))
+        for (url in listOf("https://www.youtube.com/youtubei/v1/player?key=public",
+            "https://rr1.googlevideo.com/videoplayback?itag=137&mime=video%2Fmp4&sig=opaque",
+            "https://www.instagram.com/api/v1/media/42/info/",
+            "https://video.cdninstagram.com/story.mp4?signature=opaque",
+            "https://challenges.cloudflare.com/widget.js")) assertNull(url, AdBlockRequestPolicy.blockingReason(url))
+    }
 }

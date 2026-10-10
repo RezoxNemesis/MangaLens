@@ -96,94 +96,73 @@ Java_com_mangalens_oreznative_OrezNativeEngine_nativeLoad(
     return g_model != nullptr ? JNI_TRUE : JNI_FALSE;
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
-        JNIEnv * env, jobject, jstring prompt, jint maxTokens, jlong requestId) {
-    auto request = find_request(requestId);
-    if (!request || request->cancelled.load()) return env->NewStringUTF("");
+#include "orez_generation.h"
+
+static native_generation_result generate_request(JNIEnv * env, jstring prompt, jint max_tokens, jlong request_id) {
+    auto request = find_request(request_id);
+    native_generation_result result;
+    result.token_limit = max_tokens < 1 ? 1 : (max_tokens > 512 ? 512 : max_tokens);
+    if (!request) { result.termination = "INVALID_REQUEST"; return result; }
+    if (request->cancelled.load()) { result.termination = "CANCELLED"; return result; }
+    const auto waiting = generation_clock::now();
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_model == nullptr || request->cancelled.load()) return env->NewStringUTF("");
-    std::string input = java_utf8(env, prompt);
-    if (env->ExceptionCheck()) return nullptr;
-
-    const llama_vocab * vocab = llama_model_get_vocab(g_model);
-    const int nPrompt = -llama_tokenize(vocab, input.c_str(), input.size(), nullptr, 0, true, true);
-    if (nPrompt <= 0 || nPrompt > 4096) return env->NewStringUTF("");
-
-    std::vector<llama_token> tokens(nPrompt);
-    if (llama_tokenize(vocab, input.c_str(), input.size(), tokens.data(), tokens.size(), true, true) < 0) {
-        return env->NewStringUTF("");
+    const auto wait_us = generation_elapsed_us(waiting);
+    if (g_model == nullptr || request->cancelled.load()) {
+        result.termination = request->cancelled.load() ? "CANCELLED" : "UNAVAILABLE";
+        result.lock_wait_us = wait_us;
+        return result;
     }
+    const std::string input = java_utf8(env, prompt);
+    if (env->ExceptionCheck()) { result.termination = "INPUT_ENCODING_FAILURE"; return result; }
+    result = generate_locked(input, max_tokens, request);
+    result.lock_wait_us = wait_us;
+    return result;
+}
 
-    llama_context_params cp = llama_context_default_params();
-    const int safeTokens = maxTokens < 1 ? 1 : (maxTokens > 512 ? 512 : maxTokens);
-    const uint32_t requestedCtx = static_cast<uint32_t>(nPrompt + safeTokens + 64);
-    cp.n_ctx = requestedCtx > 8192 ? 8192 : requestedCtx;
-    // Bound prefill scratch allocations and leave CPU headroom for the UI/player.
-    cp.n_batch = 256;
-    cp.n_ubatch = 128;
-    // Interactive chat must leave CPU headroom for Compose scrolling, video and OCR.
-    // Two inference threads are deliberately preferred over saturating four big cores.
-    cp.n_threads = std::max(1u, std::min(2u, std::thread::hardware_concurrency() / 2));
-    cp.n_threads_batch = cp.n_threads;
-    cp.abort_callback = abort_generation;
-    cp.abort_callback_data = request.get();
-    llama_context * ctx = llama_init_from_model(g_model, cp);
-    if (ctx == nullptr) return env->NewStringUTF("");
-
-    auto sp = llama_sampler_chain_default_params();
-    llama_sampler * sampler = llama_sampler_chain_init(sp);
-    llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
-
-    llama_batch batch;
-    for (int offset = 0; offset < nPrompt; offset += 256) {
-        batch = llama_batch_get_one(tokens.data() + offset, std::min(256, nPrompt - offset));
-        if (request->cancelled.load() || llama_decode(ctx, batch) != 0) {
-            llama_sampler_free(sampler);
-            llama_free(ctx);
-            request->running.store(false);
-            return env->NewStringUTF("");
-        }
-    }
-
-    std::string output;
-    output.reserve(static_cast<size_t>(safeTokens) * 4);
-    for (int i = 0; i < safeTokens; ++i) {
-        if (request->cancelled.load()) break;
-        llama_token id = llama_sampler_sample(sampler, ctx, -1);
-        if (llama_vocab_is_eog(vocab, id)) break;
-        char piece[512];
-        int n = llama_token_to_piece(vocab, id, piece, sizeof(piece), 0, true);
-        if (n > 0) output.append(piece, n);
-        batch = llama_batch_get_one(&id, 1);
-        if (llama_decode(ctx, batch) != 0) break;
-    }
-
-    llama_sampler_free(sampler);
-    llama_free(ctx);
-    request->running.store(false);
-    // Partial output from a cancelled request must never become an answer.
-    if (request->cancelled.load()) return env->NewStringUTF("");
-    // A token budget can stop inside a UTF-8 character split across model tokens.
-    if (!output.empty()) {
-        size_t lead = output.size() - 1;
-        while (lead > 0 && (static_cast<unsigned char>(output[lead]) & 0xc0) == 0x80) --lead;
-        const auto byte = static_cast<unsigned char>(output[lead]);
-        const size_t expected = byte < 0x80 ? 1 : ((byte & 0xe0) == 0xc0 ? 2 : ((byte & 0xf0) == 0xe0 ? 3 : ((byte & 0xf8) == 0xf0 ? 4 : 1)));
-        if (output.size() - lead < expected) output.resize(lead);
-    }
-    // llama emits standard UTF-8; NewStringUTF expects modified UTF-8 and can crash on emoji.
-    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(output.size()));
+// llama emits standard UTF-8; NewStringUTF expects modified UTF-8 and can crash on emoji.
+static jstring generation_java_text(JNIEnv * env, const std::string & text) {
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(text.size()));
     if (bytes == nullptr) return nullptr;
-    env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(output.size()), reinterpret_cast<const jbyte *>(output.data()));
-    jclass stringClass = env->FindClass("java/lang/String");
-    jmethodID constructor = env->GetMethodID(stringClass, "<init>", "([BLjava/lang/String;)V");
+    env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(text.size()), reinterpret_cast<const jbyte *>(text.data()));
+    jclass string_class = env->FindClass("java/lang/String");
+    jmethodID constructor = env->GetMethodID(string_class, "<init>", "([BLjava/lang/String;)V");
     jstring charset = env->NewStringUTF("UTF-8");
-    auto result = static_cast<jstring>(env->NewObject(stringClass, constructor, bytes, charset));
+    auto result = static_cast<jstring>(env->NewObject(string_class, constructor, bytes, charset));
     env->DeleteLocalRef(bytes);
     env->DeleteLocalRef(charset);
-    env->DeleteLocalRef(stringClass);
+    env->DeleteLocalRef(string_class);
     return result;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerate(
+        JNIEnv * env, jobject, jstring prompt, jint max_tokens, jlong request_id) {
+    const auto result = generate_request(env, prompt, max_tokens, request_id);
+    if (env->ExceptionCheck()) return nullptr;
+    // Legacy chat still receives non-cancelled partial text at its token/decode boundary.
+    return generation_java_text(env, result.text);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_mangalens_oreznative_OrezNativeEngine_nativeGenerateWithReceipt(
+        JNIEnv * env, jobject, jstring prompt, jint max_tokens, jlong request_id) {
+    const auto result = generate_request(env, prompt, max_tokens, request_id);
+    if (env->ExceptionCheck()) return nullptr;
+    jstring text = generation_java_text(env, result.text);
+    if (text == nullptr || env->ExceptionCheck()) return nullptr;
+    jclass result_class = env->FindClass("com/mangalens/oreznative/NativeGenerationResult");
+    if (result_class == nullptr) { env->DeleteLocalRef(text); return nullptr; }
+    jmethodID constructor = env->GetMethodID(result_class, "<init>", "(Ljava/lang/String;Ljava/lang/String;IIIJJJJ)V");
+    if (constructor == nullptr) { env->DeleteLocalRef(text); env->DeleteLocalRef(result_class); return nullptr; }
+    jstring termination = env->NewStringUTF(result.termination);
+    jobject receipt = env->NewObject(result_class, constructor, text, termination,
+        static_cast<jint>(result.prompt_tokens), static_cast<jint>(result.generated_tokens), static_cast<jint>(result.token_limit),
+        static_cast<jlong>(result.lock_wait_us), static_cast<jlong>(result.setup_us),
+        static_cast<jlong>(result.prefill_us), static_cast<jlong>(result.decode_us));
+    env->DeleteLocalRef(termination);
+    env->DeleteLocalRef(text);
+    env->DeleteLocalRef(result_class);
+    return receipt;
 }
 
 extern "C" JNIEXPORT void JNICALL

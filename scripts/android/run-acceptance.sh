@@ -13,6 +13,8 @@ TEST_TIMEOUT=1800
 INSTALL_TIMEOUT=600
 REQUIRE_MODEL=false
 CLASSES=""
+STARTUP_TRACE=false
+LISTENERS=""
 CORE_CLASSES=com.mangalens.ProductSmokeTest,com.mangalens.WatchPermissionSmokeTest,com.mangalens.WebNavigationSmokeTest,com.mangalens.AppearanceSmokeTest,com.mangalens.ReaderRestorationSmokeTest
 while (($#)); do
   case "$1" in
@@ -24,9 +26,11 @@ while (($#)); do
     --timeout) TEST_TIMEOUT="$2"; shift 2 ;;
     --install-timeout) INSTALL_TIMEOUT="$2"; shift 2 ;;
     --classes) CLASSES="$2"; shift 2 ;;
+    --startup-trace) STARTUP_TRACE=true; shift ;;
+    --listener) LISTENERS="$2"; shift 2 ;;
     --require-model) REQUIRE_MODEL=true; shift ;;
     --help)
-      echo "Usage: $0 [--suite core|full] [--require-model] [--classes class1,class2] [--app-apk path] [--test-apk path] [--self-test-apk path] [--evidence-dir path] [--timeout seconds] [--install-timeout seconds]"
+      echo "Usage: $0 [--suite core|full] [--require-model] [--startup-trace] [--listener class1,class2] [--classes class1,class2] [--app-apk path] [--test-apk path] [--self-test-apk path] [--evidence-dir path] [--timeout seconds] [--install-timeout seconds]"
       echo 'Set ANDROID_SERIAL to select a dedicated QA emulator. Full native-model coverage downloads the pinned free 491 MB Qwen Lite fixture.'
       exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -35,6 +39,7 @@ done
 [[ "$SUITE" == core || "$SUITE" == full ]] || { echo 'Suite must be core or full.' >&2; exit 2; }
 [[ "$TEST_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo 'Timeout must be positive seconds.' >&2; exit 2; }
 [[ "$INSTALL_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo 'Install timeout must be positive seconds.' >&2; exit 2; }
+[[ -z "$LISTENERS" || "$LISTENERS" =~ ^[a-zA-Z_][a-zA-Z0-9_.$]*(,[a-zA-Z_][a-zA-Z0-9_.$]*)*$ ]] || { echo 'Listeners must be comma-separated Java class names.' >&2; exit 2; }
 REQUIRED_CLASSES="$CORE_CLASSES"
 if [[ "$REQUIRE_MODEL" == true ]]; then REQUIRED_CLASSES+=,com.mangalens.NativeModelTest; fi
 if [[ -n "$SELF_TEST_APK" ]]; then REQUIRED_CLASSES+=,com.mangalens.SelfTestPackageCoexistenceTest; test -s "$SELF_TEST_APK"; fi
@@ -85,7 +90,8 @@ record = {
     'dirty_source': bool(git('status', '--porcelain')),
     'source_status': git('status', '--porcelain').splitlines(),
     'suite': os.environ['MANGALENS_ACCEPTANCE_SUITE'],
-    'test_classes': os.environ['MANGALENS_ACCEPTANCE_CLASSES'].split(',') if os.environ['MANGALENS_ACCEPTANCE_CLASSES'] else 'all discovered instrumentation tests',
+    'test_classes': os.environ['MANGALENS_ACCEPTANCE_CLASSES'].split(',') if os.environ['MANGALENS_ACCEPTANCE_CLASSES'] else 'all discovered functional instrumentation tests',
+    'excluded_diagnostic_classes': [] if os.environ['MANGALENS_ACCEPTANCE_CLASSES'] else ['com.mangalens.ui.web.BrowserCompositionHostDiagnosticTest'],
     'required_classes': os.environ['MANGALENS_ACCEPTANCE_REQUIRED_CLASSES'].split(','),
     'app_apk': os.environ['MANGALENS_ACCEPTANCE_APK'],
     'app_apk_sha256': checksum(os.environ['MANGALENS_ACCEPTANCE_APK']),
@@ -150,7 +156,9 @@ printf '%s\n' "$STARTUP_MARKER" > "$DIAGNOSTICS/startup-marker.txt"
 STARTUP_MARKER_STATUS=0
 timeout --signal=TERM --kill-after=2s 10 adb shell log -p i -t MangaLensQA "$STARTUP_MARKER" \
   > "$DIAGNOSTICS/startup-marker-write.txt" 2>&1 || STARTUP_MARKER_STATUS=$?
-timeout --signal=TERM --kill-after=10s 180 adb shell am start -W -n "$PACKAGE/$ACTIVITY" | tee "$DIAGNOSTICS/startup-timing.txt"
+STARTUP_ARGS=(-W -n "$PACKAGE/$ACTIVITY")
+if [[ "$STARTUP_TRACE" == true ]]; then STARTUP_ARGS+=(--ez mangalens.qa.startup_trace true); fi
+timeout --signal=TERM --kill-after=10s 180 adb shell am start "${STARTUP_ARGS[@]}" | tee "$DIAGNOSTICS/startup-timing.txt"
 if ! grep -q '^Status: ok' "$DIAGNOSTICS/startup-timing.txt"; then
   # ActivityManager's own 10-second wait can expire while a TCG-only emulator
   # is still verifying/drawing the APK. Keep that timing, and require its real
@@ -162,8 +170,12 @@ if ! grep -q '^Status: ok' "$DIAGNOSTICS/startup-timing.txt"; then
   FIRST_FRAME=false
   SHORT_ACTIVITY="${ACTIVITY#"$PACKAGE"}"
   while ((SECONDS < STARTUP_DEADLINE)); do
+    STARTUP_LOGCAT_STATUS=0
     timeout --signal=TERM --kill-after=2s 10 adb logcat -d -v brief \
-      ActivityManager:I ActivityTaskManager:I MangaLensQA:I '*:S' > "$DIAGNOSTICS/startup-first-frame-log.txt"
+      ActivityManager:I ActivityTaskManager:I MangaLensQA:I '*:S' > "$DIAGNOSTICS/startup-first-frame-log.txt" \
+      || STARTUP_LOGCAT_STATUS=$?
+    printf 'elapsed_seconds=%s\nlogcat_exit=%s\n' "$SECONDS" "$STARTUP_LOGCAT_STATUS" \
+      >> "$DIAGNOSTICS/startup-logcat-attempts.txt"
     # A rejected logcat clear leaves historical Displayed events in the buffer.
     # Only an event following this launch's unique marker can prove its frame.
     awk -v marker="$STARTUP_MARKER" 'index($0, marker) { fresh=1; next } fresh' \
@@ -197,6 +209,7 @@ if [[ "$REQUIRE_MODEL" == true ]]; then
 fi
 
 ARGS=(-w -r -e expected_source_sha "$SOURCE_SHA" -e require_model "$REQUIRE_MODEL")
+if [[ -n "$LISTENERS" ]]; then ARGS+=(-e listener "$LISTENERS"); fi
 if [[ -n "$SELF_TEST_APK" ]]; then ARGS+=(-e require_self_test true); fi
 if [[ "$SUITE" == full ]]; then
   bash scripts/android/stage-speech-reference.sh "$PACKAGE" "$DIAGNOSTICS"
@@ -206,7 +219,12 @@ if [[ "$SUITE" == full ]]; then
   ARGS+=(-e sample_video "/data/user/0/$PACKAGE/files/privateqa/video/jfk-two-pass-720p.mp4")
   ARGS+=(-e real_manhwa_ocr_fixture "/data/user/0/$PACKAGE/files/privateqa/manhwa/reader002.jpg")
 fi
-if [[ -n "$CLASSES" ]]; then ARGS+=(-e class "$CLASSES"); fi
+if [[ -n "$CLASSES" ]]; then
+  ARGS+=(-e class "$CLASSES")
+else
+  # Host ownership experiments are isolated opt-in diagnostics, outside the functional full suite.
+  ARGS+=(-e notClass com.mangalens.ui.web.BrowserCompositionHostDiagnosticTest)
+fi
 set +e
 timeout --signal=TERM --kill-after=10s "$TEST_TIMEOUT" adb shell am instrument "${ARGS[@]}" "$INSTRUMENTATION" 2>&1 | tee "$DIAGNOSTICS/instrumentation.txt"
 DEVICE_STATUS=${PIPESTATUS[0]}

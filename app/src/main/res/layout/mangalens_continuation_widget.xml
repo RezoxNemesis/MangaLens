@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@drawable/widget_background" android:padding="16dp">
+    <TextView android:id="@+id/widget_continuation_kind" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="MangaLens" android:textColor="#FFFFFF" android:textSize="14sp" android:maxLines="1" />
+    <LinearLayout android:id="@+id/widget_continuation_open" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:minHeight="48dp" android:orientation="vertical" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_continuation_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Open MangaLens" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold" android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/widget_continuation_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Tap to open the app" android:textColor="#FFFFFF" android:textSize="13sp" android:maxLines="3" android:ellipsize="end" />
+        <ProgressBar android:id="@+id/widget_continuation_progress" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="8dp" android:visibility="gone" android:max="100" android:indeterminate="false" />
+    </LinearLayout>
+    <TextView android:id="@+id/widget_continuation_refresh" android:layout_width="match_parent" android:layout_height="48dp" android:gravity="center_vertical|end" android:text="Refresh" android:contentDescription="Refresh MangaLens widget" android:textColor="#FF607D" android:textSize="14sp" />
+</LinearLayout>

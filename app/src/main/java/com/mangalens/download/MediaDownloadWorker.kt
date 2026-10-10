@@ -21,10 +21,22 @@ import java.util.concurrent.TimeUnit
 
 class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     private val dao = DownloadDatabase.get(appContext).downloads()
+    private var currentOwnership: DownloadPrivateFileOwners.Lease? = null
 
     override suspend fun doWork(): Result {
         val id = inputData.getString(KEY_ID) ?: return Result.failure()
-        val item = dao.get(id) ?: return Result.failure()
+        val admitted = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            DownloadIdMutationFences.withId(id) {
+                val item = dao.get(id) ?: return@withId null
+                if (item.state !in setOf(DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.FAILED)) return@withId null
+                val owner = DownloadPrivateFileOwner(File(applicationContext.filesDir, "downloads"), id)
+                if (DownloadPrivateFileOwners.hasOwners(owner)) return@withId null
+                item to DownloadPrivateFileOwners.acquire(owner)
+            }
+        } ?: return Result.failure()
+        val item = admitted.first
+        val ownership = admitted.second
+        currentOwnership = ownership
         val url = item.sourceUrl
         val title = item.title
         val mime = item.mimeType.ifBlank { guessMime(url) }
@@ -36,13 +48,18 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: IOException) {
-            val refreshed = if (runAttemptCount < MAX_RETRIES) {
-                runCatching { refreshSource(id, e.message.orEmpty()) }.getOrDefault(false)
+            if (ownership.isUnproven) {
+                markFailed(id, "A private transfer file did not close safely. Partial files were retained.")
+                Result.failure()
+            } else {
+            val refreshed = if (e !is FragmentCheckpointIOException && runAttemptCount < MAX_RETRIES) {
+                runCatching { refreshSource(id, e.message.orEmpty(), ownership) }.getOrDefault(false)
             } else false
             if (runAttemptCount < MAX_RETRIES) {
                 dao.stageIfActive(
                     id,
                     if (refreshed) "Source refreshed • retrying transfer"
+                    else if (e is FragmentCheckpointIOException) "Waiting to retry saving fragment progress (${runAttemptCount + 1}/$MAX_RETRIES)"
                     else "Waiting to retry network transfer (${runAttemptCount + 1}/$MAX_RETRIES)"
                 )
                 Result.retry()
@@ -50,14 +67,21 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 markFailed(id, e.message ?: "Network failure")
                 Result.failure()
             }
+            }
         } catch (e: Throwable) {
             markFailed(id, e.message ?: "Download failed")
             Result.failure()
+        } finally {
+            // This worker receipt only returns after actual coroutine IO/resource cleanup.
+            ownership.close()
+            currentOwnership = null
         }
     }
 
     private suspend fun download(id: String, url: String, title: String, mime: String, receiptRequired: Boolean) {
-        if (dao.get(id) == null) throw CancellationException("Download was removed")
+        check(!requireNotNull(currentOwnership).isUnproven) { "Private file ownership is unproven; transfer stopped." }
+        if (dao.get(id)?.state !in setOf(DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.FAILED))
+            throw CancellationException("Download was stopped or removed")
         val temp = File(applicationContext.filesDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
 
         val metadata = DownloadRequestContextStore(applicationContext).readForTransfer(id, url, receiptRequired)
@@ -70,7 +94,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             val context = com.mangalens.ui.video.MediaRequestContext(saved.url, saved.sourcePageUrl, saved.headers)
             HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(context) { actual -> android.webkit.CookieManager.getInstance().getCookie(actual) }).build()
         } ?: HTTP
-        ResumableMediaTransfer(client).download(url, temp, validatorFile, mime) { done, total ->
+        val videoProgress: suspend (Long, Long) -> Unit = { done, total ->
             val now = SystemClock.elapsedRealtime()
             if (done - lastPersistBytes >= PROGRESS_BYTES || now - lastPersistAt >= PROGRESS_INTERVAL_MS) {
                 persistProgress(id, done, total)
@@ -82,6 +106,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 lastNotificationAt = now
             }
         }
+        if (metadata?.videoFragments != null) {
+            OriginalFragmentTransfer({ _ -> fragmentClient(metadata.url, metadata.sourcePageUrl, metadata.headers) },
+                requireNotNull(currentOwnership)::retain).download(metadata.videoFragments, temp, validatorFile, videoProgress)
+        } else ResumableMediaTransfer(client, requireNotNull(currentOwnership)::retain).download(url, temp, validatorFile, mime, videoProgress)
 
         currentCoroutineContext().ensureActive()
         check(temp.length() > 0L) { "The downloaded file is empty." }
@@ -92,9 +120,13 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             val audioClient = HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(
                 com.mangalens.ui.video.MediaRequestContext(audioUrl, metadata.sourcePageUrl, metadata.audioHeaders)
             ) { actual -> android.webkit.CookieManager.getInstance().getCookie(actual) }).build()
-            ResumableMediaTransfer(audioClient).download(audioUrl, audio, audioValidator, "audio/") { done, total ->
+            val audioProgress: suspend (Long, Long) -> Unit = { done, total ->
                 persistProgress(id, temp.length() + done, if (total > 0) temp.length() + total else -1)
             }
+            if (metadata.audioFragments != null) {
+                OriginalFragmentTransfer({ _ -> fragmentClient(audioUrl, metadata.sourcePageUrl, metadata.audioHeaders) },
+                    requireNotNull(currentOwnership)::retain).download(metadata.audioFragments, audio, audioValidator, audioProgress)
+            } else ResumableMediaTransfer(audioClient, requireNotNull(currentOwnership)::retain).download(audioUrl, audio, audioValidator, "audio/", audioProgress)
             currentCoroutineContext().ensureActive()
         }
         val remuxAttempt = OriginalMediaRemuxer.newAttemptBase(requireNotNull(temp.parentFile), id)
@@ -131,13 +163,23 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             }
             temp.delete(); audio.delete(); audioValidator.delete()
             validatorFile.delete()
+            File(temp.parentFile, "$id.validator.new").delete(); File(temp.parentFile, "$id.audio.validator.new").delete()
         } finally {
             // Known before the suspend call, so cancellation also removes a rejected result.
-            OriginalMediaRemuxer.removeAttemptOutputs(remuxAttempt)
+            val owner = DownloadPrivateFileOwner(requireNotNull(temp.parentFile), id)
+            if (!requireNotNull(currentOwnership).isUnproven &&
+                !DownloadPrivateFileOwners.hasOtherOwners(owner, requireNotNull(currentOwnership))) {
+                OriginalMediaRemuxer.removeAttemptOutputs(remuxAttempt)
+            }
         }
     }
 
-    private suspend fun refreshSource(id: String, failure: String): Boolean {
+    private fun fragmentClient(trackUrl: String, page: String?, headers: Map<String, String>) =
+        HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(
+            com.mangalens.ui.video.MediaRequestContext(trackUrl, page, headers)
+        ) { actual -> android.webkit.CookieManager.getInstance().getCookie(actual) }).build()
+
+    private suspend fun refreshSource(id: String, failure: String, ownership: DownloadPrivateFileOwners.Lease): Boolean {
         val item = dao.get(id) ?: return false
         val store = DownloadRequestContextStore(applicationContext)
         val saved = store.readMedia(id) ?: return false
@@ -151,6 +193,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         val resolver = MediaLinkResolver(
             siteExtractor = YtDlpSiteMediaExtractor(applicationContext, allowSeparateStreams = true)
         )
+        val expected = dao.get(id) ?: return false
         val refreshed = resolver.resolveCancellable(page, quality) ?: return false
         val mime = refreshed.mimeType ?: item.mimeType
         val title = refreshed.title?.takeIf(String::isNotBlank) ?: item.title
@@ -158,25 +201,30 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             sourcePageUrl = refreshed.sourcePageUrl ?: page,
             requestedHeight = refreshed.requestedHeight ?: quality.height
         )
-        val updated = dao.refreshSource(
-            id = id,
-            url = normalized.url,
-            mime = mime,
-            title = title,
-            provider = normalized.provider,
-            pageUrl = normalized.sourcePageUrl,
-            requestedHeight = normalized.requestedHeight,
-            stage = "Resolved fresh " + normalized.provider + " media source"
-        ) > 0
-        if (!updated) return false
-        store.write(id, normalized)
-        val root = File(applicationContext.filesDir, "downloads")
-        listOf(
-            "$id.part", "$id.validator", "$id.audio.part", "$id.audio.validator", "$id.muxed.mp4"
-        ).forEach { File(root, it).delete() }
-        root.listFiles().orEmpty().filter { it.name.startsWith("$id.muxed-") &&
-            it.extension in setOf("mp4", "webm", "mkv") }.forEach(File::delete)
-        return true
+        return DownloadIdMutationFences.withId(id) {
+            if (dao.get(id) != expected || expected.state !in setOf(DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.FAILED)) return@withId false
+            val owner = DownloadPrivateFileOwner(File(applicationContext.filesDir, "downloads"), id)
+            if (ownership.isUnproven || DownloadPrivateFileOwners.hasOtherOwners(owner, ownership)) return@withId false
+            val updated = dao.refreshSource(
+                id = id,
+                url = normalized.url,
+                mime = mime,
+                title = title,
+                provider = normalized.provider,
+                pageUrl = normalized.sourcePageUrl,
+                requestedHeight = normalized.requestedHeight,
+                stage = "Resolved fresh " + normalized.provider + " media source"
+            ) > 0
+            if (!updated) return@withId false
+            store.write(id, normalized)
+            val root = File(applicationContext.filesDir, "downloads")
+            listOf(
+                "$id.part", "$id.validator", "$id.validator.new", "$id.audio.part", "$id.audio.validator", "$id.audio.validator.new", "$id.muxed.mp4"
+            ).forEach { File(root, it).delete() }
+            root.listFiles().orEmpty().filter { it.name.startsWith("$id.muxed-") &&
+                it.extension in setOf("mp4", "webm", "mkv") }.forEach(File::delete)
+            true
+        }
     }
 
     private suspend fun persistProgress(id: String, done: Long, total: Long) {
@@ -203,7 +251,7 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 val destination = resolver.openOutputStream(uri)
                     ?: throw IOException("Unable to open download destination for writing.")
                 destination.use { output ->
-                    temp.inputStream().use { input -> input.copyTo(output, BUFFER_SIZE) }
+                    temp.inputStream().useOwnedPrivateFile(requireNotNull(currentOwnership)::retain) { input -> input.copyTo(output, BUFFER_SIZE) }
                 }
                 values.clear()
                 values.put(MediaStore.Downloads.IS_PENDING, 0)
@@ -218,7 +266,9 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         val dir = applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
             ?: File(applicationContext.filesDir, "downloads").apply { mkdirs() }
         val file = File(dir, safeName(title, mime))
-        temp.copyTo(file, true)
+        temp.inputStream().useOwnedPrivateFile(requireNotNull(currentOwnership)::retain) { input ->
+            file.outputStream().use { output -> input.copyTo(output, BUFFER_SIZE) }
+        }
         return androidx.core.content.FileProvider.getUriForFile(applicationContext, "${applicationContext.packageName}.downloads", file)
     }
 

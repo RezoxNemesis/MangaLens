@@ -41,6 +41,8 @@ import com.mangalens.core.translation.ReaderTranslationPresentation
 import com.mangalens.core.verification.CaptchaBridge
 import com.mangalens.ui.reader.TranslationOverlay
 import com.mangalens.ui.theme.ThemeMode
+import com.mangalens.diagnostics.StartupScalarTrace
+import com.mangalens.diagnostics.StartupStage
 import com.mangalens.ui.video.VideoSourcePolicy
 import com.mangalens.ui.video.VideoPlaybackSelection
 import com.mangalens.ui.video.VideoPlaybackPublication
@@ -70,6 +72,8 @@ data class MangaLensUiState(
     val videoAudioResolutionId: String? = null,
     val videoExpectedDurationUs: Long? = null,
     val videoProviderCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
+    val videoMimeType: String? = null,
+    val videoAudioMimeType: String? = null,
     val loading: Boolean = false,
     val translating: Boolean = false,
     val translationPaused: Boolean = false,
@@ -78,6 +82,7 @@ data class MangaLensUiState(
     val translationEnabled: Boolean = false,
     val overlays: Map<Int, List<TranslationOverlay>> = emptyMap(),
     val translatedBackgrounds: Map<Int, String> = emptyMap(),
+    val ocrDiagnostics: Map<Int, com.mangalens.core.translation.SavedPageOcrDiagnostics> = emptyMap(),
     val translationMessage: String? = null,
     val promoPages: Set<Int> = emptySet(),
     val error: String? = null,
@@ -91,13 +96,14 @@ data class MangaLensUiState(
     val customTranslationStyle: String = "",
     val adBlockEnabled: Boolean = true,
     val adBlockStats: AdBlockStats = AdBlockStats(),
+    val savedTextSelection: com.mangalens.core.translation.SavedTextReaderSelection? = null,
 )
 
 internal fun MangaLensUiState.capturedVideoSelection(): VideoPlaybackSelection? {
     if (mode != ContentType.VIDEO_STREAM || videoUrl.isNullOrBlank() || videoResolutionId == null ||
         videoAudioUrl != null && videoAudioResolutionId != videoResolutionId) return null
     return VideoPlaybackSelection(videoResolutionId, videoUrl, videoHeaders.toMap(), videoPageUrl,
-        videoAudioUrl, videoAudioHeaders.toMap(), videoExpectedDurationUs, videoProviderCaptions?.captureSnapshot())
+        videoAudioUrl, videoAudioHeaders.toMap(), videoExpectedDurationUs, videoProviderCaptions?.captureSnapshot(), videoMimeType, videoAudioMimeType)
 }
 
 private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelection?): MangaLensUiState = copy(
@@ -105,7 +111,8 @@ private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelectio
     videoHeaders = selection?.videoHeaders.orEmpty(), videoAudioUrl = selection?.audioUrl,
     videoAudioHeaders = selection?.audioHeaders.orEmpty(), videoResolutionId = selection?.resolutionId,
     videoAudioResolutionId = selection?.resolutionId?.takeIf { selection.audioUrl != null },
-    videoExpectedDurationUs = selection?.durationUs, videoProviderCaptions = selection?.providerCaptions?.captureSnapshot()
+    videoExpectedDurationUs = selection?.durationUs, videoProviderCaptions = selection?.providerCaptions?.captureSnapshot(),
+    videoMimeType = selection?.videoMimeType, videoAudioMimeType = selection?.audioMimeType
 )
 
 internal fun MangaLensUiState.withLibraryChapter(chapter: SavedChapter): MangaLensUiState = withVideoSelection(null).copy(
@@ -116,16 +123,20 @@ internal fun MangaLensUiState.withLibraryChapter(chapter: SavedChapter): MangaLe
 
 class MangaLensViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
-    private val prefs = application.getSharedPreferences("mangalens_preferences", Application.MODE_PRIVATE)
-    private val ocrPrefs = application.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE)
+    private val prefs = StartupScalarTrace.measure(StartupStage.VM_PREFERENCES_OPEN) {
+        application.getSharedPreferences("mangalens_preferences", Application.MODE_PRIVATE)
+    }
+    private val ocrPrefs = StartupScalarTrace.measure(StartupStage.VM_OCR_PREFERENCES_OPEN) {
+        application.getSharedPreferences("mangalens_ocr", Application.MODE_PRIVATE)
+    }
     private val ocrPreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key in setOf("script", "high_accuracy", "preserve_style", "local_refinement")) clearTranslations()
     }
     private val statsStore = AdBlockStatsStore.shared
     private val router = UrlEngineRouter()
     private val persistenceMutex = kotlinx.coroutines.sync.Mutex()
-    private val library = ChapterLibrary(application)
-    private val repository = ProgressiveChapterRepository(application)
+    private val library = StartupScalarTrace.measure(StartupStage.VM_LIBRARY_CREATE) { ChapterLibrary(application) }
+    private val repository = StartupScalarTrace.measure(StartupStage.VM_REPOSITORY_CREATE) { ProgressiveChapterRepository(application) }
     private val acquirer = RenderedBrowserAcquirer(
         application,
         AdBlockEngine(statsStore),
@@ -135,8 +146,29 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val translationSelectionEpoch = MutableStateFlow(0L)
     private var displayedTranslation: ChapterTranslationTask? = null
     private var translationReceipt: ReaderTranslationReceipt? = null
+    // Allocation/model verification is deferred until an explicit saved-bubble question.
+    @Volatile private var savedBubbleModelOwnerOpen = true
+    private val savedBubbleLocalModel = lazy { com.mangalens.orez.OrezLocalModelService(com.mangalens.orez.OrezModelManager(app)) }
     val readerMemory = com.mangalens.core.translation.ReaderMemoryController(app.filesDir, viewModelScope,
-        storeProvider = { withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app) } })
+        storeProvider = { withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app) } }).also { controller ->
+        controller.configureBubbleRegionActions { inspection, action, source, owner ->
+            withContext(Dispatchers.IO) {
+                owner.validate(true)
+                if (!savedBubbleModelOwnerOpen) throw kotlinx.coroutines.CancellationException("Reader model owner closed.")
+                com.mangalens.core.translation.ReaderBubbleRegionActionService(app).perform(inspection, action, source, owner)
+            }
+        }
+        controller.configureBubbleExplanation { prompt, owner ->
+            withContext(Dispatchers.IO) {
+                owner.validate(false)
+                val service = savedBubbleLocalModel.value
+                if (!savedBubbleModelOwnerOpen) { service.close(); throw kotlinx.coroutines.CancellationException("Reader model owner closed.") }
+                val pin = service.captureModelPin(com.mangalens.orez.OrezModelTask.SAVED_BUBBLE)
+                owner.validate(false)
+                if (pin == null) null else com.mangalens.orez.SavedBubbleOrezGateway(service).explain(prompt, pin, owner)
+            }
+        }
+    }
     private class PendingTranslation(val selection: TranslationSelection) {
         val request = ChapterTranslationRequest()
         val ownerRequestId = "reader-" + java.util.UUID.randomUUID()
@@ -145,28 +177,35 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private var presentationOpen = true
     private var ingestionJob: kotlinx.coroutines.Job? = null
     private var translateWhenPagesReady = false
-    private val chapterScraper = MangaChapterScraper(application)
-    private val staticAcquirer = com.mangalens.core.acquisition.StaticChapterAcquirer()
+    private val chapterScraper = MangaChapterScraper(application, AdBlockEngine(statsStore),
+        adBlockEnabled = { prefs.getBoolean("ad_block_enabled", true) })
+    private val staticAcquirer = StartupScalarTrace.measure(StartupStage.VM_STATIC_ACQUIRER_CREATE) {
+        com.mangalens.core.acquisition.StaticChapterAcquirer()
+    }
     private val chapterCatalog = MangaChapterCatalogScraper(application)
-    private val mediaLinkResolver = MediaLinkResolver(
-        siteExtractor = com.mangalens.download.YtDlpSiteMediaExtractor(application, allowSeparateStreams = true),
-        timeoutMs = 45_000L
-    )
+    private val mediaLinkResolver = StartupScalarTrace.measure(StartupStage.VM_MEDIA_RESOLVER_CREATE) {
+        MediaLinkResolver(
+            siteExtractor = com.mangalens.download.YtDlpSiteMediaExtractor(application, allowSeparateStreams = true),
+            timeoutMs = 45_000L
+        )
+    }
     val captchaBridge = CaptchaBridge()
 
-    private val _state = MutableStateFlow(
-        MangaLensUiState(
-            url = prefs.getString("last_url", "") ?: "",
-            themeMode = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme_mode", ThemeMode.DARK.name) } ?: ThemeMode.DARK,
-            mangaTranslationEnabled = prefs.getBoolean("translation_manga", false),
-            videoTranslationEnabled = prefs.getBoolean("translation_video", false),
-            webTranslationEnabled = prefs.getBoolean("translation_web", false),
-            targetLanguage = prefs.getString("translation_target", "hi") ?: "hi",
-            translationStyle = prefs.getString("translation_style", "natural") ?: "natural",
-            customTranslationStyle = prefs.getString("translation_custom_style", "") ?: "",
-            adBlockEnabled = prefs.getBoolean("ad_block_enabled", true),
+    private val _state = StartupScalarTrace.measure(StartupStage.VM_PREFERENCES_READ) {
+        MutableStateFlow(
+            MangaLensUiState(
+                url = prefs.getString("last_url", "") ?: "",
+                themeMode = ThemeMode.entries.firstOrNull { it.name == prefs.getString("theme_mode", ThemeMode.DARK.name) } ?: ThemeMode.DARK,
+                mangaTranslationEnabled = prefs.getBoolean("translation_manga", false),
+                videoTranslationEnabled = prefs.getBoolean("translation_video", false),
+                webTranslationEnabled = prefs.getBoolean("translation_web", false),
+                targetLanguage = prefs.getString("translation_target", "hi") ?: "hi",
+                translationStyle = prefs.getString("translation_style", "natural") ?: "natural",
+                customTranslationStyle = prefs.getString("translation_custom_style", "") ?: "",
+                adBlockEnabled = prefs.getBoolean("ad_block_enabled", true),
+            )
         )
-    )
+    }
     val state: StateFlow<MangaLensUiState> = _state
 
     private data class TranslationSelection(
@@ -178,15 +217,19 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun translationSelection(value: MangaLensUiState = _state.value) = TranslationSelection(
         value.activeChapter?.id.orEmpty(), value.targetLanguage, value.translationStyle,
-        value.customTranslationStyle, value.mangaTranslationEnabled, translationSelectionEpoch.value,
+        value.customTranslationStyle, value.mangaTranslationEnabled || value.savedTextSelection != null, translationSelectionEpoch.value,
         value.pages.map { it.index to it.localPath }, value.pages.map { it.index to it.contentRevision },
-        capturedTranslationConfig(value.targetLanguage, value)
+        value.savedTextSelection?.let(com.mangalens.core.translation.SavedTextReaderNavigationPolicy::readerChoice)
+            ?: capturedTranslationConfig(value.targetLanguage, value)
     )
 
     init {
         ocrPrefs.registerOnSharedPreferenceChangeListener(ocrPreferenceListener)
         viewModelScope.launch {
-            val saved = withContext(Dispatchers.IO) { library.list() }
+            val saved = withContext(Dispatchers.IO) {
+                StartupScalarTrace.markOnce(StartupStage.LIBRARY_IO_STARTED)
+                library.list().also { StartupScalarTrace.markOnce(StartupStage.LIBRARY_IO_FINISHED) }
+            }
             val recent = saved.firstOrNull()
             _state.value = _state.value.copy(library = saved)
             if (recent != null && _state.value.activeChapter == null && !_state.value.loading) {
@@ -203,7 +246,12 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 // Loading and validating the atomic journals never happens on the UI thread.
-                val store = withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app) }
+                val store = withContext(Dispatchers.IO) {
+                    StartupScalarTrace.markOnce(StartupStage.TRANSLATION_JOURNAL_IO_STARTED)
+                    ChapterTranslationStore.shared(app).also {
+                        StartupScalarTrace.markOnce(StartupStage.TRANSLATION_JOURNAL_IO_FINISHED)
+                    }
+                }
                 launch(Dispatchers.IO) { ChapterTranslationJobs.recoverPending(app) }
                 var validatedSelection: TranslationSelection? = null
                 val selections = combine(_state.map { translationSelection(it) }.distinctUntilChanged(),
@@ -218,16 +266,27 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         } ?: ReaderTranslationPresentation.restore(tasks, selected.chapterId, choice, paths, managed)
                     }
                     translationReceipt = bound
-                    var task = if (bound != null && choice != null) ReaderTranslationPresentation.select(tasks, bound,
-                        selected.chapterId, choice, paths, managed) else null
-                    if (task != null && (task.validationPending || validatedSelection != selected)) {
+                    // Explicit saved-text warming has its own process-local read proof. Ordinary cold
+                    // Reader/editor flags remain untouched; the full proof is checked on IO and at display.
+                    val warmed = withContext(Dispatchers.IO) { _state.value.savedTextSelection?.warmedTaskForRead() }
+                    var task = if (bound != null && choice != null) ReaderTranslationPresentation.select(
+                        warmed?.let { listOf(it) } ?: tasks, bound, selected.chapterId, choice, paths, managed) else null
+                    if (task != null && warmed !== task && (task.validationPending || validatedSelection != selected)) {
                         val refreshed = store.refresh(task.id, task.generation)
                         task = if (refreshed != null && bound != null && choice != null)
                             ReaderTranslationPresentation.select(listOf(refreshed), bound, selected.chapterId, choice, paths, managed) else null
                         validatedSelection = selected
                     }
                     if (translationSelection() == selected && pendingTranslation?.selection != selected && translationReceipt == bound) {
-                        displayTranslation(task)
+                        val savedText = _state.value.savedTextSelection
+                        var acceptedTask = task
+                        if (savedText != null && task != null) {
+                            acceptedTask = null
+                            // IO refresh can be held before Main. Accept metadata under its short native gate;
+                            // Reader authority, observers and render effects run after that gate releases.
+                            savedText.tryAcceptNative(task) { acceptedTask = task }
+                        }
+                        displayTranslation(acceptedTask)
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -243,7 +302,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         if (task == null || task.validationPending) {
             _state.update { it.copy(translating = false, translationPaused = false, translationDone = 0,
                 translationTotal = 0, translationEnabled = false, translationError = false,
-                translationMessage = null, overlays = emptyMap(), translatedBackgrounds = emptyMap(), promoPages = emptySet()) }
+                translationMessage = null, overlays = emptyMap(), ocrDiagnostics = emptyMap(), translatedBackgrounds = emptyMap(), promoPages = emptySet()) }
             return
         }
         val currentPaths = _state.value.pages.associate { it.index to it.localPath }
@@ -271,14 +330,15 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             translationDone = task.processedPages, translationTotal = task.totalPages,
             translationEnabled = overlays.isNotEmpty(), translationError = failed, translationMessage = message,
             overlays = overlays, translatedBackgrounds = pages.mapNotNull { page -> page.cleanedPath?.let { page.index to it } }.toMap(),
-            promoPages = pages.filter { it.status == ChapterTranslationPageStatus.PROMO }.map { it.index }.toSet()) }
+            promoPages = pages.filter { it.status == ChapterTranslationPageStatus.PROMO || it.promotionDetected }.map { it.index }.toSet(),
+            ocrDiagnostics = pages.mapNotNull { page -> page.ocrDiagnostics?.let { page.index to it } }.toMap()) }
     }
 
     private fun capturedTranslationConfig(language: String, value: MangaLensUiState = _state.value): ChapterTranslationConfig {
-        val options = ocrPrefs.all
-        return ChapterTranslationConfig(language, value.translationStyle, value.customTranslationStyle,
+        val options = StartupScalarTrace.measure(StartupStage.VM_OCR_CONFIGURATION_READ) { ocrPrefs.all }
+        return com.mangalens.core.translation.ChapterReconstructionInputPolicy.newGeneration(ChapterTranslationConfig(language, value.translationStyle, value.customTranslationStyle,
             options["script"] as? String ?: "AUTO", options["high_accuracy"] as? Boolean ?: true,
-            options["preserve_style"] as? Boolean ?: true, options["local_refinement"] as? Boolean ?: false)
+            options["preserve_style"] as? Boolean ?: true, options["local_refinement"] as? Boolean ?: false))
     }
 
     fun setUrl(value: String) {
@@ -324,7 +384,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun setTargetLanguage(language: String) {
         val normalized = language.lowercase().trim()
-        if (normalized == _state.value.targetLanguage) return
+        if (normalized == (_state.value.savedTextSelection?.targetLanguage ?: _state.value.targetLanguage)) return
         clearTranslations()
         if (normalized.isBlank()) return
         prefs.edit().putString("translation_target", normalized).apply()
@@ -333,7 +393,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setTranslationStyle(styleId: String) {
         val normalized = styleId.lowercase().trim()
-        if (normalized == _state.value.translationStyle) return
+        if (normalized == (_state.value.savedTextSelection?.receipt?.configuration?.styleId ?: _state.value.translationStyle)) return
         clearTranslations()
         if (normalized.isBlank()) return
         prefs.edit().putString("translation_style", normalized).apply()
@@ -342,7 +402,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setCustomTranslationStyle(instruction: String) {
         val normalized = instruction.trim().take(1200)
-        if (normalized == _state.value.customTranslationStyle) return
+        if (normalized == (_state.value.savedTextSelection?.receipt?.configuration?.customStyle ?: _state.value.customTranslationStyle)) return
         clearTranslations()
         prefs.edit().putString("translation_custom_style", normalized).apply()
         _state.value = _state.value.copy(customTranslationStyle = normalized)
@@ -402,7 +462,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         previousIngestion?.cancel()
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
-            _state.value = _state.value.withVideoSelection(null).copy(loading = true, translating = false, error = null, overlays = emptyMap(), translationEnabled = false)
+            _state.value = _state.value.withVideoSelection(null).copy(loading = true, translating = false, error = null, overlays = emptyMap(), ocrDiagnostics = emptyMap(), translationEnabled = false)
             try {
                 repository.clearChapterCache()
                 val imported = com.mangalens.core.reader.DocumentImporter.prepare(app, uris)
@@ -446,7 +506,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 _state.value.pages.any { it.index == page.index && it.sourceUrl == page.sourceUrl && it.localPath == page.localPath }
             if (!stillSelected()) return@launch
             _state.update { it.copy(loading = true, error = null,
-                overlays = it.overlays - page.index, translatedBackgrounds = it.translatedBackgrounds - page.index) }
+                overlays = it.overlays - page.index, translatedBackgrounds = it.translatedBackgrounds - page.index, ocrDiagnostics = it.ocrDiagnostics - page.index) }
             try {
                 repository.repairPage(page, app, chapter.sourceUrl)
                 ensureActive()
@@ -552,7 +612,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                 checkActive()
                                 if (_state.value.url != target || _state.value.mode != selectedMode) return@videoResolution
                                 val selected = VideoPlaybackPublication.capture(resolved.url, playbackHeaders, pageUrl, resolved.audioUrl, audioHeaders,
-                                    providerCaptions = resolved.providerCaptions)
+                                    providerCaptions = resolved.providerCaptions, videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType)
                                 _state.value = _state.value.withVideoSelection(selected).copy(
                                     mode = ContentType.VIDEO_STREAM,
                                     loading = false,
@@ -572,19 +632,19 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                     ContentType.IMAGE_CHAPTER -> {
                         _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
                         repository.clearChapterCache()
-                        _state.value = _state.value.copy(pages = emptyList(), overlays = emptyMap(), translationEnabled = false)
+                        _state.value = _state.value.copy(pages = emptyList(), overlays = emptyMap(), ocrDiagnostics = emptyMap(), translationEnabled = false)
                         val lightweight = staticAcquirer.discover(target)
                         val chapters = if (!lightweight?.chapters.isNullOrEmpty()) lightweight!!.chapters.map { MangaChapter(it.title, it.url) }
                             else try { chapterCatalog.extract(target).map { MangaChapter(it.title, it.url) } } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { emptyList() }
                         _state.value = _state.value.copy(chapters = chapters,
                             activeChapter = _state.value.activeChapter?.copy(title = lightweight?.title ?: _state.value.activeChapter!!.title))
                         val result = if (!lightweight?.pageUrls.isNullOrEmpty()) {
-                            com.mangalens.acquisition.RenderedPageSet(target, lightweight!!.pageUrls, emptyList(), emptyList(), 1, 200, null)
+                            com.mangalens.acquisition.RenderedPageSet(target, lightweight!!.pageUrls, emptyList(), emptyList(), 1, 200, null, lightweight.pageCandidates)
                         } else acquirer.discoverWithCookie(target, 15_000L, null)
-                        if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls, result.finalUrl)
+                        if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredCandidates(result.imageCandidates, result.finalUrl)
                         if (result.imageUrls.isEmpty()) {
-                            val fallback = chapterScraper.extract(target)
-                            if (fallback.isNotEmpty()) repository.persistDiscoveredPages(fallback, target)
+                            val fallback = chapterScraper.extractCandidates(target)
+                            if (fallback.isNotEmpty()) repository.persistDiscoveredCandidates(fallback, target)
                         }
                         val chapterError = if (repository.pages.value.isEmpty()) {
                             result.navigationError
@@ -641,7 +701,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 repository.clearChapterCache()
                 _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
                 val result = acquirer.discoverWithCookie(target, 20_000L, cookie)
-                if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredPages(result.imageUrls, result.finalUrl)
+                if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredCandidates(result.imageCandidates, result.finalUrl)
                 _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false, error = result.navigationError)
                 captchaBridge.completeVerification(cookie, "Android")
             } catch (t: kotlinx.coroutines.CancellationException) {
@@ -653,7 +713,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun translatePage(page: ChapterPage, targetLanguage: String = _state.value.targetLanguage) {
+    fun translatePage(page: ChapterPage, targetLanguage: String = _state.value.savedTextSelection?.targetLanguage ?: _state.value.targetLanguage) {
         if (!_state.value.mangaTranslationEnabled) {
             _state.update { it.copy(translationError = true,
                 translationMessage = "Manga translation is disabled in Settings → Translation Modules.") }
@@ -669,7 +729,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         startChapterTranslation(chapter.copy(pages = pages), targetLanguage, listOf(page.index), forceReprocess = true)
     }
 
-    fun translateChapter(targetLanguage: String = _state.value.targetLanguage) {
+    fun translateChapter(targetLanguage: String = _state.value.savedTextSelection?.targetLanguage ?: _state.value.targetLanguage) {
         val chapter = _state.value.activeChapter
         val pages = _state.value.pages.toList()
         if (chapter == null || pages.isEmpty()) {
@@ -681,6 +741,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun startChapterTranslation(chapter: SavedChapter, language: String, requestedPages: List<Int>?,
         forceReprocess: Boolean = false) {
+        // A new explicit generation cannot reuse the saved-result presentation override.
+        if (_state.value.savedTextSelection != null) clearTranslations()
         // The explicit language overload also selects its result in the reader.
         setTargetLanguage(language)
         val config = capturedTranslationConfig(_state.value.targetLanguage)
@@ -781,7 +843,7 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                 translationCommands.withLock {
                     ChapterTranslationJobs.removeChapter(app, id)
                     persistenceMutex.withLock {
-                        withContext(Dispatchers.IO) { library.remove(id) }
+                        withContext(Dispatchers.IO) { library.remove(id); com.mangalens.widget.MangaLensWidgetUpdates.request(app) }
                         _state.update { it.copy(library = it.library.filterNot { saved -> saved.id == id }) }
                     }
                 }
@@ -792,13 +854,44 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun openSavedChapter(id: String) {
-        val chapter = _state.value.library.firstOrNull { it.id == id }?.visitedAt(System.currentTimeMillis()) ?: return
+    fun openSavedTextResult(prepared: com.mangalens.core.translation.PreparedSavedTextOpen): Boolean {
+        var accepted: com.mangalens.core.translation.SavedTextReaderSelection? = null
+        var chapter: SavedChapter? = null
+        val delivered = prepared.tryDeliver { selected ->
+            val current = com.mangalens.core.translation.SavedTextReaderNavigationPolicy.chapterFor(selected, _state.value.library, System.currentTimeMillis())
+            if (current == null) false else { accepted = selected; chapter = current; true }
+        }
+        if (!delivered) return false
+        val selected = requireNotNull(accepted)
+        val selectedChapter = requireNotNull(chapter)
+        ingestionJob?.cancel()
+        clearTranslations()
+        translationReceipt = selected.receipt
+        // Exact saved preferences are presented separately; future translation defaults stay unchanged.
+        _state.value = _state.value.withLibraryChapter(selectedChapter).copy(savedTextSelection = selected)
+        repository.restorePages(selectedChapter.pages)
+        queueReadingCheckpoint()
+        return true
+    }
+
+    fun leaveSavedTextReader(requestId: String) {
+        if (_state.value.savedTextSelection?.requestId == requestId) clearTranslations()
+    }
+
+    fun openSavedChapter(id: String) { selectSavedChapter(id) }
+
+    /** Entry links may select existing loaded records only; no implicit acquisition or translation. */
+    fun openSavedChapterEntry(id: String): Boolean =
+        id.matches(Regex("[a-f0-9]{32}")) && selectSavedChapter(id)
+
+    private fun selectSavedChapter(id: String): Boolean {
+        val chapter = _state.value.library.firstOrNull { it.id == id }?.visitedAt(System.currentTimeMillis()) ?: return false
         ingestionJob?.cancel()
         clearTranslations()
         _state.value = _state.value.withLibraryChapter(chapter)
         repository.restorePages(chapter.pages)
         queueReadingCheckpoint()
+        return true
     }
 
     fun saveReadingPosition(id: String, position: Int, offset: Int) {
@@ -809,19 +902,23 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun queueReadingCheckpoint() {
+        val explicitChapterId = _state.value.activeChapter?.id ?: return
         viewModelScope.launch {
-            try { persistCurrentChapter() }
+            try { persistCurrentChapter(explicitChapterId) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { _state.update { it.copy(error = failure.message ?: "Reading history could not be saved. Please retry.") } }
         }
     }
 
-    private suspend fun persistCurrentChapter() = persistenceMutex.withLock {
+    private suspend fun persistCurrentChapter(explicitReadingId: String? = null) = persistenceMutex.withLock {
         val chapter = _state.value.activeChapter ?: return@withLock
         val pages = _state.value.pages
         if (pages.isEmpty()) return@withLock
         val saved = chapter.copy(pages = pages, updatedAt = System.currentTimeMillis())
-        withContext(Dispatchers.IO) { library.save(saved) }
+        withContext(Dispatchers.IO) {
+            library.save(saved)
+            if (explicitReadingId == saved.id) com.mangalens.widget.WidgetReadingPointerStore.recordAfterVisit(app, saved.id, saved.lastReadAt)
+        }
         if (_state.value.activeChapter?.id == saved.id) {
             _state.value = _state.value.copy(activeChapter = _state.value.activeChapter?.copy(pages = saved.pages), library = (listOf(saved) + _state.value.library.filterNot { it.id == saved.id }))
         }
@@ -877,9 +974,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         displayedTranslation = null
         translationReceipt = null
         translationSelectionEpoch.value += 1
-        _state.update { it.copy(translating = false, translationPaused = false, translationDone = 0,
+        _state.update { it.copy(savedTextSelection = null, translating = false, translationPaused = false, translationDone = 0,
             translationTotal = 0, translationEnabled = false, translationError = false, translationMessage = null,
-            overlays = emptyMap(), translatedBackgrounds = emptyMap(), promoPages = emptySet()) }
+            overlays = emptyMap(), ocrDiagnostics = emptyMap(), translatedBackgrounds = emptyMap(), promoPages = emptySet()) }
     }
 
     private fun controlChapterTranslation(target: ChapterTranslationTask,
@@ -919,6 +1016,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         presentationOpen = false
         readerMemory.retire()
+        savedBubbleModelOwnerOpen = false
+        if (savedBubbleLocalModel.isInitialized()) savedBubbleLocalModel.value.close()
         ingestionJob?.cancel()
         ocrPrefs.unregisterOnSharedPreferenceChangeListener(ocrPreferenceListener)
         // Durable workers own their resources and continue independently of this reader.

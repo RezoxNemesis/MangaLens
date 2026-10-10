@@ -12,13 +12,15 @@ data class SubtitleMediaSource(
     val cacheKey: String = uri,
     val label: String = "Video",
     val providerCaptions: ProviderCaptionInventory? = null,
-    val sourceResolutionId: String? = null
+    val sourceResolutionId: String? = null,
+    val captionDocumentOnly: Boolean = false
 )
 
 enum class SubtitleOutputMode { TRANSLATED, DUAL }
 enum class SubtitlePipeline { WHISPER_ENGLISH, SOURCE_TRANSLATION }
 data class SubtitleRefinementPin(val modelId: String, val sha256: String, val bytes: Long)
-data class SubtitleSavedRefinement(val model: SubtitleRefinementPin, val promptSha256: String, val outputSha256: String)
+data class SubtitleSavedRefinement(val model: SubtitleRefinementPin, val promptSha256: String, val outputSha256: String,
+    val completion: SubtitleRefinementCompletionEvidence? = null)
 data class SubtitleTargetOptions(
     val targetLanguage: String = "en",
     val outputMode: SubtitleOutputMode = SubtitleOutputMode.TRANSLATED,
@@ -27,8 +29,16 @@ data class SubtitleTargetOptions(
     val localRefinement: Boolean = false,
     val refinementPin: SubtitleRefinementPin? = null,
     val capturedStyle: TranslationStyleProfile? = null,
-    val sceneContext: String = ""
+    val sceneContext: String = "",
+    val refinementInputProfileRevision: String? = null
 ) {
+    /** Called only for a new generation action; journal decode/resume uses capture() without upgrading. */
+    fun captureForNewRequest(): SubtitleTargetOptions = capture().let { captured ->
+        if (captured.localRefinement && captured.refinementInputProfileRevision == null)
+            captured.copy(refinementInputProfileRevision = com.mangalens.core.translation.TranslationRefinementPolicy.INPUT_PROFILE_VERSION)
+        else captured
+    }
+
     fun capture(): SubtitleTargetOptions = copy(targetLanguage = targetLanguage.trim().lowercase(java.util.Locale.ROOT),
         style = style.trim().lowercase(java.util.Locale.ROOT), customStyle = customStyle.trim(), sceneContext = sceneContext.trim(),
         capturedStyle = capturedStyle ?: if (style.trim().equals("custom", true)) TranslationStyleProfile.custom(customStyle)
@@ -50,7 +60,8 @@ data class SubtitleGenerationConfig(
     val translationPolicy: String = "whisper-english-v1",
     val capturedStyle: TranslationStyleProfile? = null,
     val refinementPin: SubtitleRefinementPin? = null,
-    val sceneContext: String = ""
+    val sceneContext: String = "",
+    val refinementInputProfileRevision: String? = null
 ) {
     /** Legacy spelling is part of the durable v1 identity; never use data-class toString here. */
     internal fun identityText(): String {
@@ -62,7 +73,8 @@ data class SubtitleGenerationConfig(
         capturedStyle?.instruction.orEmpty(), capturedStyle?.preserveHonorifics.toString(), capturedStyle?.preserveNames.toString(),
         capturedStyle?.naturalDialogue.toString(), refinementPin?.modelId.orEmpty(), refinementPin?.sha256.orEmpty(),
         refinementPin?.bytes.toString()).joinToString("|") { "${it.length}:$it" }
-        return if (sceneContext.isEmpty()) legacy else legacy + "|scene-context-v1|${sceneContext.length}:$sceneContext"
+        val scene = if (sceneContext.isEmpty()) legacy else legacy + "|scene-context-v1|${sceneContext.length}:$sceneContext"
+        return refinementInputProfileRevision?.let { scene + "|localization-input-profile-v1|${it.length}:$it" } ?: scene
     }
     fun fingerprint(): String = java.security.MessageDigest.getInstance("SHA-256").digest(identityText().toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
@@ -70,7 +82,8 @@ data class SubtitleGenerationConfig(
         targetLanguage = captured.targetLanguage, style = captured.style, outputMode = captured.outputMode,
         pipeline = SubtitlePipeline.SOURCE_TRANSLATION, customStyle = captured.customStyle,
         localRefinement = captured.localRefinement, translationPolicy = "mlkit-dialogue-v1",
-        capturedStyle = captured.capturedStyle, refinementPin = captured.refinementPin, sceneContext = captured.sceneContext)
+        capturedStyle = captured.capturedStyle, refinementPin = captured.refinementPin, sceneContext = captured.sceneContext,
+        refinementInputProfileRevision = captured.refinementInputProfileRevision)
     }
 }
 

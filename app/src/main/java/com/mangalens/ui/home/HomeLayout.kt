@@ -10,9 +10,13 @@ enum class HomeModule(val id: String, val label: String, val defaultVisible: Boo
     SOURCE_CHAPTERS("source_chapters", "Source chapters", true),
     OREZ_AI("orez_ai", "Orez AI", true),
     CONTINUE_WATCHING("continue_watching", "Continue Watching", true),
+    RECENT_VIDEO("recent_video", "Recent Video", false),
     DOWNLOADS("downloads", "Downloads", false),
     TRANSLATION_QUEUE("translation_queue", "Translation Queue", false),
-    BOOKMARKS("bookmarks", "Bookmarks", false)
+    BOOKMARKS("bookmarks", "Bookmarks", false),
+    BROWSER_HISTORY("browser_history", "Browser History", false),
+    RECENT_SITES("recent_sites", "Recent Sites", false),
+    OREZ_SUGGESTIONS("orez_suggestions", "Orez Suggestions", false)
 }
 
 data class HomeLayout(

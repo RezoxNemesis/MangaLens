@@ -48,7 +48,10 @@ class MangaSourceAdapterTest {
             <img class='imgholder' alt='Kidnapped Dragons Chapter 63 4' src='https://cdn.demoniclibs.com/Kidnapped Dragons/63/5.jpg'>
             <img class='imgholder' alt='Advertisement' src='https://cdn.demoniclibs.com/Kidnapped Dragons/63/6.jpg'>
         """.trimIndent(), "https://demonicscans.org/title/Kidnapped-Dragons/chapter/63/1")
-        assertEquals(listOf("https://cdn.demoniclibs.com/Kidnapped%20Dragons/63/0.jpg"), result.pageUrls)
+        assertEquals(listOf("https://cdn.demoniclibs.com/Kidnapped%20Dragons/63/0.jpg",
+            "https://cdn.demoniclibs.com/Kidnapped%20Dragons/63/6.jpg"), result.pageUrls)
+        assertNull(result.pageCandidates.first().promotion)
+        assertEquals(ChapterImagePromotion.AD_CONTAINER, result.pageCandidates.last().promotion)
     }
     @Test fun urlNormalizationKeepsEncodedPathsQueriesAndRejectsCredentials() {
         val result = adapter.parse("""
@@ -65,5 +68,45 @@ class MangaSourceAdapterTest {
     }
     @Test(expected = IllegalArgumentException::class) fun oversizedHtmlIsRejected() {
         adapter.parse("x".repeat(1_500_001), "https://fixture.example/chapter/1")
+    }
+    @Test fun preferredOriginalPerNodePreservesDocumentOrderAndOpaqueSignedQueries() {
+        val result = adapter.parse("""
+          <nav><img src='/chrome.png'></nav>
+          <div class='reading-content'>
+            <img src='/tiny.png' srcset='/medium.png 400w, /large.png 1600w' data-original='/original.png?part=1&amp;token=private'>
+            <picture><source srcset='/two-small.png 400w, /two-large.png 1400w'><img src='/two-preview.png'></picture>
+            <img src='/three.png'>
+          </div>
+        """.trimIndent(), "https://fixture.example/chapter/8")
+        assertEquals(listOf("https://fixture.example/original.png?part=1&token=private",
+            "https://fixture.example/two-large.png", "https://fixture.example/three.png"), result.pageUrls)
+    }
+    @Test fun explicitlyAdvertisedImagesAreRetainedWithReversibleHintsAndStoryIsUnmarked() {
+        val result = adapter.parse("""
+          <div class='reading-content'>
+            <img src='/story.png' alt='The last battle begins'>
+            <div class='ad-banner'><img src='/commercial.png'></div>
+            <a href='https://girlfriendgpt.com/chat'><img src='/card.png'></a>
+            <img src='/ads_credits_promo.png' alt='The children reached the castle safely'>
+          </div>
+        """.trimIndent(), "https://fixture.example/chapter/8")
+        assertEquals(4, result.pageUrls.size)
+        assertEquals(listOf(null, ChapterImagePromotion.AD_CONTAINER, ChapterImagePromotion.COMMERCIAL_LINK, null),
+            result.pageCandidates.map { it.promotion })
+    }
+    @Test fun passwordAndVerificationDialogsNeverSupplyChapterImages() {
+        val result = adapter.parse("""
+          <div class='reading-content'><img src='/story.png'>
+            <form><img src='/account.png'><input type='password'></form>
+            <div role='dialog' aria-modal='true'><img src='/verification.png'></div>
+          </div>
+        """.trimIndent(), "https://fixture.example/chapter/8")
+        assertEquals(listOf("https://fixture.example/story.png"), result.pageUrls)
+    }
+    @Test fun siteAndReaderAdvertisingPreferencesDoNotMarkAllStoryImages() {
+        val result = adapter.parse("<body class='ads-enabled'><div class='reading-content ads'><img src='/story.png'></div></body>",
+            "https://fixture.example/chapter/8")
+        assertEquals(1, result.pageCandidates.size)
+        assertNull(result.pageCandidates.single().promotion)
     }
 }

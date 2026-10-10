@@ -15,7 +15,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 /** Downloads one representation; publishes only after its advertised length is complete. */
-internal class ResumableMediaTransfer(private val client: OkHttpClient) {
+internal class ResumableMediaTransfer(private val client: OkHttpClient,
+    private val privateFileCloseFailed: () -> Unit = {}) {
     suspend fun download(
         url: String,
         temp: File,
@@ -25,7 +26,8 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
     ) = withContext(Dispatchers.IO) {
         temp.parentFile?.mkdirs()
         val validator = validatorFile.takeIf { it.isFile && it.length() <= 512L }
-            ?.readText()?.takeIf { it.isNotBlank() && !it.startsWith("W/") }
+            ?.let { file -> file.inputStream().useOwnedPrivateFile(privateFileCloseFailed) { it.reader(Charsets.UTF_8).readText() } }
+            ?.takeIf { it.isNotBlank() && !it.startsWith("W/") }
         if (temp.length() > 0L && validator == null) reset(temp, validatorFile)
         var offset = temp.length()
         val request = Request.Builder().url(url)
@@ -78,7 +80,9 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
                         throw IOException("The download representation changed during resume.")
                     }
                     if (freshValidator != null && freshValidator.length <= 512) {
-                        validatorFile.writeText(freshValidator)
+                        validatorFile.outputStream().useOwnedPrivateFile(privateFileCloseFailed) {
+                            it.write(freshValidator.toByteArray(Charsets.UTF_8))
+                        }
                     } else {
                         // Never retain a previous representation's validator after a restart.
                         validatorFile.delete()
@@ -87,7 +91,9 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
                     var done = offset
                     onProgress(done, total)
                     body.byteStream().buffered(BUFFER_SIZE).use { input ->
-                        FileOutputStream(temp, offset > 0L).buffered(BUFFER_SIZE).use { output ->
+                        FileOutputStream(temp, offset > 0L)
+                            .wrapOwnedPrivateFile(privateFileCloseFailed) { it.buffered(BUFFER_SIZE) }
+                            .useOwnedPrivateFile(privateFileCloseFailed) { output ->
                             val buffer = ByteArray(BUFFER_SIZE)
                             while (true) {
                                 currentCoroutineContext().ensureActive()
@@ -122,13 +128,16 @@ internal class ResumableMediaTransfer(private val client: OkHttpClient) {
 
     private fun looksLikeHtml(file: File): Boolean = runCatching {
         if (!file.isFile || file.length() == 0L) return@runCatching false
-        val bytes = file.inputStream().use { input ->
+        val bytes = file.inputStream().useOwnedPrivateFile(privateFileCloseFailed) { input ->
             ByteArray(minOf(1024L, file.length()).toInt()).also { input.read(it) }
         }
         val text = bytes.toString(Charsets.UTF_8).trimStart().lowercase()
         text.startsWith("<!doctype html") || text.startsWith("<html") || text.startsWith("<head") ||
             text.startsWith("<script") || text.contains("<body")
-    }.getOrDefault(false)
+    }.getOrElse { failure ->
+        if (failure.hasUnprovenPrivateClose()) throw failure
+        false
+    }
 
     private fun reset(temp: File, validator: File) {
         if (temp.exists() && !temp.delete()) throw IOException("Unable to reset the saved download.")

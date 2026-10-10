@@ -8,18 +8,20 @@ import com.mangalens.download.ProviderCaptionFormat
 /** Bounded, sequential DAG: edges only point to earlier verified steps. No route is an effect receipt. */
 object OrezDurablePlanRules {
     const val MAX_STEPS = 8
-    private val chapterTools = setOf("inspect_saved_chapter", "translate_saved_chapter")
+    private val chapterTools = setOf("search_saved_memory", "inspect_saved_chapter", "translate_saved_chapter")
     private val mediaTools = setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles")
     private val nativeTools = chapterTools + mediaTools
-    private val supportedTools = nativeTools + "enqueue_download"
+    private val supportedTools = nativeTools + setOf("enqueue_download", "research_web")
 
     fun supports(plan: OrezTaskPlan) = plan.steps.isNotEmpty() && plan.steps.all { it.call.name in supportedTools }
-    fun requiresNetwork(plan: OrezTaskPlan) = plan.steps.any { it.call.name == "enqueue_download" } ||
+    fun requiresNetwork(plan: OrezTaskPlan) = plan.steps.any { it.call.name in setOf("enqueue_download", "research_web") } ||
         (plan.steps.any { it.call.name in mediaTools } && plan.authorization?.selectedMedia?.let { media ->
             listOfNotNull(media.uri, media.audio?.uri).any { it.startsWith("https://", true) || it.startsWith("http://", true) }
         } == true)
     fun outputKind(tool: String) = when (tool) {
         "enqueue_download" -> OrezOutputKind.DOWNLOAD_RECEIPT
+        "research_web" -> OrezOutputKind.RESEARCH_EVIDENCE
+        "search_saved_memory" -> OrezOutputKind.MEMORY_SEARCH
         "inspect_saved_chapter" -> OrezOutputKind.SAVED_CHAPTER
         "translate_saved_chapter" -> OrezOutputKind.CHAPTER_TRANSLATION
         "inspect_selected_media", "inspect_downloaded_media" -> OrezOutputKind.MEDIA_SOURCE
@@ -35,7 +37,7 @@ object OrezDurablePlanRules {
         require(plan.steps.map { it.index } == plan.steps.indices.toList()) { "Task steps must have ordered unique indices." }
         require(supports(plan)) { "This tool has no durable native executor. Navigation is a handoff only." }
         val authorization = plan.authorization
-        if (plan.steps.any { it.call.name in nativeTools }) {
+        if (plan.steps.any { it.call.name in nativeTools || it.call.name == "research_web" }) {
             require(authorization != null && authorization.explicitUserRequest && authorization.origin == OrezTrustOrigin.USER) {
                 "Native work requires captured, explicit user scope."
             }
@@ -60,10 +62,16 @@ object OrezDurablePlanRules {
                 require(outputKind(plan.steps[reference.stepIndex].call.name) in referenceKinds(reference.field)) { "This reference has another native output type." }
             }
             when (step.call.name) {
+                "research_web" -> {
+                    require(plan.steps.size == 1 && step.index == 0) { "Research does not authorize additional application tools." }
+                    require(step.references.isEmpty() && step.dependsOn.isEmpty()) { "Research accepts one explicit user question." }
+                    com.mangalens.orez.research.OrezResearchRequest.captured(plan.objective, step.call.arguments)
+                }
                 "enqueue_download" -> {
                     require(step.references.isEmpty()) { "Downloads need explicit scoped URLs." }
                     if (authorization != null) require(step.call.arguments["value"] in authorization.urls) { "Download URL exceeds captured user scope." }
                 }
+                "search_saved_memory" -> require(step.references.isEmpty() && step.call.arguments["chapterId"] in authorization!!.chapterIds) { "Memory search exceeds selected chapter scope." }
                 "inspect_saved_chapter" -> {
                     require(step.references.isEmpty() && step.call.arguments["chapterId"] in authorization!!.chapterIds) {
                         "Chapter inspection exceeds the selected user scope."
@@ -150,6 +158,34 @@ object OrezDurablePlanRules {
             return
         }
         require(outputs["requestId"] == id) { "Tool result belongs to another request." }
+        if (resolved.call.name == "research_web") {
+            require(completed) { "Research does not publish an unfinished citation receipt." }
+            val request = com.mangalens.orez.research.OrezResearchRequest.captured(plan.objective, resolved.call.arguments)
+            com.mangalens.orez.research.OrezResearchEvidenceCodec.receipt(outputs, id, request)
+            return
+        }
+        if (resolved.call.name == "search_saved_memory") {
+            require(outputs.keys == setOf("requestId", "chapterId", "sourceFingerprint", "associationRevision", "memoryHitCount", "memoryHits", "memoryIncomplete")) { "Unexpected memory receipt fields." }
+            require(outputs["chapterId"] == resolved.call.arguments["chapterId"] && outputs["chapterId"] in plan.authorization!!.chapterIds &&
+                outputs["sourceFingerprint"]?.matches(Regex("[a-f0-9]{64}")) == true &&
+                outputs["associationRevision"]?.toLongOrNull()?.let { it >= 0 } == true && outputs["memoryIncomplete"] in setOf("true", "false")) { "Memory result changed selected chapter scope." }
+            val rows = org.json.JSONArray(outputs.getValue("memoryHits"))
+            val limit = resolved.call.arguments["limit"]?.toIntOrNull() ?: 8
+            require(rows.length() in 0..limit && outputs["memoryHitCount"]?.toIntOrNull() == rows.length()) { "Memory match count exceeds the bounded selected request." }
+            for (index in 0 until rows.length()) {
+                val row = rows.getJSONObject(index)
+                require(row.keys().asSequence().toSet() == setOf("chapterId", "pageIndex", "sourceSha256", "imageWidth", "imageHeight", "bounds", "targetLanguage", "revision", "kind", "text"))
+                require(row.getString("chapterId") == outputs["chapterId"] && row.getInt("pageIndex") in 0 until 2000 &&
+                    row.getString("sourceSha256").matches(Regex("[a-f0-9]{64}")) && row.getString("targetLanguage").matches(Regex("[a-z]{2,3}(?:-[a-z0-9]{2,8})?")) &&
+                    row.getInt("revision") >= 0 && row.getString("text").isNotBlank() && row.getString("text").length <= 512 &&
+                    row.getString("kind") in com.mangalens.core.translation.memory.MemorySearchKind.entries.map { it.name })
+                val bounds = row.getJSONArray("bounds"); require(bounds.length() == 4)
+                com.mangalens.core.translation.memory.MemoryRegionBounds(bounds.getInt(0), bounds.getInt(1), bounds.getInt(2), bounds.getInt(3))
+                    .validate(row.getInt("imageWidth"), row.getInt("imageHeight"))
+            }
+            return
+        }
+
         if (resolved.call.name in mediaTools) {
             validateMediaReceipt(plan, resolved, outputs, completed)
             return
@@ -165,6 +201,8 @@ object OrezDurablePlanRules {
             require(outputs["translationTaskId"]?.matches(Regex("[a-f0-9]{32}")) == true &&
                 outputs["generation"]?.matches(Regex("[a-f0-9]{32}")) == true) { "Native translation identity is missing." }
             require(outputs["targetLanguage"] == plan.authorization.translation!!.targetLanguage) { "Translation result has another target language." }
+            val version = plan.authorization.translation.reconstructionVersion
+            require(outputs["reconstructionVersion"] == version.toString() || version == 1 && outputs["reconstructionVersion"].isNullOrEmpty()) { "Native receipt has another captured reconstruction version." }
             val refinement = plan.authorization.translation.refinementRequestFingerprint()
             if (refinement != null) require(outputs["refinementRequestFingerprint"] == refinement) { "Native receipt has another captured refinement request." }
             else require(outputs["refinementRequestFingerprint"].isNullOrEmpty()) { "A legacy request cannot claim a captured refinement model." }

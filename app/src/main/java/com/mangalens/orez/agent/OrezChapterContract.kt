@@ -5,10 +5,10 @@ import com.mangalens.core.translation.TranslationRefinementPolicy
 import com.mangalens.core.translation.TranslationRefinementRequestCodec
 
 internal fun OrezTranslationOptions.nativeChapterConfig() = ChapterTranslationConfig(targetLanguage, styleId, customStyle, ocrScript,
-    highAccuracy, preserveStyle, localRefinement, refinementRequest).normalized()
+    highAccuracy, preserveStyle, localRefinement, refinementRequest, reconstructionVersion = reconstructionVersion).normalized()
 
 internal fun ChapterTranslationConfig.orezChapterOptions() = OrezTranslationOptions(targetLanguage, styleId, customStyle, ocrScript,
-    highAccuracy, preserveStyle, localRefinement, refinementRequest)
+    highAccuracy, preserveStyle, localRefinement, refinementRequest, reconstructionVersion)
 
 internal fun OrezTranslationOptions.refinementRequestFingerprint(): String? =
     refinementRequest?.let { TranslationRefinementPolicy.hash(TranslationRefinementRequestCodec.identity(it)) }

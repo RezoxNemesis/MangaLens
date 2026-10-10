@@ -96,6 +96,11 @@ fun LocalVideoPlayerScreen(
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: SecurityException) {
+                vm.session.reportStatus("This provider allows this visit only. Select the video again if its saved access expires.")
+            }
             activeVideoUri = it.toString()
             fullSubtitleGenerator.bind(SubtitleMediaSource(uri = it.toString(), cacheKey = it.toString(), label = "Local video"))
             vm.open(it)

@@ -328,18 +328,41 @@ class OrezModelManager private constructor(val context: Context, recoverTransfer
     /** Only process-verified activation artifacts can satisfy a durable model pin. */
     internal fun verifiedModelCandidates(pinnedModel: OrezModelPin? = null): List<OrezModelCandidate> {
         if (platformIssue() != null) return emptyList()
-        val verified = (OrezModelCatalog.availableDescriptors.flatMap { store.runtimeArtifacts(it.tier.name) } +
-            store.runtimeArtifacts(OrezModelActivationStore.LEGACY_SLOT)).distinctBy { it.file.canonicalPath }
+        val verified = allVerifiedModelCandidates()
         // A captured job may keep Lite after the user selects Core, or vice versa.
         // Pinned resolution never walks ambient fallback order or unverified saved candidates.
         val ordered = if (pinnedModel != null) verified else runtimeModelFiles().mapNotNull { file ->
             verified.firstOrNull { it.file.canonicalPath == file.canonicalPath }
         }
-        return OrezPinnedModelPolicy.select(pinnedModel, ordered.map {
-            OrezModelCandidate(it.file, OrezModelPin(it.modelId, it.sha256, it.bytes))
-        })
+        return OrezPinnedModelPolicy.select(pinnedModel, ordered)
     }
 
+    /** Process-verified pool includes peer-loaded models outside the currently selected fallback order. */
+    internal fun allVerifiedModelCandidates(): List<OrezModelCandidate> {
+        if (platformIssue() != null) return emptyList()
+        return OrezPinnedModelPolicy.select(null,
+            (OrezModelCatalog.availableDescriptors.flatMap { store.runtimeArtifacts(it.tier.name) } +
+                store.runtimeArtifacts(OrezModelActivationStore.LEGACY_SLOT)).distinctBy { it.file.canonicalPath }
+                .map { OrezModelCandidate(it.file, OrezModelPin(it.modelId, it.sha256, it.bytes)) })
+    }
+
+    internal fun routedModelCandidates(pinnedModel: OrezModelPin?, request: OrezRequestResources): List<OrezModelCandidate> {
+        if (pinnedModel != null) return verifiedModelCandidates(pinnedModel)
+        val unavailable = prefs.getString(KEY_UNAVAILABLE_PATH, null)
+            .takeIf { System.currentTimeMillis() < prefs.getLong(KEY_UNAVAILABLE_UNTIL, 0L) }
+        val pool = allVerifiedModelCandidates().filterNot { it.file.absolutePath == unavailable }
+        return OrezResourceRouting.order(null, verifiedModelCandidates(), pool, request)
+    }
+
+    /** IO-only mapping; no native/JNI call, model warm-up, rehash or selection is performed. */
+    internal suspend fun observeLoadedModel(): OrezLoadedModelObservation = withContext(Dispatchers.IO) {
+        val before = OrezNativeEngine.sharedModelPath
+        if (before == null) return@withContext OrezLoadedModelPolicy.observe(null, emptyList())
+        val paths = allVerifiedModelCandidates().map { it.file.canonicalPath to it.pin }
+        val after = OrezNativeEngine.sharedModelPath
+        if (before == after) OrezLoadedModelPolicy.observe(after, paths)
+        else OrezLoadedModelPolicy.observe(after, emptyList())
+    }
     internal fun platformIssue(): String? = OrezModelRuntimePolicy.platformIssue(
         android.os.Build.VERSION.SDK_INT, android.os.Build.SUPPORTED_ABIS?.toList().orEmpty(), OrezNativeEngine.available
     )

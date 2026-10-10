@@ -28,12 +28,15 @@ data class ChapterTranslationConfig(
     val highAccuracy: Boolean = true,
     val preserveStyle: Boolean = true,
     val localRefinement: Boolean = false,
-    val refinementRequest: TranslationRefinementRequest? = null
+    val refinementRequest: TranslationRefinementRequest? = null,
+    val memoryPacket: com.mangalens.core.translation.memory.CapturedSeriesMemoryPacket? = null,
+    val reconstructionVersion: Int = 1
 ) {
     fun style(): TranslationStyleProfile = refinementRequest?.style ?: if (styleId == "custom") TranslationStyleProfile.custom(customStyle)
         else TranslationStyleProfile.fromId(styleId)
 
     internal fun normalized(): ChapterTranslationConfig {
+        require(reconstructionVersion in 1..2) { "Unsupported reconstruction input version." }
         val language = targetLanguage.trim().lowercase(Locale.ROOT)
         require(language.matches(Regex("[a-z]{2,3}(?:-[a-z0-9]{2,8})?"))) { "Choose a supported target language." }
         val script = ocrScript.trim().uppercase(Locale.ROOT)
@@ -47,6 +50,7 @@ data class ChapterTranslationConfig(
             }
             require(style != "custom" || it.style.instruction == customStyle.trim()) { "Captured custom style differs from the request." }
         }
+        memoryPacket?.let { require(it.targetLanguage == language) { "Captured series memory target differs from the translation request." } }
         return copy(targetLanguage = language, styleId = if (style == "custom") style else TranslationStyleProfile.fromId(style).id,
             customStyle = if (style == "custom") customStyle.trim() else "", ocrScript = script)
     }
@@ -89,7 +93,10 @@ data class ChapterTranslationPage(
     val rejectedRegions: Int = 0,
     val error: String? = null,
     val originalWidth: Int? = null,
-    val originalHeight: Int? = null
+    val originalHeight: Int? = null,
+    /** A source-validated OCR classification; retained lettering remains available on reveal. */
+    val promotionDetected: Boolean = false,
+    val ocrDiagnostics: SavedPageOcrDiagnostics? = null
 ) {
     val isProcessed: Boolean get() = status !in setOf(ChapterTranslationPageStatus.PENDING, ChapterTranslationPageStatus.RUNNING)
     val isComplete: Boolean get() = status in setOf(ChapterTranslationPageStatus.COMPLETED, ChapterTranslationPageStatus.NO_TEXT, ChapterTranslationPageStatus.PROMO)
@@ -186,6 +193,7 @@ class ChapterTranslationStore internal constructor(
     private class StartGuard(var removed: Boolean = false)
     private val startsByChapter = HashMap<String, MutableSet<StartGuard>>()
     private val chapterRemovals = HashMap<String, ChapterTranslationRemoval>()
+    private val memoryDeliveryGate = java.util.concurrent.locks.ReentrantLock()
     private val _states = MutableStateFlow<List<ChapterTranslationTask>>(emptyList())
     val states: StateFlow<List<ChapterTranslationTask>> = _states.asStateFlow()
 
@@ -206,6 +214,102 @@ class ChapterTranslationStore internal constructor(
             if (loaded != null) { tasks[loaded.id] = loaded; awaitingValidation += loaded.id }
         }
         publish()
+    }
+
+    // IO writes keep the old monitor. Delivery never waits for that monitor or fsync.
+
+    /** Raw metadata is a hint inventory only; ordinary cold Reader/editor flags remain authoritative. */
+    @Synchronized internal fun nativeIndexTasks(): List<ChapterTranslationTask> = tasks.values
+        .filter { it.chapterId !in chapterRemovals && it.status in setOf(ChapterTranslationStatus.COMPLETED, ChapterTranslationStatus.PARTIAL) }
+        .sortedBy { it.id }.toList()
+
+    @Synchronized internal fun nativeIndexTaskCurrent(task: ChapterTranslationTask): Boolean =
+        tasks[task.id] === task && task.chapterId !in chapterRemovals && task.status in setOf(
+            ChapterTranslationStatus.COMPLETED, ChapterTranslationStatus.PARTIAL)
+
+    /** Canonical managed files and existing metadata rules establish a read-only verification plan. */
+    internal fun prepareNativeIndexWarmPlan(task: ChapterTranslationTask): NativeIndexWarmPlan? = runCatching {
+        require(nativeIndexTaskCurrent(task) && task.pages.size in 1..MAX_PAGES)
+        val files = task.pages.flatMap { page ->
+            validateMetadata(page, task.config)
+            val source = requireManagedSource(requireNotNull(page.sourcePath))
+            val sourceHash = requireNotNull(page.sourceSha256).also { require(it.matches(HASH)) }
+            val specs = arrayListOf(NativeIndexFileSpec(page.index, true, source, sourceHash, MAX_SOURCE_BYTES, page.lettering.isNotEmpty()))
+            if (page.lettering.isNotEmpty()) {
+                require(page.status in setOf(ChapterTranslationPageStatus.COMPLETED, ChapterTranslationPageStatus.PARTIAL))
+                if (page.originalWidth == null) require(page.originalHeight == null && page.lettering.all { it.originalSourceBounds == null })
+                specs += NativeIndexFileSpec(page.index, false, requireManagedOutput(requireNotNull(page.cleanedPath), task.id),
+                    requireNotNull(page.cleanedSha256).also { require(it.matches(HASH)) }, MAX_SURFACE_BYTES, true)
+            } else require(page.cleanedPath == null && page.cleanedSha256 == null)
+            specs
+        }
+        require(nativeIndexTaskCurrent(task))
+        NativeIndexWarmPlan(task, files)
+    }.getOrNull()
+
+    /** Separate process-local read proof; ordinary cold Reader/editor validation is unchanged. */
+    internal fun finishNativeIndexWarm(plan: NativeIndexWarmPlan, checked: List<NativeIndexVerifiedFile>): NativeIndexWarmReceipt? = runCatching {
+        require(checked.size == plan.files.size && checked.map { it.spec } == plan.files)
+        for (page in plan.task.pages) {
+            val source = checked.single { it.spec.pageIndex == page.index && it.spec.source }
+            require(source.sha256 == page.sourceSha256 && source.stamp.path == source.spec.file.canonicalPath)
+            if (page.lettering.isNotEmpty()) {
+                val bounds = requireNotNull(source.dimensions)
+                require(bounds.first.toLong() * bounds.second <= 100_000_000L)
+                page.originalWidth?.let { require(bounds == (it to requireNotNull(page.originalHeight))) }
+                val output = checked.single { it.spec.pageIndex == page.index && !it.spec.source }
+                require(output.sha256 == page.cleanedSha256 && output.dimensions == (page.imageWidth to page.imageHeight))
+                require(page.imageWidth.toLong() * page.imageHeight <= MAX_SURFACE_PIXELS)
+            }
+        }
+        val receipt = NativeIndexWarmReceipt(plan.task, checked)
+        require(receipt.isCurrent())
+        receipt.takeIf { nativeIndexTaskCurrent(plan.task) }
+    }.getOrNull()
+
+    /** A warmed read cannot borrow another task/configuration or grant an editor publication receipt. */
+    internal fun prepareWarmedNativeReadPage(warm: NativeIndexWarmReceipt, pageIndex: Int): NativeMemoryPageProof? {
+        if (!nativeIndexTaskCurrent(warm.task) || !warm.isCurrent()) return null
+        val proof = warm.pageProof(pageIndex) ?: return null
+        return proof.takeIf { nativeIndexTaskCurrent(warm.task) && warm.isCurrent() }
+    }
+
+    /** Separate read-only gate; it cannot clear cold flags or grant editor publication authority. */
+    internal fun tryCommitWarmedNativeRead(warm: NativeIndexWarmReceipt, proof: NativeMemoryPageProof, commit: () -> Unit): Boolean {
+        if (!memoryDeliveryGate.tryLock()) return false
+        return try {
+            val current = tasks[warm.task.id]
+            if (current == null || current !== warm.task || current.chapterId in chapterRemovals || proof.task !== current ||
+                current.pages.singleOrNull { it.index == proof.page.index } != proof.page || !warm.isCurrent() ||
+                !memoryDeliveryStampCurrent(proof.source) || !memoryDeliveryStampCurrent(proof.output)) false
+            else { commit(); true }
+        } finally { memoryDeliveryGate.unlock() }
+    }
+
+    internal fun tryCommitMemoryDelivery(receipt: ReaderTranslationReceipt, proof: NativeMemoryPageProof, commit: () -> Unit): Boolean {
+        if (!memoryDeliveryGate.tryLock()) return false
+        try {
+            val current = tasks[proof.task.id]
+            if (current == null || current.config !== proof.task.config || receipt.configuration !== proof.task.config ||
+                !memoryTaskMatches(receipt, current) ||
+                current.pages.singleOrNull { it.index == proof.page.index } != proof.page ||
+                !memoryDeliveryStampCurrent(proof.source) || !memoryDeliveryStampCurrent(proof.output)) return false
+            commit()
+            return true
+        } finally { memoryDeliveryGate.unlock() }
+    }
+
+    private fun memoryDeliveryStampCurrent(stamp: NativeMemoryFileStamp): Boolean = runCatching {
+        // Canonical managed identity was captured on IO. One no-follow metadata probe stays at delivery.
+        val attributes = Files.readAttributes(java.nio.file.Paths.get(stamp.path), BasicFileAttributes::class.java,
+            java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        attributes.isRegularFile && attributes.fileKey() == stamp.key && attributes.size() == stamp.size &&
+            attributes.lastModifiedTime() == stamp.modified
+    }.getOrDefault(false)
+
+    private fun <T> memoryDeliveryMutation(mutate: () -> T): T {
+        memoryDeliveryGate.lock()
+        return try { mutate() } finally { memoryDeliveryGate.unlock() }
     }
 
     @Synchronized fun get(taskId: String): ChapterTranslationTask? = tasks[taskId]?.let(::visible)
@@ -230,6 +334,30 @@ class ChapterTranslationStore internal constructor(
         return runCatching {
             val sourceBefore = memoryStamp(source); val outputBefore = memoryStamp(output)
             require(originalDimensions(source) == (page.originalWidth to page.originalHeight))
+            require(validatedPage(page, task.config) == page)
+            require(sourceBefore == memoryStamp(source) && outputBefore == memoryStamp(output))
+            NativeMemoryPageProof(task, page, sourceBefore, outputBefore)
+        }.getOrNull()
+    }
+
+    /** Read-only legacy text never acquires original crop/edit geometry from sampled coordinates. */
+    internal fun prepareSavedPageRead(receipt: ReaderTranslationReceipt, pageIndex: Int): NativeMemoryPageProof? {
+        prepareMemoryPublication(receipt, pageIndex)?.let { return it }
+        val task = synchronized(this) {
+            tasks[receipt.taskId]?.takeIf { memoryTaskMatches(receipt, it) }
+        } ?: return null
+        val page = task.pages.singleOrNull { it.index == pageIndex && it.status in setOf(
+            ChapterTranslationPageStatus.COMPLETED, ChapterTranslationPageStatus.PARTIAL) } ?: return null
+        if (page.lettering.isEmpty() || page.originalWidth != null || page.originalHeight != null ||
+            page.lettering.any { it.originalSourceBounds != null }) return null
+        val source = page.sourcePath?.let { runCatching { requireManagedSource(it) }.getOrNull() } ?: return null
+        val output = page.cleanedPath?.let { runCatching { requireManagedOutput(it, task.id) }.getOrNull() } ?: return null
+        return runCatching {
+            val sourceBefore = memoryStamp(source); val outputBefore = memoryStamp(output)
+            require(sourceBefore.size in 1..40L * 1024 * 1024)
+            val dimensions = requireNotNull(originalDimensions(source))
+            require(dimensions.first in 1..100_000 && dimensions.second in 1..100_000 &&
+                dimensions.first.toLong() * dimensions.second <= 100_000_000L)
             require(validatedPage(page, task.config) == page)
             require(sourceBefore == memoryStamp(source) && outputBefore == memoryStamp(output))
             NativeMemoryPageProof(task, page, sourceBefore, outputBefore)
@@ -307,6 +435,13 @@ class ChapterTranslationStore internal constructor(
                 status = if (hash == null) ChapterTranslationPageStatus.FAILED else ChapterTranslationPageStatus.PENDING,
                 error = if (hash == null) "Page ${page.index} is not available in private chapter storage. Retry its source." else null)
         }
+        config.memoryPacket?.let { packet ->
+            require(packet.chapterId == chapter.id && packet.firstPage == (scope?.minOrNull() ?: pages.minOf { it.index }) &&
+                packet.configurationIdentity == memoryConfigurationIdentity(config.copy(memoryPacket = null)) &&
+                packet.sourceIdentity == memorySourceIdentity(chapter.id, pages.map { ReaderTranslationSource(it.index, it.sourcePath, it.sourceSha256) })) {
+                "Chapter sources or captured memory configuration changed before dispatch. Start a new request."
+            }
+        }
         val now = System.currentTimeMillis()
         val task = ChapterTranslationTask(id, token(), chapter.id, chapter.title.take(MAX_TITLE_CHARS), config, pages,
             ChapterTranslationStatus.QUEUED, previous?.createdAt ?: now, now,
@@ -338,7 +473,7 @@ class ChapterTranslationStore internal constructor(
                 concurrent.config == config && concurrent.requestedPages == scope && sameSources(concurrent.pages, pages)) {
                 val replay = withValidatedPages(concurrent, verifiedPages)
                 if (replay != concurrent) saveVerified(replay)
-                else { awaitingValidation.remove(id); publish() }
+                else memoryDeliveryMutation { awaitingValidation.remove(id); publish() }
                 return@synchronized replay
             }
             val merged = task.copy(pages = verifiedPages.map { page ->
@@ -465,9 +600,9 @@ class ChapterTranslationStore internal constructor(
     /** Fence first; the facade stops these exact native jobs before completing deletion. */
     @Synchronized internal fun beginChapterRemoval(chapterId: String): ChapterTranslationRemoval {
         require(chapterId.matches(ID))
-        val removal = chapterRemovals.getOrPut(chapterId) {
+        val removal = memoryDeliveryMutation { chapterRemovals.getOrPut(chapterId) {
             ChapterTranslationRemoval(chapterId, token(), tasks.values.filter { it.chapterId == chapterId }.toList())
-        }
+        } }
         startsByChapter[chapterId]?.forEach { it.removed = true }
         // Even if a write fails, the in-memory chapter fence keeps native callbacks out;
         // the library remains intact and an explicit delete retry finishes the same removal.
@@ -486,11 +621,13 @@ class ChapterTranslationStore internal constructor(
                 current.status == ChapterTranslationStatus.CANCELLED) { "Chapter translation changed during deletion." }
             journalIo.delete(File(directory, task.id + ".json"))
             deleteManagedSurfaces(task.id)
-            tasks.remove(task.id)
-            awaitingValidation.remove(task.id)
-            publish()
+            memoryDeliveryMutation {
+                tasks.remove(task.id)
+                awaitingValidation.remove(task.id)
+                publish()
+            }
         }
-        chapterRemovals.remove(removal.chapterId)
+        memoryDeliveryMutation { chapterRemovals.remove(removal.chapterId) }
     }
 
     private fun deleteManagedSurfaces(taskId: String) {
@@ -554,7 +691,7 @@ class ChapterTranslationStore internal constructor(
             // Hashing a large chapter never holds the control lock or overwrites newer checkpoints.
             if (tasks[taskId] != task) return@synchronized tasks[taskId]?.takeIf { generation == null || it.generation == generation }?.let(::visible)
             if (verified != task) saveVerified(verified)
-            else { awaitingValidation.remove(taskId); publish() }
+            else memoryDeliveryMutation { awaitingValidation.remove(taskId); publish() }
             verified
         }
     }
@@ -639,6 +776,7 @@ class ChapterTranslationStore internal constructor(
     private fun validSource(file: File): Boolean = file.isFile && file.length() in 1..MAX_SOURCE_BYTES
 
     private fun validateMetadata(page: ChapterTranslationPage, config: ChapterTranslationConfig) {
+        page.ocrDiagnostics?.let { it.validate(page); require(it.reconstructionVersion == config.reconstructionVersion) }
         require((page.originalWidth == null) == (page.originalHeight == null))
         page.originalWidth?.let { width ->
             val height = requireNotNull(page.originalHeight)
@@ -671,20 +809,29 @@ class ChapterTranslationStore internal constructor(
 
     /** Publish after the atomic disk commit; readers never observe a checkpoint that failed to persist. */
     private fun save(task: ChapterTranslationTask) {
-        val bytes = encode(task).toString().toByteArray(Charsets.UTF_8)
-        require(bytes.size <= MAX_JOURNAL_BYTES) { "Chapter translation metadata exceeds the safe journal limit. Completed pages have been kept." }
         val file = File(directory, task.id + ".json")
         val total = journalFiles().filter { it.name != file.name }.sumOf { it.length() }
+        var written = task
+        var bytes = encode(written).toString().toByteArray(Charsets.UTF_8)
+        if (task.pages.any { it.ocrDiagnostics != null } && (task.pages.sumOf { it.ocrDiagnostics?.let(SavedOcrDiagnosticsCodec::bytes) ?: 0 } > SavedPageOcrDiagnostics.MAX_TASK_BYTES ||
+                bytes.size > MAX_JOURNAL_BYTES || total + bytes.size > MAX_TOTAL_JOURNAL_BYTES)) {
+            // Optional observations cannot prevent an otherwise valid native lettering checkpoint.
+            // The exact task written below is also the one published to every native reader.
+            written = task.copy(pages = task.pages.map { it.copy(ocrDiagnostics = null) })
+            bytes = encode(written).toString().toByteArray(Charsets.UTF_8)
+        }
+        require(bytes.size <= MAX_JOURNAL_BYTES) { "Chapter translation metadata exceeds the safe journal limit. Completed pages have been kept." }
         require(total + bytes.size <= MAX_TOTAL_JOURNAL_BYTES) { "Translation history storage is full. Existing results have been kept." }
         journalIo.write(file, bytes)
-        tasks[task.id] = task
-        publish()
+        memoryDeliveryMutation {
+            tasks[task.id] = written
+            publish()
+        }
     }
 
     private fun saveVerified(task: ChapterTranslationTask) {
         save(task)
-        awaitingValidation.remove(task.id)
-        publish()
+        memoryDeliveryMutation { awaitingValidation.remove(task.id); publish() }
     }
 
     private fun visible(task: ChapterTranslationTask): ChapterTranslationTask = if (task.id !in awaitingValidation) task else task.copy(
@@ -710,6 +857,8 @@ class ChapterTranslationStore internal constructor(
                 .put("status", page.status.name).put("cleanedFile", page.cleanedPath?.let { File(it).name })
                 .put("cleanedSha256", page.cleanedSha256).put("width", page.imageWidth).put("height", page.imageHeight)
                 .put("originalWidth", page.originalWidth).put("originalHeight", page.originalHeight)
+                .put("promotionDetected", page.promotionDetected)
+                .put("ocrDiagnostics", page.ocrDiagnostics?.let(SavedOcrDiagnosticsCodec::encode))
                 .put("rejected", page.rejectedRegions).put("error", page.error).put("lettering", JSONArray().apply {
                     page.lettering.forEach { text -> put(JSONObject().put("source", text.source).put("translated", text.translated)
                         .put("savedHindiDraft", text.savedHindiDraft)
@@ -731,7 +880,10 @@ class ChapterTranslationStore internal constructor(
         val config = ChapterTranslationConfig(c.getString("targetLanguage"), c.getString("styleId"), c.optString("customStyle"),
             c.getString("ocrScript"), c.getBoolean("highAccuracy"), c.getBoolean("preserveStyle"), c.getBoolean("localRefinement"),
             if (!c.has("refinementRequest") || c.isNull("refinementRequest")) null
-            else TranslationRefinementRequestCodec.decode(c.getJSONObject("refinementRequest"))).normalized()
+            else TranslationRefinementRequestCodec.decode(c.getJSONObject("refinementRequest")),
+            if (!c.has("memoryPacket") || c.isNull("memoryPacket")) null else
+                com.mangalens.core.translation.memory.CapturedSeriesMemoryPacket.fromJson(c.getJSONObject("memoryPacket")),
+            c.optInt("reconstructionVersion", 1)).normalized()
         require(id == digest(chapterId + "|" + configIdentity(config)).take(32))
         val rows = json.getJSONArray("pages")
         require(rows.length() in 1..MAX_PAGES)
@@ -759,12 +911,14 @@ class ChapterTranslationStore internal constructor(
                         })
                 }, row.getInt("rejected"), row.nullableString("error"),
                 if (version < 2 || !row.has("originalWidth") || row.isNull("originalWidth")) null else row.getInt("originalWidth"),
-                if (version < 2 || !row.has("originalHeight") || row.isNull("originalHeight")) null else row.getInt("originalHeight"))
+                if (version < 2 || !row.has("originalHeight") || row.isNull("originalHeight")) null else row.getInt("originalHeight"),
+                row.optBoolean("promotionDetected", false), row.optJSONObject("ocrDiagnostics")?.let(SavedOcrDiagnosticsCodec::decode))
             require(page.sourceSha256 == null || page.sourceSha256.matches(HASH))
             require(page.cleanedSha256 == null || page.cleanedSha256.matches(HASH))
             validateMetadata(page, config)
             page
         }
+        require(pages.sumOf { it.ocrDiagnostics?.let(SavedOcrDiagnosticsCodec::bytes) ?: 0 } <= SavedPageOcrDiagnostics.MAX_TASK_BYTES)
         require(pages.map { it.index }.distinct().size == pages.size)
         val scope = if (!json.has("requestedPages") || json.isNull("requestedPages")) null else {
             val requested = json.getJSONArray("requestedPages")
@@ -781,12 +935,14 @@ class ChapterTranslationStore internal constructor(
         .put("styleId", c.styleId).put("customStyle", c.customStyle).put("ocrScript", c.ocrScript)
         .put("highAccuracy", c.highAccuracy).put("preserveStyle", c.preserveStyle).put("localRefinement", c.localRefinement)
         .put("refinementRequest", c.refinementRequest?.let(TranslationRefinementRequestCodec::encode))
+        .put("memoryPacket", c.memoryPacket?.toJson()).apply { if (c.reconstructionVersion >= 2) put("reconstructionVersion", c.reconstructionVersion) }
 
     internal fun memoryConfigurationIdentity(c: ChapterTranslationConfig) = digest(configIdentity(c))
 
     private fun configIdentity(c: ChapterTranslationConfig): String = (listOf(c.targetLanguage, c.styleId, c.customStyle,
         c.ocrScript, c.highAccuracy.toString(), c.preserveStyle.toString(), c.localRefinement.toString()) +
-        listOfNotNull(c.refinementRequest?.let(TranslationRefinementRequestCodec::identity)))
+        listOfNotNull(c.refinementRequest?.let(TranslationRefinementRequestCodec::identity), c.memoryPacket?.sha256?.let { "series-memory-v1:$it" },
+            c.reconstructionVersion.takeIf { it >= 2 }?.let { "glyph-reconstruction-v$it" }))
         .joinToString("|") { value -> "${value.length}:$value" }
 
     private fun JSONObject.nullableString(key: String): String? = if (isNull(key) || !has(key)) null else getString(key)

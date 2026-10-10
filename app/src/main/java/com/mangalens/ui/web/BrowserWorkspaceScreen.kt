@@ -23,7 +23,8 @@ internal fun BrowserWorkspaceScreen(
     onOpenManga: (String) -> Unit = {},
     onOpenVideo: (SniffedMedia, String) -> Unit = { _, _ -> },
     onClose: (() -> Unit)? = null,
-    onPageChanged: (String) -> Unit = {}
+    onPageChanged: (String) -> Unit = {},
+    onResearchQuestion: ((String) -> Unit)? = null
 ) {
     val snapshot by session.state.collectAsState()
     val storeError by session.error.collectAsState()
@@ -59,6 +60,9 @@ internal fun BrowserWorkspaceScreen(
     }
     val ready = snapshot
     if (ready == null || !initialized || applyingIncoming) {
+        SideEffect {
+            BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.WORKSPACE_RESTORING_COMPOSED, incomingRevision)
+        }
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (storeError == null) CircularProgressIndicator()
@@ -68,13 +72,16 @@ internal fun BrowserWorkspaceScreen(
         }
         return
     }
+    SideEffect {
+        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.WORKSPACE_BROWSER_COMPOSED, incomingRevision)
+    }
     key(session, ready.activeTabId, incomingRevision) {
         GuardedBrowserTabScreen(
             url = ready.activeTab.url, tab = ready.activeTab, workspace = ready, session = session,
             workspaceError = incomingError ?: storeError ?: ready.notice,
             translationEnabled = translationEnabled, adBlockEnabled = adBlockEnabled, modifier = modifier,
             targetLanguage = targetLanguage, onOpenManga = onOpenManga, onOpenVideo = onOpenVideo,
-            onClose = onClose, onPageChanged = onPageChanged
+            onClose = onClose, onPageChanged = onPageChanged, onResearchQuestion = onResearchQuestion
         )
     }
 }

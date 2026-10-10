@@ -52,7 +52,7 @@ class OrezTaskStore(
                             if (schema < 4 || options.isNull("refinementRequest")) null else options.getJSONObject("refinementRequest").let { request ->
                                 require(request.has("model")) { "Captured chapter model scope is incomplete." }
                                 TranslationRefinementRequestCodec.decode(request)
-                            })
+                            }, options.optInt("reconstructionVersion", 1)).normalized()
                     },
                     scope.optJSONObject("selectedMedia")?.let { source -> selection(source, schema) },
                     scope.optJSONObject("subtitle")?.let { options -> subtitle(options, schema) })
@@ -212,7 +212,8 @@ class OrezTaskStore(
                 .put("targetLanguage", options.targetLanguage).put("styleId", options.styleId).put("customStyle", options.customStyle)
                 .put("ocrScript", options.ocrScript).put("highAccuracy", options.highAccuracy)
                 .put("preserveStyle", options.preserveStyle).put("localRefinement", options.localRefinement)
-                .put("refinementRequest", options.refinementRequest?.let(TranslationRefinementRequestCodec::encode) ?: JSONObject.NULL)) }
+                .put("refinementRequest", options.refinementRequest?.let(TranslationRefinementRequestCodec::encode) ?: JSONObject.NULL)
+                .apply { if (options.reconstructionVersion >= 2) put("reconstructionVersion", options.reconstructionVersion) }) }
             scope.selectedMedia?.let { source -> authorization.put("selectedMedia", JSONObject()
                 .put("uri", source.uri).put("cacheKey", source.cacheKey).put("label", source.label).put("headers", JSONObject(source.headers))
                 .put("providerCaptions", source.providerCaptions?.let(ProviderCaptionJournal::inventory) ?: JSONObject.NULL)
@@ -228,6 +229,7 @@ class OrezTaskStore(
                 .put("capturedStyle", options.capturedStyle?.let { profile -> JSONObject().put("id", profile.id).put("name", profile.name)
                     .put("instruction", profile.instruction).put("preserveHonorifics", profile.preserveHonorifics)
                     .put("preserveNames", profile.preserveNames).put("naturalDialogue", profile.naturalDialogue) } ?: JSONObject.NULL)
+                .apply { options.refinementInputProfileRevision?.let { put("refinementInputProfileRevision", it) } }
                 .put("refinementPin", options.refinementPin?.let { pin -> JSONObject().put("modelId", pin.modelId)
                     .put("sha256", pin.sha256).put("bytes", pin.bytes) } ?: JSONObject.NULL)) }
             root.put("authorization", authorization)
@@ -286,7 +288,9 @@ class OrezTaskStore(
                     TranslationStyleProfile(profile.getString("id"), profile.getString("name"), profile.getString("instruction"),
                         profile.getBoolean("preserveHonorifics"), profile.getBoolean("preserveNames"), profile.getBoolean("naturalDialogue")) },
                 refinementPin = if (options.isNull("refinementPin")) null else options.getJSONObject("refinementPin").let { pin ->
-                    SubtitleRefinementPin(pin.getString("modelId"), pin.getString("sha256"), pin.getLong("bytes")) })
+                    SubtitleRefinementPin(pin.getString("modelId"), pin.getString("sha256"), pin.getLong("bytes")) },
+                refinementInputProfileRevision = if (!options.has("refinementInputProfileRevision") || options.isNull("refinementInputProfileRevision"))
+                    null else options.getString("refinementInputProfileRevision"))
         }
         private fun stringMap(values: JSONObject): Map<String, String> = values.keys().asSequence().associateWith {
             require(values.get(it) is String) { "Journal arguments and outputs must be strings." }

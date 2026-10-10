@@ -24,6 +24,18 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/mangalens_widget_info" />
         </receiver>
+        <receiver android:name=".widget.ContinueReadingWidget" android:exported="false" android:label="MangaLens Continue Reading">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/mangalens_reading_widget_info" />
+        </receiver>
+        <receiver android:name=".widget.ContinueWatchingWidget" android:exported="false" android:label="MangaLens Continue Watching">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/mangalens_watching_widget_info" />
+        </receiver>
+        <receiver android:name=".widget.DownloadProgressWidget" android:exported="false" android:label="MangaLens Download Progress">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/mangalens_download_widget_info" />
+        </receiver>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.downloads"
@@ -45,6 +57,10 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="mangalens" android:host="video" />
+                <data android:scheme="mangalens" android:host="reader" />
+                <data android:scheme="mangalens" android:host="orez" />
+                <data android:scheme="mangalens" android:host="recent-video" />
+                <data android:scheme="mangalens" android:host="downloads" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

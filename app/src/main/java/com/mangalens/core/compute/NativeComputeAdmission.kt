@@ -9,7 +9,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class NativeComputeAdmission(private val pollMs: Long = 25, private val maxWaiting: Int = 64,
     private val governor: ResourceGovernor? = null, private val foregroundFairnessMs: Long = 10_000) {
     enum class Priority { LIVE, INTERACTIVE, BACKGROUND }
-    private class Ticket(val priority: Priority, val kind: ResourceWorkKind, val queuedAt: Long)
+    private class Ticket(val priority: Priority, val kind: ResourceWorkKind, val queuedAt: Long) {
+        // Read and set only under guard; later grants cannot erase observed contention.
+        var observedContention = false
+    }
     private val guard = Any()
     private val waiting = ArrayList<Ticket>()
     private var pendingCleanupRegistrations = 0
@@ -42,6 +45,9 @@ internal class NativeComputeAdmission(private val pollMs: Long = 25, private val
                             pendingCleanupRegistrations--
                             reservedCleanupCapacity = false
                         }
+                        // Preserve contention observed before current() can block or release
+                        // another owner; a later first grant must not erase that wait boundary.
+                        ticket.observedContention = active != null || waiting.isNotEmpty()
                         waiting += ticket
                         true
                     } else {
@@ -83,7 +89,9 @@ internal class NativeComputeAdmission(private val pollMs: Long = 25, private val
                     }
                     if (active == null && next === ticket) {
                         waiting.remove(ticket)
-                        Lease(waited, kind).also { active = it }
+                        // A registered predicate may be held across this whole lease's lifetime.
+                        waiting.forEach { it.observedContention = true }
+                        Lease(waited || ticket.observedContention, kind).also { active = it }
                     } else null
                 }
                 if (granted != null) {

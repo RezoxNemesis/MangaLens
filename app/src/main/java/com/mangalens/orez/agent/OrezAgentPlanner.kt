@@ -11,12 +11,25 @@ class OrezAgentPlanner(
     fun plan(input: String, context: OrezAgentContext): OrezTaskPlan? {
         val clean = input.trim()
         if (clean.isBlank()) return null
+        val research = com.mangalens.orez.research.OrezResearchRequest.parseExplicit(clean)
+        if (research != null && context.origin == OrezTrustOrigin.USER && context.explicitUserRequest) {
+            return OrezTaskPlan(objective = clean, steps = listOf(OrezPlanStep(0,
+                OrezToolRegistry().call("research_web", research.arguments()))))
+        }
         val lower = URL_REGEX.replace(clean.lowercase(Locale.ROOT), " ").trim()
         val explicitUrls = URL_REGEX.findAll(clean).map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }
             .distinct().take(OrezDurablePlanRules.MAX_STEPS + 1).toList()
         val explicitUrl = explicitUrls.firstOrNull()
         val url = explicitUrl ?: context.activeUrl?.takeIf {
             isAny(lower, "download this", "download the current", "save this video", "save media")
+        }
+
+        val memoryQuery = Regex("""^(?:please\s+)?search\s+(?:saved\s+(?:dialogue|text)|chapter\s+memory)\s+for\s+["“](.{1,256})["”](?:\s+in\s+(?:this|current)\s+chapter)?[.!]?$""", RegexOption.IGNORE_CASE)
+            .matchEntire(clean)?.groupValues?.get(1)?.trim()
+        if (memoryQuery != null && context.origin == OrezTrustOrigin.USER && context.explicitUserRequest &&
+            context.hasActiveChapter && context.activeChapterId != null) {
+            return OrezTaskPlan(objective = clean, steps = listOf(OrezPlanStep(0, OrezToolRegistry().call(
+                "search_saved_memory", mapOf("chapterId" to context.activeChapterId, "query" to memoryQuery)))))
         }
 
         if (OrezSubtitleRequest.isRequested(clean) && !OrezSubtitleRequest.isDownloadChain(clean)) {

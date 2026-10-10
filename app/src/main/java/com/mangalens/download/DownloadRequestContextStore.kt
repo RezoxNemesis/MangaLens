@@ -27,6 +27,9 @@ internal class DownloadRequestContextStore(context: Context) {
             .put("audioHeaders", JSONObject(media.audioHeaders))
             .put("requestedHeight", media.requestedHeight ?: JSONObject.NULL)
             .put("expectedDurationUs", media.expectedDurationUs ?: JSONObject.NULL)
+        media.audioMimeType?.let { json.put("audioMime", MediaTransportMime.capture(it)) }
+        media.videoFragments?.let { json.put("videoFragments", it.toJson()) }
+        media.audioFragments?.let { json.put("audioFragments", it.toJson()) }
         media.originalSelection?.let { selection ->
             json.put("originalSelection", JSONObject()
                 .put("videoFormatId", selection.videoFormatId ?: JSONObject.NULL)
@@ -103,6 +106,9 @@ internal class DownloadRequestContextStore(context: Context) {
                 audioUrl = json.optString("audioUrl").takeIf { it.isNotBlank() && it != "null" },
                 audioHeaders = json.getJSONObject("audioHeaders").let { h -> h.keys().asSequence().associateWith { h.optString(it) } },
                 requestedHeight = json.optInt("requestedHeight").takeIf { it > 0 },
+                audioMimeType = json.optString("audioMime").takeIf { it.isNotBlank() && it != "null" }?.let(MediaTransportMime::capture),
+                videoFragments = if (json.has("videoFragments")) OriginalFragmentPlan.fromJson(json.getJSONObject("videoFragments")) else null,
+                audioFragments = if (json.has("audioFragments")) OriginalFragmentPlan.fromJson(json.getJSONObject("audioFragments")) else null,
                 expectedDurationUs = json.optLong("expectedDurationUs").takeIf { it > 0L },
                 originalSelection = json.optJSONObject("originalSelection")?.let { selection ->
                     OriginalMediaSelection(
@@ -127,6 +133,14 @@ internal fun requireBoundMediaSource(sourceUrl: String, media: ResolvedMediaLink
                                     receiptRequired: Boolean = true): ResolvedMediaLink? {
     check(media != null || !receiptRequired) {
         "Saved media context is missing. Resolve the source again; no file was published."
+    }
+    media?.videoFragments?.let { plan ->
+        plan.validate()
+        check(plan.sourceUrl == media.url && plan.mediaMime == media.mimeType && plan.durationUs == media.expectedDurationUs) { "Saved fragment video does not match the complete selected source." }
+    }
+    media?.audioFragments?.let { plan ->
+        plan.validate()
+        check(plan.sourceUrl == media.audioUrl && plan.mediaMime == media.audioMimeType && plan.durationUs == media.expectedDurationUs) { "Saved fragment audio does not match the complete selected source." }
     }
     check(media == null || media.url == sourceUrl) {
         "Saved media context does not match the current source. Resolve the source again; no mixed-source file was published."

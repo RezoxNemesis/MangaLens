@@ -119,8 +119,16 @@ data class OrezSubtitleOptions(
     val translationPolicy: String = "whisper-english-v1",
     val capturedStyle: TranslationStyleProfile? = null,
     val refinementPin: SubtitleRefinementPin? = null,
-    val sceneContext: String = ""
+    val sceneContext: String = "",
+    val refinementInputProfileRevision: String? = null
 ) {
+    /** New user actions capture a version; normalized()/journal replay never choose an ambient replacement. */
+    fun captureForNewRequest(): OrezSubtitleOptions = normalized().let { captured ->
+        if (captured.localRefinement && captured.refinementInputProfileRevision == null)
+            captured.copy(refinementInputProfileRevision = com.mangalens.core.translation.TranslationRefinementPolicy.INPUT_PROFILE_VERSION)
+        else captured
+    }
+
     fun normalized() = copy(sourceLanguage = sourceLanguage.trim().lowercase(Locale.ROOT),
         targetLanguage = targetLanguage.trim().lowercase(Locale.ROOT).replace('_', '-'), style = style.trim().lowercase(Locale.ROOT),
         customStyle = customStyle.trim(), sceneContext = sceneContext.trim(), capturedStyle = capturedStyle ?: if (pipeline == SubtitlePipeline.SOURCE_TRANSLATION)
@@ -137,10 +145,15 @@ data class OrezTranslationOptions(
     val highAccuracy: Boolean = true,
     val preserveStyle: Boolean = true,
     val localRefinement: Boolean = false,
-    val refinementRequest: TranslationRefinementRequest? = null
+    val refinementRequest: TranslationRefinementRequest? = null,
+    val reconstructionVersion: Int = 1
 ) {
-    fun normalized() = copy(targetLanguage = targetLanguage.trim().lowercase(Locale.ROOT), styleId = styleId.trim().lowercase(Locale.ROOT),
+    fun captureForNewRequest() = normalized().copy(reconstructionVersion = com.mangalens.core.translation.ChapterReconstructionInputPolicy.CURRENT)
+    fun normalized(): OrezTranslationOptions {
+        require(reconstructionVersion in 1..2) { "Unsupported captured reconstruction version." }
+        return copy(targetLanguage = targetLanguage.trim().lowercase(Locale.ROOT), styleId = styleId.trim().lowercase(Locale.ROOT),
         customStyle = if (styleId.trim().equals("custom", ignoreCase = true)) customStyle.trim() else "", ocrScript = ocrScript.trim().uppercase(Locale.ROOT))
+    }
 }
 
 /** Only the trusted runtime creates this scope. Models and chapter text cannot grant authority. */
@@ -156,7 +169,7 @@ data class OrezTaskAuthorization(
     fun context() = OrezAgentContext(origin = origin, explicitUserRequest = explicitUserRequest)
 }
 
-enum class OrezOutputKind { DOWNLOAD_RECEIPT, SAVED_CHAPTER, CHAPTER_TRANSLATION, MEDIA_SOURCE, SUBTITLE_TRACK }
+enum class OrezOutputKind { DOWNLOAD_RECEIPT, SAVED_CHAPTER, CHAPTER_TRANSLATION, MEDIA_SOURCE, SUBTITLE_TRACK, MEMORY_SEARCH, RESEARCH_EVIDENCE }
 enum class OrezPendingControl { PAUSE, CANCEL }
 enum class OrezOutputField(val key: String) {
     CHAPTER_ID("chapterId"), SOURCE_FINGERPRINT("sourceFingerprint"), DOWNLOAD_ID("downloadId"),

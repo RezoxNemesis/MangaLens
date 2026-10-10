@@ -12,7 +12,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.mangalens.core.translation.ReaderMemoryController
 import com.mangalens.core.translation.HindiRomanization
-import com.mangalens.core.translation.memory.MemoryCorrectionEdit
+import com.mangalens.core.translation.PersonalMemoryEditorInputPolicy
+import com.mangalens.core.translation.PersonalMemoryEditorValues
+import com.mangalens.core.translation.ReaderBubbleAlternativeFormPolicy
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,9 +48,13 @@ internal fun ReaderMemoryPanel(controller: ReaderMemoryController, onRetranslate
                 } else {
                     val receipt = editor.captured.receipt
                     val edit = editor.bubble.correction?.edit
-                    var ocr by rememberSaveable(receipt, editor.bubble.editRevision) { mutableStateOf(edit?.correctedOcr ?: receipt.originalOcr) }
-                    var translated by rememberSaveable(receipt, editor.bubble.editRevision) { mutableStateOf(edit?.translated ?: receipt.originalTranslation.orEmpty()) }
-                    var hindi by rememberSaveable(receipt, editor.bubble.editRevision) { mutableStateOf(edit?.hindiDraft.orEmpty()) }
+                    val initial = PersonalMemoryEditorInputPolicy.initial(receipt, editor.savedHindiDraft, edit)
+                    val preset = state.generatedEdit?.let { ReaderBubbleAlternativeFormPolicy.preset(initial, it) } ?: initial
+                    var ocr by rememberSaveable(receipt, editor.bubble.editRevision, state.generatedEdit) { mutableStateOf(preset.ocr) }
+                    var translated by rememberSaveable(receipt, editor.bubble.editRevision, state.generatedEdit) { mutableStateOf(preset.translated) }
+                    var hindi by rememberSaveable(receipt, editor.bubble.editRevision, state.generatedEdit) { mutableStateOf(preset.hindiDraft) }
+                    state.generatedLabel?.let { Text(it, style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.semantics { contentDescription = "Unsaved alternative: $it" }) }
                     Text("Original OCR", style = MaterialTheme.typography.titleSmall)
                     Text(receipt.originalOcr, Modifier.semantics { contentDescription = "Original OCR: ${receipt.originalOcr}" })
                     Text("Original translation", style = MaterialTheme.typography.titleSmall)
@@ -60,9 +66,9 @@ internal fun ReaderMemoryPanel(controller: ReaderMemoryController, onRetranslate
                     if (HindiRomanization.isTarget(receipt.targetLanguage)) OutlinedTextField(hindi, { if (it.length <= 4096) hindi = it }, label = { Text("Hindi draft for Roman Hindi") },
                         supportingText = { Text("Keep the Hindi draft that produces this Roman Hindi translation.") }, enabled = !state.busy,
                         modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Personal Hindi draft" })
-                    val changed = ocr != (edit?.correctedOcr ?: receipt.originalOcr) || translated != (edit?.translated ?: receipt.originalTranslation.orEmpty()) || hindi != edit?.hindiDraft.orEmpty()
-                    Button({ scope.launch { controller.save(MemoryCorrectionEdit(ocr.takeUnless { it == receipt.originalOcr },
-                        translated.takeUnless { it == receipt.originalTranslation }, hindi.takeIf { it.isNotBlank() && translated != receipt.originalTranslation })) } },
+                    val values = PersonalMemoryEditorValues(ocr, translated, hindi)
+                    val changed = PersonalMemoryEditorInputPolicy.changed(initial, values, receipt.targetLanguage)
+                    Button({ scope.launch { controller.save(PersonalMemoryEditorInputPolicy.edit(receipt, editor.savedHindiDraft, values)) } },
                         enabled = changed && ocr.isNotBlank() && translated.isNotBlank() && !state.busy,
                         modifier = Modifier.semantics { contentDescription = "Save personal correction" }) { Text("Save correction") }
                     if (editor.bubble.correction != null) TextButton({ scope.launch { controller.remove() } }, enabled = !state.busy,

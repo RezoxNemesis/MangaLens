@@ -30,7 +30,9 @@ internal object OriginalMediaRemuxer {
                          outputBase: File, expectedDurationUs: Long?, selectedHeight: Int?,
                          selection: OriginalMediaSelection? = null,
                          requireCombinedAudio: Boolean = false): OriginalMediaPublication = try {
-        MediaResolutionRunner.run(300_000L) { session ->
+        val ownerId = outputBase.name.substringBefore(".muxed-")
+        require(ownerId.matches(Regex("[A-Za-z0-9_-]{1,100}")))
+        MediaResolutionRunner.run(300_000L, DownloadPrivateFileOwner(requireNotNull(outputBase.parentFile), ownerId)) { session ->
             try {
                 requirePrivate(context, video); audio?.let { requirePrivate(context, it) }
                 requirePrivate(context, outputBase)
@@ -74,7 +76,7 @@ internal object OriginalMediaRemuxer {
                         } catch (failure: Exception) {
                             session.checkActive()
                             if (failure is InterruptedException) throw failure
-                            output.delete()
+                            if (session.privateFilesReleased()) output.delete()
                             backend = OriginalMuxBackend.FFMPEG
                         }
                     }
@@ -85,16 +87,22 @@ internal object OriginalMediaRemuxer {
                     }
                     session.checkActive()
                     OriginalMediaPublication(output, plan.container.mime, verified.withoutTimingReceipts(), backend, playbackSupported(verified))
-                } catch (failure: Throwable) { output.delete(); throw failure }
+                } catch (failure: Throwable) {
+                    if (session.privateFilesReleased()) output.delete()
+                    throw failure
+                }
             } finally {
-                removeTimingReceipts(outputBase)
+                cleanupAfterProcessing(outputBase, session, rejected = session.isStopped())
             }
         }
     } catch (timeout: MediaResolutionTimeoutException) {
         currentCoroutineContext().ensureActive()
         throw IllegalStateException("Original media processing exceeded its five-minute limit. Retry processing; no lower-quality substitute was published.", timeout)
-    } finally {
-        removeTimingReceipts(outputBase)
+    }
+
+    internal fun cleanupAfterProcessing(base: File, session: MediaResolutionSession, rejected: Boolean) {
+        if (!session.privateFilesReleased()) return
+        if (rejected) removeAttemptOutputs(base) else removeTimingReceipts(base)
     }
 
     private fun verifyOutput(runtime: NativeOriginalMediaInstallation, output: File, video: VerifiedOriginalMedia,

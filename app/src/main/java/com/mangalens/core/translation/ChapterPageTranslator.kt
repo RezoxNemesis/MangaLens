@@ -40,15 +40,19 @@ internal class ChapterPageTranslator(
     private val store: ChapterTranslationStore,
     private val task: ChapterTranslationTask
 ) : AutoCloseable {
+    init {
+        if (task.config.localRefinement) check(task.config.refinementRequest?.let(TranslationRefinementPolicy::generationReady) == true) {
+            "Captured localization input version is missing or unsupported. Saved pages are kept; start a new translation explicitly."
+        }
+    }
+
     private val ocr = AdvancedTranslationEngine(context)
     private val translator = TranslationService()
     private val refiner = TranslationOrezRefiner(context)
     private val config = task.config
     private val style = config.style()
     private val memoryScope = "chapter:" + task.chapterId
-    private val memoryStyleKey = style.memoryKey + (config.refinementRequest?.let {
-        ":refinement:" + TranslationRefinementPolicy.hash(TranslationRefinementRequestCodec.identity(it)).take(20)
-    } ?: "")
+    private val memoryStyleKey = CapturedMemoryRefinementPolicy.styleIdentity(style.memoryKey, config)
 
     suspend fun translate(page: ChapterTranslationPage, chapterContext: String): ChapterTranslationPage {
         checkActive()
@@ -75,17 +79,29 @@ internal class ChapterPageTranslator(
             // reaches this finally block, so it cannot read a prematurely recycled source/tile.
             val regions = ocr.recognizeScriptAware(bitmap, AdvancedTranslationEngine.OcrOptions(config.ocrScript, config.highAccuracy), originalSource)
             checkActive()
+            val workerJob = currentCoroutineContext()[kotlinx.coroutines.Job]
+            val checkCpuWork = { workerJob?.ensureActive(); Unit }
+            val diagnostics = ObservedOcrDiagnosticsRecorder(regions, bitmap, requireNotNull(page.sourceSha256), config.reconstructionVersion, checkCpuWork)
+            val diagnosticBytes = store.get(task.id)?.pages.orEmpty().filter { it.index != page.index }
+                .sumOf { it.ocrDiagnostics?.let(SavedOcrDiagnosticsCodec::bytes) ?: 0 }
+            fun savedDiagnostics() = diagnostics.finish((SavedPageOcrDiagnostics.MAX_TASK_BYTES - diagnosticBytes).coerceAtLeast(0))
             if (regions.isEmpty()) return if (page.lettering.isNotEmpty()) page.copy(
                 status = ChapterTranslationPageStatus.PARTIAL,
                 error = "No new readable text was detected. Earlier successful bubbles were kept.")
             else page.copy(status = ChapterTranslationPageStatus.NO_TEXT, cleanedPath = null, cleanedSha256 = null,
-                imageWidth = 0, imageHeight = 0, lettering = emptyList(), rejectedRegions = 0, error = null)
+                imageWidth = 0, imageHeight = 0, lettering = emptyList(), rejectedRegions = 0, error = null, ocrDiagnostics = savedDiagnostics())
 
-            if (page.lettering.isEmpty() && ReaderPromoPolicy.isLikelyPromo(regions.joinToString("\n") { it.source })) {
-                return page.copy(status = ChapterTranslationPageStatus.PROMO, cleanedPath = null, cleanedSha256 = null,
-                    imageWidth = 0, imageHeight = 0, lettering = emptyList(), rejectedRegions = 0, error = null)
+            if (ReaderPromoPolicy.isLikelyPromo(regions.joinToString("\n") { it.source })) {
+                // Detection must not erase successful earlier lettering or its verified cleaned image.
+                return if (page.lettering.isNotEmpty()) page.copy(status = ChapterTranslationPageStatus.COMPLETED,
+                    promotionDetected = true, error = null)
+                else page.copy(status = ChapterTranslationPageStatus.PROMO, cleanedPath = null, cleanedSha256 = null,
+                    imageWidth = 0, imageHeight = 0, lettering = emptyList(), rejectedRegions = 0,
+                    promotionDetected = true, error = null, ocrDiagnostics = savedDiagnostics())
             }
 
+            val observedGeometry = if (config.reconstructionVersion >= 2 && regions.size <= MangaWritableGeometry.MAX_OBSERVATIONS)
+                regions.map { observed -> boundedSourceBounds(observed.bounds, bitmap.width, bitmap.height).let { MangaWritableRect(it.left, it.top, it.right, it.bottom) } } else null
             val lettering = restoreSuccessfulBubbles(bitmap, page).toMutableList()
             val retainedCount = lettering.size
             val canvas = Canvas(bitmap)
@@ -94,16 +110,29 @@ internal class ChapterPageTranslator(
             var firstError: String? = null
             for ((position, region) in regions.withIndex()) {
                 checkActive()
-                if (lettering.any { matches(it, region) }) continue
+                val reused = lettering.indexOfFirst { matches(it, region) }
+                if (reused >= 0) { diagnostics.outcome(position, SavedOcrOutcome.REUSED, reused); continue }
                 if (lettering.size >= ChapterTranslationStore.MAX_LETTERING || position >= ChapterTranslationStore.MAX_LETTERING) {
+                    diagnostics.deferFrom(position, SavedOcrOutcome.DEFERRED_LIMIT)
                     rejected = (rejected + regions.size - position).coerceAtMost(ChapterTranslationStore.MAX_LETTERING)
                     firstError = firstError ?: "This page exceeds the bounded lettering limit. Successful bubbles were kept."
                     break
                 }
+                var nativeLetteringStaged = false
                 try {
                     require(region.source.length in 1..ChapterTranslationStore.MAX_TEXT_CHARS) { "OCR region is too large to translate safely." }
                     if (OcrSourceQuality.needsPixelRetry(region.source)) throw TranslationQualityException()
-                    val localizedDraft = recall(region.source) ?: run {
+                    val bounds = boundedSourceBounds(region.bounds, bitmap.width, bitmap.height)
+                    val geometryLimit = if (config.reconstructionVersion < 2) null else {
+                        val observed = MangaWritableRect(bounds.left, bounds.top, bounds.right, bounds.bottom)
+                        val completeGeometry = observedGeometry ?: throw MangaGeometryConflictException()
+                        val neighbours = completeGeometry.filterIndexed { otherIndex, _ -> otherIndex != position } +
+                            lettering.map { MangaWritableRect(it.left, it.top, it.right, it.bottom) }
+                        MangaWritableGeometry.limit(observed, neighbours, bitmap.width, bitmap.height)
+                            ?: throw MangaGeometryConflictException()
+                    }
+                    val regionCacheStyle = CapturedMemoryRefinementPolicy.cacheStyle(memoryStyleKey, config.memoryPacket, page.index, region.source, chapterContext)
+                    val localizedDraft = recall(region.source, regionCacheStyle) ?: run {
                         // Edit pinned Hindi before romanization so the exact validated
                         // intermediate remains evidence for the final Roman lettering.
                         val draftTarget = if (HindiRomanization.isTarget(config.targetLanguage) &&
@@ -116,8 +145,11 @@ internal class ChapterPageTranslator(
                             val request = config.refinementRequest
                                 ?: error("This older task has no captured refinement model. Start a new translation explicitly.")
                             check(request.enabled && request.pinnedModel != null) { "This task captured no available refinement model. Install a verified pack, then start a new translation explicitly." }
-                            val result = refiner.refineCaptured(region.source, draft.text, draftTarget, request, chapterContext)
-                            check(TranslationRefinementPolicy.matches(result, region.source, draft.text, draftTarget, request, chapterContext)) {
+                            val memory = CapturedMemoryRefinementPolicy.inputs(config.memoryPacket, page.index, region.source, draft.text, draftTarget, request, chapterContext)
+                            if (memory.targetProjectionOmitted) android.util.Log.i("MangaLensMemory",
+                                "Series memory text omitted: captured target ${config.memoryPacket?.targetLanguage} differs from refinement target $draftTarget")
+                            val result = refiner.refineCaptured(region.source, draft.text, draftTarget, request, memory.chapterContext, memory.glossary, memory.packetSha256)
+                            check(TranslationRefinementPolicy.matches(result, region.source, draft.text, draftTarget, request, memory.chapterContext, memory.glossary, memory.packetSha256)) {
                                 "The captured local refinement model could not finish (${result.status.name.lowercase()}). Retry this task; its model stays pinned."
                             }
                             if (style.id !in setOf("natural", "faithful") && !TranslationQualityPolicy.isUsable(region.source, result.text, draftTarget))
@@ -130,9 +162,17 @@ internal class ChapterPageTranslator(
                     val localized = localizedDraft.text
                     require(localized.length in 1..ChapterTranslationStore.MAX_TEXT_CHARS) { "Translated lettering is too large to save safely." }
                     checkActive()
-                    val bounds = boundedSourceBounds(region.bounds, bitmap.width, bitmap.height)
-                    val patch = MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, config.preserveStyle)
+                    val patch = MangaLettering.prepare(bitmap, region.bounds, region.lineBounds, region.source, config.preserveStyle,
+                        config.reconstructionVersion, geometryLimit?.let { Rect(it.left, it.top, it.right, it.bottom) }, checkCpuWork)
+                    var actualFittedSize: Float? = null
                     try {
+                        if (config.reconstructionVersion >= 2 && lettering.any { existing ->
+                                Rect.intersects(patch.bounds, Rect(existing.left, existing.top, existing.right, existing.bottom)) }) throw MangaGeometryConflictException()
+                        if (config.reconstructionVersion >= 2) {
+                            val fitted = MangaLettering.layout(localized, patch.style, patch.bounds.width(), patch.bounds.height())
+                            actualFittedSize = fitted.paint.textSize
+                            if (fitted.paint.textSize < maxOf(4f, patch.style.size * .35f)) throw MangaLetteringFitException()
+                        }
                         // The cumulative clean page prevents later overlapping patches from
                         // bringing an earlier source glyph back into the recovered surface.
                         canvas.drawBitmap(patch.background, patch.bounds.left.toFloat(), patch.bounds.top.toFloat(), null)
@@ -143,21 +183,40 @@ internal class ChapterPageTranslator(
                             originalSourceBounds = OriginalMangaGeometry.fromSampled(bounds.left, bounds.top, bounds.right, bounds.bottom,
                                 bitmap.width, bitmap.height, decoded.originalWidth, decoded.originalHeight))
                     } finally { patch.background.recycle() }
-                    remember(region.source, localizedDraft)
+                    diagnostics.outcome(position, SavedOcrOutcome.TRANSLATED, lettering.lastIndex,
+                        SavedOcrBox(patch.bounds.left, patch.bounds.top, patch.bounds.right, patch.bounds.bottom), actualFittedSize)
+                    nativeLetteringStaged = true
+                    remember(region.source, localizedDraft, regionCacheStyle)
                     transientFailures = 0
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (deferred: com.mangalens.core.compute.ResourcePausedException) {
                     throw deferred
+                } catch (geometry: MangaGeometryConflictException) {
+                    diagnostics.outcome(position, SavedOcrOutcome.GEOMETRY_CONFLICT)
+                    rejected++
+                    firstError = firstError ?: geometry.message
+                } catch (artwork: MangaReconstructionDeferredException) {
+                    diagnostics.outcome(position, SavedOcrOutcome.RECONSTRUCTION_DEFERRED)
+                    rejected++
+                    firstError = firstError ?: artwork.message
+                } catch (fitting: MangaLetteringFitException) {
+                    diagnostics.outcome(position, SavedOcrOutcome.FITTING_DEFERRED)
+                    rejected++
+                    firstError = firstError ?: fitting.message
                 } catch (quality: TranslationQualityException) {
+                    diagnostics.outcome(position, SavedOcrOutcome.QUALITY_REJECTED)
                     rejected++
                     firstError = firstError ?: quality.message
                 } catch (failure: Exception) {
+                    // A later cache-write failure does not undo the actual staged native lettering.
+                    if (!nativeLetteringStaged) diagnostics.outcome(position, SavedOcrOutcome.TRANSLATION_FAILED)
                     rejected++
                     firstError = firstError ?: failure.message ?: "One bubble could not be translated."
                     // Do not download/reload a failed model independently for hundreds of bubbles.
                     // A manual resume retries the unfinished page and retains its successes.
                     if (++transientFailures >= 3) {
+                        diagnostics.deferFrom(position + 1, SavedOcrOutcome.DEFERRED_MODEL)
                         rejected = (rejected + regions.size - position - 1).coerceAtMost(ChapterTranslationStore.MAX_LETTERING)
                         break
                     }
@@ -170,16 +229,17 @@ internal class ChapterPageTranslator(
             checkActive()
             if (lettering.isEmpty()) return page.copy(status = ChapterTranslationPageStatus.FAILED, cleanedPath = null,
                 cleanedSha256 = null, imageWidth = 0, imageHeight = 0, lettering = emptyList(),
-                rejectedRegions = rejected.coerceAtMost(ChapterTranslationStore.MAX_LETTERING),
-                error = (firstError ?: "No bubble passed translation quality checks. Original text was preserved.").take(ChapterTranslationStore.MAX_ERROR_CHARS))
+                rejectedRegions = rejected.coerceAtMost(ChapterTranslationStore.MAX_LETTERING), promotionDetected = false,
+                error = (firstError ?: "No bubble passed translation quality checks. Original text was preserved.").take(ChapterTranslationStore.MAX_ERROR_CHARS),
+                ocrDiagnostics = savedDiagnostics())
 
             generated = store.createOutputFile(task.id, task.generation, page.index)
             val checksum = persistCleanSurface(bitmap, generated)
             checkActive()
             return page.copy(status = if (rejected == 0) ChapterTranslationPageStatus.COMPLETED else ChapterTranslationPageStatus.PARTIAL,
                 cleanedPath = generated.absolutePath, cleanedSha256 = checksum, imageWidth = bitmap.width, imageHeight = bitmap.height,
-                lettering = lettering.toList(), originalWidth = decoded.originalWidth, originalHeight = decoded.originalHeight, rejectedRegions = rejected.coerceAtMost(ChapterTranslationStore.MAX_LETTERING),
-                error = firstError?.take(ChapterTranslationStore.MAX_ERROR_CHARS))
+                lettering = lettering.toList(), promotionDetected = false, originalWidth = decoded.originalWidth, originalHeight = decoded.originalHeight, rejectedRegions = rejected.coerceAtMost(ChapterTranslationStore.MAX_LETTERING),
+                error = firstError?.take(ChapterTranslationStore.MAX_ERROR_CHARS), ocrDiagnostics = savedDiagnostics())
         } catch (failure: Throwable) {
             generated?.let { store.discardUnreferenced(it.absolutePath) }
             throw failure
@@ -277,24 +337,28 @@ internal class ChapterPageTranslator(
         else -> null // Latin and Han glyphs alone do not identify their spoken language.
     }
 
-    internal suspend fun recall(source: String): TranslationDraft? = try {
+    internal suspend fun recall(source: String, cacheStyle: String = memoryStyleKey): TranslationDraft? = try {
         if (config.localRefinement && config.refinementRequest?.pinnedModel == null) null
-        else OrezRoomDatabase.get(context).datasets().exactTranslationScoped(source.trim(), config.targetLanguage, memoryStyleKey, memoryScope)
+        else OrezRoomDatabase.get(context).datasets().exactTranslationScoped(source.trim(), config.targetLanguage, cacheStyle, memoryScope)
             ?.let { TranslationMemoryCodec.decode(source, it, config.targetLanguage) }
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { null }
 
-    internal suspend fun remember(source: String, translated: TranslationDraft) {
+    internal suspend fun remember(source: String, translated: TranslationDraft, cacheStyle: String = memoryStyleKey) {
         try {
-            val identity = listOf(source.trim(), config.targetLanguage, memoryStyleKey, memoryScope).joinToString("|")
+            val identity = listOf(source.trim(), config.targetLanguage, cacheStyle, memoryScope).joinToString("|")
             val key = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
             OrezRoomDatabase.get(context).datasets().upsertTranslation(OrezTranslationEntity(key = key, source = source.trim(),
                 target = TranslationMemoryCodec.encode(source, translated, config.targetLanguage),
-                targetLanguage = config.targetLanguage, style = memoryStyleKey, scope = memoryScope))
+                targetLanguage = config.targetLanguage, style = cacheStyle, scope = memoryScope))
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { /* Optional scoped memory never invalidates a verified page. */ }
     }
 
     override fun close() { ocr.close(); translator.close(); refiner.close() }
 }
+
+private class MangaGeometryConflictException : IllegalStateException("Neighbouring text regions cannot be separated safely. Original text was kept; retry or correct this region.")
+
+private class MangaLetteringFitException : IllegalStateException("This wording would need unreadably small lettering. Original text was kept; edit a shorter alternative or retry this region.")

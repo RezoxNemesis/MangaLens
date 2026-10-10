@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import com.mangalens.core.reader.ChapterPage
 import com.mangalens.core.reader.ProgressiveChapterRepository
+import com.mangalens.core.reader.PngRasterIntegrity
 import com.mangalens.ui.reader.MangaContinuousReader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -66,7 +67,14 @@ class ReaderSourceRecoveryTest {
         finally { scenario?.close(); corrupt.delete(); healthy.delete() }
     }
 
-    @Test fun aBoundsReadableRasterFailureOffersRetryAndShowsTheReacquiredPixels() = coreScreenSmoke("reader-raster-recovery") {
+    @Test fun aBoundsReadableRasterFailureOffersRetryAndShowsTheReacquiredPixels() =
+        boundsReadableRasterRecovery(fatalNativeRaster = true)
+
+    @Test fun aRecomputedCrcPngWithBrokenZlibOffersRetryAndShowsTheReacquiredPixels() =
+        boundsReadableRasterRecovery(fatalNativeRaster = false)
+
+    private fun boundsReadableRasterRecovery(fatalNativeRaster: Boolean) =
+        coreScreenSmoke(if (fatalNativeRaster) "reader-raster-recovery" else "reader-png-raster-recovery") {
         val fixture = UUID.randomUUID().toString()
         val directory = File(context.cacheDir,"reader-raster-$fixture").apply { check(mkdirs()) }
         val fixtureContext = object : ContextWrapper(context) { override fun getFilesDir(): File = directory }
@@ -86,13 +94,23 @@ class ReaderSourceRecoveryTest {
             val repository = ProgressiveChapterRepository(fixtureContext)
             val imported = runBlocking { repository.persistLocalImages(listOf(Uri.fromFile(original),Uri.fromFile(neighbour)),fixtureContext) }
             val target = File(requireNotNull(imported[0].localPath))
-            target.writeBytes(unreadablePng(target.readBytes()))
+            target.writeBytes(if (fatalNativeRaster) BoundsReadableRasterFixture.create(320, 480)
+                else unreadablePng(target.readBytes()))
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds=true }
             BitmapFactory.decodeFile(target.absolutePath,bounds)
             assertEquals(320,bounds.outWidth); assertEquals(480,bounds.outHeight)
-            val decoded = BitmapFactory.decodeFile(target.absolutePath)
-            decoded?.recycle()
-            assertNull("An actual Android decoder must reject the fixture despite intact bounds",decoded)
+            if (fatalNativeRaster) {
+                val decoded = BitmapFactory.decodeFile(target.absolutePath)
+                decoded?.recycle()
+                assertNull("An actual Android decoder must reject the fixture despite intact bounds",decoded)
+            } else {
+                try {
+                    PngRasterIntegrity.verifyIfPng(target)
+                    fail("A recomputed chunk CRC cannot verify the broken original PNG zlib raster")
+                } catch (expected: IllegalStateException) {
+                    assertTrue(expected.message.orEmpty().contains("zlib"))
+                }
+            }
             val neighbourBytes = File(requireNotNull(imported[1].localPath)).readBytes()
             writePng(original,Color.BLUE)
             val sourceBytes = original.readBytes()
@@ -125,7 +143,7 @@ class ReaderSourceRecoveryTest {
             assertArrayEquals(neighbourBytes,File(requireNotNull(imported[1].localPath)).readBytes())
             assertArrayEquals(sourceBytes,original.readBytes())
             assertNotEquals(imported[0].contentRevision,repository.pages.value[0].contentRevision)
-            capture("bounds-readable-raster-source-repaired")
+            capture(if (fatalNativeRaster) "bounds-readable-raster-source-repaired" else "png-zlib-source-repaired")
         } catch(problem:Throwable) { recordFailure(problem); throw problem }
         finally {
             scenario?.close()

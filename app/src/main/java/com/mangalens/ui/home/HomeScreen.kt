@@ -29,16 +29,46 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
     onOpenVideo: () -> Unit, onOpenDownloads: () -> Unit, onOpenChapter: (String) -> Unit,
     onImportImages: (List<Uri>) -> Unit, onOpenSavedChapter: (String) -> Unit,
     onOpenOrez: () -> Unit, onOpenLibrary: () -> Unit,
-    onOpenSettings: () -> Unit = {}, onOpenWeb: () -> Unit = {}, onOpenWatch: () -> Unit = onOpenVideo) {
+    onOpenSettings: () -> Unit = {}, onOpenWeb: () -> Unit = {}, onOpenWatch: () -> Unit = onOpenVideo,
+    onOpenGlobalSearch: (String) -> Unit = {},
+    onOpenRecentVideo: (String) -> Unit = { onOpenVideo() }, recentVideoError: String? = null,
+    onOpenBrowserShortcut: (String) -> Unit = {}, onOpenOrezRequest: (String) -> Unit = {}) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val recentStore = remember(context.applicationContext) { com.mangalens.ui.video.RecentVideoStore.shared(context) }
+    val recentHistory by recentStore.state.collectAsState()
     val home = rememberHomeLayout()
+    val browserNeeded = home.layout.visibleModules.any { it == HomeModule.BROWSER_HISTORY || it == HomeModule.RECENT_SITES }
+    val browserSession = remember(context.applicationContext, browserNeeded) {
+        if (browserNeeded) com.mangalens.ui.web.BrowserWorkspaceRepository.session(context) else null
+    }
+    val absentBrowser = remember { kotlinx.coroutines.flow.MutableStateFlow<com.mangalens.ui.web.BrowserWorkspaceSnapshot?>(null) }
+    val absentBrowserError = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
+    val browserSnapshot by (browserSession?.state ?: absentBrowser).collectAsState()
+    val browserError by (browserSession?.error ?: absentBrowserError).collectAsState()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val homeLifecycle by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
+    var browserShortcutError by remember { mutableStateOf<String?>(null) }
     var customize by rememberSaveable { mutableStateOf(false) }
     if (customize) HomeCustomizationSheet(home.layout, home.preferences) { customize = false }
     var query by rememberSaveable { mutableStateOf("") }
+    var queryEpoch by remember { mutableLongStateOf(0L) }
     var tab by rememberSaveable { mutableStateOf("For you") }
     var showLink by rememberSaveable { mutableStateOf(false) }
     var requestedMode by rememberSaveable(showLink) { mutableStateOf<ContentType?>(null) }
     val linkMode = requestedMode ?: state.mode
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImportImages(it) }
+    fun openBrowserVisit(visit: com.mangalens.ui.web.BrowserVisit, capturedQuery: String,
+        capturedQueryEpoch: Long, sitesOnly: Boolean) {
+        if (lifecycleOwner.lifecycle.currentState != androidx.lifecycle.Lifecycle.State.RESUMED) return
+        if (capturedQuery != query || capturedQueryEpoch != queryEpoch ||
+            !HomeBrowserShortcutPolicy.rows(browserSession?.state?.value, query, sitesOnly).contains(visit)) {
+            browserShortcutError = "This saved visit changed. Refresh and try again."
+            return
+        }
+        browserShortcutError = null
+        onOpenBrowserShortcut(visit.url)
+    }
+    LaunchedEffect(query, browserSnapshot?.revision) { browserShortcutError = null }
     val chapters = state.library.filter { it.title.contains(query, true) && (tab != "Bookmarks" || it.bookmarked) }
     if (showLink) AlertDialog(onDismissRequest = { showLink = false }, title = { Text("Open a link") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -68,8 +98,8 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
             IconButton({ customize = true }) { Icon(Icons.Outlined.Tune, "Customize Home") }
             IconButton(onOpenSettings) { Icon(Icons.Outlined.Settings, "Settings and protection") }
         }) }
-        item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
-            leadingIcon = { Icon(Icons.Outlined.Search, null) }, placeholder = { Text("Search your manga & chapters") }, shape = RoundedCornerShape(18.dp)) }
+        item { OutlinedTextField(query, { if (it != query) queryEpoch++; query = it }, Modifier.fillMaxWidth(), singleLine = true,
+            leadingIcon = { Icon(Icons.Outlined.Search, null) }, trailingIcon = { TextButton({ onOpenGlobalSearch(query) }) { Text("Search all") } }, placeholder = { Text("Search your manga & chapters") }, shape = RoundedCornerShape(18.dp)) }
         item { LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(listOf("For you", "Recent", "Bookmarks")) { label -> FilterChip(tab == label, { tab = label }, label = { Text(label) }) }
         } }
@@ -141,11 +171,50 @@ fun HomeScreen(state: MangaLensUiState, onUrlChanged: (String) -> Unit, onPaste:
                             Modifier.fillMaxWidth(), onClick = onOpenOrez)
                     }
                 }
-                HomeModule.CONTINUE_WATCHING -> if (state.videoUrl != null) item(key = module.id) {
-                    HomeSection(module) {
+                HomeModule.CONTINUE_WATCHING -> {
+                    val continued = recentHistory.entries.firstOrNull { it.canContinue && query.isBlank() && tab == "For you" }
+                    if (continued != null) item(key = module.id) { HomeSection(module) {
+                        com.mangalens.ui.video.RecentVideoCard(continued, recentStore, onOpenRecentVideo)
+                    } } else if (state.videoUrl != null) item(key = module.id) { HomeSection(module) {
                         NeonActionTile("Resume video", "Continue in MangaLens Video", Icons.Outlined.PlayCircle,
                             Modifier.fillMaxWidth(), onClick = onOpenVideo)
+                    } }
+                }
+                HomeModule.RECENT_VIDEO -> item(key = module.id) { HomeSection(module) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Recent videos", style = MaterialTheme.typography.titleMedium)
+                        val recent = recentHistory.entries.filter { it.title.contains(query, true) && (tab != "Bookmarks" || it.favorite) }.take(12)
+                        if (recent.isEmpty()) Text(if (recentHistory.loading) "Loading recent videos…" else "Videos appear here after playback starts.")
+                        recent.forEach { entry -> com.mangalens.ui.video.RecentVideoCard(entry, recentStore, onOpenRecentVideo) }
+                        (recentVideoError ?: recentHistory.error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
+                } }
+                HomeModule.BROWSER_HISTORY, HomeModule.RECENT_SITES -> item(key = module.id) {
+                    HomeSection(module) {
+                        val renderedQuery = query
+                        val renderedEpoch = queryEpoch
+                        val sitesOnly = module == HomeModule.RECENT_SITES
+                        HomeBrowserSection(module.label, HomeBrowserShortcutPolicy.rows(browserSnapshot, renderedQuery,
+                            sitesOnly = sitesOnly), browserSnapshot == null && browserError == null,
+                            browserShortcutError ?: browserError,
+                            homeLifecycle == androidx.lifecycle.Lifecycle.State.RESUMED,
+                            { visit -> openBrowserVisit(visit, renderedQuery, renderedEpoch, sitesOnly) }, onOpenWeb)
+                    }
+                }
+                HomeModule.OREZ_SUGGESTIONS -> item(key = module.id) {
+                    HomeSection(module) { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Try with Orez", style = MaterialTheme.typography.titleMedium)
+                        Text("Choose a prompt, review it, then send it in Orez.", style = MaterialTheme.typography.bodySmall)
+                        if (state.pages.isNotEmpty()) TextButton({ onOpenOrezRequest("Summarize this chapter faithfully without spoilers.") }) {
+                            Text("Summarize the current chapter")
+                        }
+                        if (state.library.isNotEmpty()) TextButton({ onOpenOrezRequest("Help me plan my reading list from my saved chapters.") }) {
+                            Text("Plan from my saved library")
+                        }
+                        TextButton({ onOpenOrezRequest("Explain MangaLens Reader, Web, Video and download controls.") }) {
+                            Text("Understand MangaLens controls")
+                        }
+                    } }
                 }
                 HomeModule.DOWNLOADS -> item(key = module.id) {
                     HomeSection(module) {

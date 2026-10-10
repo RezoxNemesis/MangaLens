@@ -36,6 +36,9 @@ internal class SubtitleCueTranslator(private val context: Context) : AutoCloseab
         if (config.localRefinement) check(config.refinementPin != null) {
             "No verified refinement model was captured. Original speech has been kept; start a new request after installing a model."
         }
+        if (config.localRefinement) check(TranslationRefinementPolicy.generationReady(config.refinementRequest())) {
+            "This task has no supported captured localization input version. Original speech and earlier translations have been kept; start a new request explicitly."
+        }
         val source = window.sourceCues[sourceIndex].text
         val contextText = task.translationContext(window.index, sourceIndex)
         val scope = "subtitle:" + task.source.fingerprint + ":" + config.fingerprint() + ":" +
@@ -63,7 +66,7 @@ internal class SubtitleCueTranslator(private val context: Context) : AutoCloseab
             val receipt = requireNotNull(refined.receipt)
             SubtitleTranslatedCue(sourceIndex, accepted.text, accepted.hindiDraft,
                 SubtitleSavedRefinement(SubtitleRefinementPin(receipt.model.modelId, receipt.model.sha256, receipt.model.bytes),
-                    receipt.promptSha256, receipt.outputSha256), readyDraft.text, refined.text, readyDraft.hindiDraft)
+                    receipt.promptSha256, receipt.outputSha256, receipt.completion?.subtitleCompletion()), readyDraft.text, refined.text, readyDraft.hindiDraft)
         }
         check(acceptsSubtitleTarget(task, window, target)) {
             "The target cue failed independent language, quality or selected-style checks. Original speech has been kept."

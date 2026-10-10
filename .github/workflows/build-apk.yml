@@ -54,7 +54,7 @@ jobs:
           name: orez-nvidia-corpus
           path: |
             dist/nvidia/*.jsonl.gz
-            dist/nvidia/nvidia-source-manifest.json
+            dist/nvidia/source-manifest.json
           retention-days: 7
 
   build-slimorca-corpus:
@@ -252,11 +252,11 @@ jobs:
       - name: Generate controlled media fixtures
         run: bash .github/scripts/create-video-ocr-fixture.sh
       - name: Run unit tests
-        run: gradle --no-daemon clean testDebugUnitTest --stacktrace
+        run: gradle --no-daemon -Pkotlin.daemon.jvmargs=-Xmx3072m clean testDebugUnitTest --stacktrace
       - name: Run lint
-        run: gradle --no-daemon lintDebug --stacktrace
+        run: gradle --no-daemon -Pkotlin.daemon.jvmargs=-Xmx3072m lintDebug --stacktrace
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest --stacktrace
+        run: gradle --no-daemon -Pkotlin.daemon.jvmargs=-Xmx3072m assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Verify APK
         run: |
           set -euo pipefail
@@ -332,11 +332,11 @@ jobs:
       - name: Generate controlled media fixtures
         run: bash .github/scripts/create-video-ocr-fixture.sh
       - name: Run unit tests
-        run: gradle --no-daemon clean testDebugUnitTest --stacktrace
+        run: gradle --no-daemon -Pkotlin.daemon.jvmargs=-Xmx3072m clean testDebugUnitTest --stacktrace
       - name: Run lint
-        run: gradle --no-daemon lintDebug --stacktrace
+        run: gradle --no-daemon -Pkotlin.daemon.jvmargs=-Xmx3072m lintDebug --stacktrace
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug assembleSelfTest assembleDebugAndroidTest --stacktrace
+        run: gradle --no-daemon -Pkotlin.daemon.jvmargs=-Xmx3072m assembleDebug assembleSelfTest assembleDebugAndroidTest --stacktrace
       - name: Verify APK
         run: |
           set -euo pipefail
@@ -480,7 +480,11 @@ jobs:
       - name: Build, test, lint, and assemble debug APK
         run: |
           bash .github/scripts/create-video-ocr-fixture.sh
-          gradle --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleSelfTest assembleDebugAndroidTest --stacktrace
+          awk '/MemTotal|MemAvailable/ { print }' /proc/meminfo
+          for MEMORY_LIMIT_FILE in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory/memory.limit_in_bytes; do
+            if test -f "$MEMORY_LIMIT_FILE"; then cat "$MEMORY_LIMIT_FILE"; fi
+          done
+          gradle --no-daemon -Pkotlin.daemon.jvmargs=-Xmx3072m clean testDebugUnitTest lintDebug assembleDebug assembleSelfTest assembleDebugAndroidTest --stacktrace
       - name: Verify APK and generate checksum
         shell: bash
         run: |

@@ -9,7 +9,7 @@ internal object ChapterRefinementCapturePolicy {
         if (!config.localRefinement || config.refinementRequest != null) return config
         if (ownerRequestId != null && !forceReprocess) {
             val owned = existing.filter { it.chapterId == chapterId && it.ownerRequestId == ownerRequestId &&
-                it.config.copy(refinementRequest = null) == config.copy(refinementRequest = null) }
+                it.config.copy(refinementRequest = null, memoryPacket = null) == config.copy(refinementRequest = null, memoryPacket = null) }
             check(owned.size <= 1) { "The captured request has multiple refinement identities. Resume its exact task." }
             owned.singleOrNull()?.let { return it.config }
         }

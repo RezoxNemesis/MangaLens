@@ -100,6 +100,7 @@ class BrowserSourceCaptionRouteTest {
     }
 
     private fun fixture(verify: (Fixture) -> Unit) {
+        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.TEST_BEGIN)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext
         assertFalse("Finish an active user-approved capture before running this isolated routing test", WebAudioCaptureService.active.value)
@@ -151,12 +152,15 @@ class BrowserSourceCaptionRouteTest {
                 val first = server.url("/first").toString()
                 val other = server.url("/other").toString()
                 val media = server.url("/fixture.mp4").toString()
+                BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.ACTIVITY_LAUNCH_BEGIN)
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.ACTIVITY_LAUNCHED)
                     val registry = NoConsentRegistry()
                     lateinit var context: RoutingContext
                     val callbacks = ConcurrentLinkedQueue<Pair<SniffedMedia, String>>()
                     val status = WebAudioCaptureService.status.value
                     val permission = app.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                    BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.MOUNT_BEGIN)
                     scenario.onActivity { activity ->
                         context = RoutingContext(activity, directory)
                         activity.setContent {
@@ -169,22 +173,42 @@ class BrowserSourceCaptionRouteTest {
                             } }
                         }
                     }
+                    BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.MOUNT_END)
                     val f = Fixture(directory, session, callbacks, context, registry, status, permission,
                         first, other, media, firstRequests, blockNext, entered, release, returned)
                     try {
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.INITIAL_DOCUMENT_WAIT_BEGIN)
                         f.node(By.text("Caption route first page"))
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.INITIAL_DOCUMENT_WAIT_END)
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.HISTORY_WAIT_BEGIN)
                         f.await("The actual initial page never reached browser history") {
                             session.state.value?.history?.any { it.url == first && it.title == "Caption route first page" } == true
                         }
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.HISTORY_WAIT_END)
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.VERIFY_BEGIN)
                         verify(f)
-                    } finally { release.countDown(); scenario.onActivity { it.setContent {} } }
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.VERIFY_END)
+                    } finally {
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.FIXTURE_FINALLY_BEGIN)
+                        release.countDown()
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.CONTENT_CLEAR_REQUEST_BEGIN)
+                        scenario.onActivity {
+                            BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.CONTENT_CLEAR_MAIN_BEGIN)
+                            it.setContent {}
+                            BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.CONTENT_CLEAR_MAIN_END)
+                        }
+                        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.CONTENT_CLEAR_REQUEST_END)
+                    }
                 }
+                BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.SCENARIO_SCOPE_END)
             } finally { release.countDown() }
         } } finally {
+            BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.OUTER_FINALLY_BEGIN)
             release.countDown()
             scope.cancel()
             directory.deleteRecursively()
             Configurator.getInstance().setWaitForIdleTimeout(idle)
+            BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.OUTER_FINALLY_END)
         }
     }
 
@@ -192,6 +216,10 @@ class BrowserSourceCaptionRouteTest {
     private class RoutingContext(base: Context, private val directory: File) : ContextWrapper(base) {
         val captureStarts = AtomicInteger()
         override fun getApplicationContext(): Context = this
+        override fun registerComponentCallbacks(callback: android.content.ComponentCallbacks) =
+            baseContext.applicationContext.registerComponentCallbacks(callback)
+        override fun unregisterComponentCallbacks(callback: android.content.ComponentCallbacks) =
+            baseContext.applicationContext.unregisterComponentCallbacks(callback)
         override fun getFilesDir(): File = directory
         override fun startService(service: Intent): ComponentName? {
             record(service); return super.startService(service)

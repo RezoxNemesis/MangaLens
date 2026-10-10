@@ -11,7 +11,7 @@ import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.orez.OrezModelPin
 
 internal fun SubtitleGenerationConfig.refinementRequest(): TranslationRefinementRequest = TranslationRefinementRequest(
-    localRefinement, requireNotNull(capturedStyle), refinementPin?.let { OrezModelPin(it.modelId, it.sha256, it.bytes) })
+    localRefinement, requireNotNull(capturedStyle), refinementPin?.let { OrezModelPin(it.modelId, it.sha256, it.bytes) }, refinementInputProfileRevision)
 
 /** Candidate selection uses the same immutable style during generation and journal verification. */
 internal fun SubtitleGenerationConfig.selectTargetDraft(source: String, draft: TranslationDraft, refined: String): TranslationDraft =
@@ -39,7 +39,7 @@ internal fun acceptsSubtitleTarget(task: SubtitleGenerationTask, window: Subtitl
     val candidate = target.refinementCandidate?.takeIf { it.length in 1..4000 } ?: return false
     if (target.refinementHindiDraft?.length?.let { it !in 1..4000 } == true) return false
     val result = TranslationRefinementResult(candidate, TranslationRefinementReceipt(
-        OrezModelPin(receipt.model.modelId, receipt.model.sha256, receipt.model.bytes), receipt.promptSha256, receipt.outputSha256),
+        OrezModelPin(receipt.model.modelId, receipt.model.sha256, receipt.model.bytes), receipt.promptSha256, receipt.outputSha256, receipt.completion?.generationCompletion()),
         TranslationRefinementStatus.GENERATED)
     if (!TranslationRefinementPolicy.matches(result, source, draft, task.config.targetLanguage, task.config.refinementRequest(),
             task.translationContext(window.index, target.sourceIndex))) return false

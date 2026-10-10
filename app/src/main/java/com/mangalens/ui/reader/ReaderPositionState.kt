@@ -23,18 +23,26 @@ internal data class ReaderPositionState(
             offset = 0, request = request + 1, restoring = true, animate = false)
     }
 
+    /** Explicit display/column changes restore the same accepted logical page under a fresh request. */
+    fun relayout(physicalPage: Int, physicalOffset: Int, count: Int): ReaderPositionState {
+        val selected = if (restoring) page else physicalPage
+        return copy(page = if (count > 0) selected.coerceIn(0, count - 1) else selected,
+            offset = if (mode in SCROLL_MODES) physicalOffset.coerceAtLeast(0) else 0,
+            request = request + 1, restoring = true, animate = false)
+    }
+
     fun restored(captured: ReaderPositionState, physicalPage: Int, physicalOffset: Int, count: Int,
         geometryChecked: Boolean = true): ReaderPositionState {
         if (!geometryChecked || captured.request != request || captured.mode != mode || count <= 0) return this
         return copy(page = physicalPage.coerceIn(0, count - 1),
-            offset = if (mode == "vertical") physicalOffset.coerceAtLeast(0) else 0,
+            offset = if (mode in SCROLL_MODES) physicalOffset.coerceAtLeast(0) else 0,
             restoring = false, animate = false)
     }
 
     fun observed(expectedRequest: Long, expectedMode: String, physicalPage: Int, physicalOffset: Int, count: Int): ReaderPositionState {
         if (restoring || expectedRequest != request || expectedMode != mode || count <= 0) return this
         return copy(page = physicalPage.coerceIn(0, count - 1),
-            offset = if (mode == "vertical") physicalOffset.coerceAtLeast(0) else 0)
+            offset = if (mode in SCROLL_MODES) physicalOffset.coerceAtLeast(0) else 0)
     }
 
     fun checkpoint(): ReaderPositionCheckpoint? =
@@ -43,13 +51,14 @@ internal data class ReaderPositionState(
     fun acceptsCheckpoint(sample: ReaderPositionCheckpoint): Boolean = checkpoint() == sample
 
     companion object {
-        private val MODES = setOf("vertical", "ltr", "rtl")
+        private val MODES = setOf("vertical", "ltr", "rtl", "single", "horizontal", "spread", "guided")
+        private val SCROLL_MODES = setOf("vertical", "horizontal")
 
         /** Restored saveable state always waits for the new Activity's real layout. */
         fun initial(mode: String, page: Int, offset: Int): ReaderPositionState {
             val supported = mode.takeIf { it in MODES } ?: "vertical"
             return ReaderPositionState(supported, page.coerceAtLeast(0),
-                if (supported == "vertical") offset.coerceAtLeast(0) else 0)
+                if (supported in SCROLL_MODES) offset.coerceAtLeast(0) else 0)
         }
     }
 }

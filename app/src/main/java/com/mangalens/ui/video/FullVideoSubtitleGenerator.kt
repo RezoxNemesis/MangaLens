@@ -39,7 +39,7 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
             try {
                 val identity = SubtitleInputs.capture(app, operation.source)
                 val config = SubtitleInputs.config(app, operation.sourceLanguage, operation.targetOptions)
-                var task = store.find(identity, config) ?: if (config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
+                var task = store.findSavedCapturedRequest(identity, config) ?: if (config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION &&
                     config.targetLanguage == "en" && config.outputMode == SubtitleOutputMode.TRANSLATED && config.style == "natural" &&
                     !config.localRefinement && config.customStyle.isEmpty()) store.find(identity, SubtitleInputs.config(app, operation.sourceLanguage)) else null
                 if (task == null) {
@@ -58,7 +58,7 @@ class FullVideoSubtitleGenerator(context: Context, private val engine: VideoSpee
 
     fun generate(source: SubtitleMediaSource, attachToPlayer: Boolean = true, force: Boolean = false, targetOptions: SubtitleTargetOptions? = null) {
         // Detach caller-owned headers and capture language before any coroutine is dispatched.
-        val operation = SubtitleGenerationRequest(publication.advance(), source, engine.language, targetOptions)
+        val operation = SubtitleGenerationRequest(publication.advance(), source, engine.language, targetOptions?.captureForNewRequest())
         publication.publish(operation.token) {
             attachment.bind(operation.source)
             activeRequest = operation

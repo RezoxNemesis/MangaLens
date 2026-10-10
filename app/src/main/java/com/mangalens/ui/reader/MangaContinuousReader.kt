@@ -31,7 +31,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -44,6 +46,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.mapSaver
+import androidx.compose.ui.platform.LocalConfiguration
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -55,6 +61,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -101,12 +109,33 @@ fun MangaContinuousReader(
     onRetryPage: (ChapterPage) -> Unit = { onRetry() },
     onVisiblePage: (Int?) -> Unit = {},
     onCorrectPage: ((Int) -> Unit)? = null,
-    personalOverlays: Map<Int, Map<Int, com.mangalens.core.translation.PersonalMangaLettering>> = emptyMap()
+    personalOverlays: Map<Int, Map<Int, com.mangalens.core.translation.PersonalMangaLettering>> = emptyMap(),
+    onSavedBubble: ((Int, Int, com.mangalens.core.translation.SavedMangaLettering) -> Unit)? = null,
+    onVisiblePages: (Set<Int>) -> Unit = {},
+    readerPresentationEpoch: Long? = null,
+    ocrDiagnostics: Map<Int, com.mangalens.core.translation.SavedPageOcrDiagnostics> = emptyMap()
 ) {
     val density = LocalDensity.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val preferenceScope = rememberCoroutineScope()
+    val displayPreferences = remember(context.applicationContext) { ReaderDisplayPreferences(context.applicationContext) }
+    var displayOptions by rememberSaveable(chapterId, stateSaver = mapSaver<ReaderDisplayOptions>(
+        save = { ReaderDisplayOptionsCodec.encode(it) }, restore = { ReaderDisplayOptionsCodec.decode(it) })) {
+        mutableStateOf(ReaderDisplayOptions())
+    }
+    var displayPreferencesApplied by rememberSaveable(chapterId) { mutableStateOf(false) }
+    LaunchedEffect(chapterId) {
+        if (!displayPreferencesApplied) {
+            val loaded = displayPreferences.load()
+            if (!displayPreferencesApplied) { displayOptions = loaded; displayPreferencesApplied = true }
+        }
+    }
+    var peekOriginal by remember(chapterId) { mutableStateOf(false) }
     val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("mangalens_reader", android.content.Context.MODE_PRIVATE)
     var textScale by remember { mutableFloatStateOf(prefs.getFloat("text_scale", 1f)) }
     var controls by remember { mutableStateOf(false) }
+    var showOcrDiagnostics by remember(chapterId) { mutableStateOf(false) }
+    fun recordedDiagnostics(page: ChapterPage) = ocrDiagnostics[page.index]?.takeIf { showOcrDiagnostics && ReaderOcrDiagnosticsPolicy.matchesRevision(it, page.contentRevision) }
     var styleMenu by remember { mutableStateOf(false) }
     var originalVisible by rememberSaveable(chapterId) { mutableStateOf(false) }
     var hudVisible by remember { mutableStateOf(true) }
@@ -118,20 +147,25 @@ fun MangaContinuousReader(
     var autoScroll by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var languageMenu by remember { mutableStateOf(false) }
+    val detectedPromoPages = promoPages + pages.filter { page -> page.promotionHint?.matches(page) == true }.map { it.index }
     var hidePromos by rememberSaveable(chapterId) { mutableStateOf(prefs.getBoolean("hide_promos", true)) }
     var revealedPromoPages by remember(chapterId) { mutableStateOf(emptySet<Int>()) }
+    val originalShown = originalVisible || peekOriginal || displayOptions.comparison == ReaderComparison.ORIGINAL
+    val comparison = if (originalShown || !translated) ReaderComparison.ORIGINAL else displayOptions.comparison
+    val customDisplay = displayOptions.marginCrop > 0f || comparison == ReaderComparison.SIDE_BY_SIDE || comparison == ReaderComparison.SPLIT
     val currentPages by key(chapterId) { rememberUpdatedState(pages) }
     val currentPositionCallback by key(chapterId) { rememberUpdatedState(onPositionChanged) }
     // Metadata belongs to the chapter, so a layout-mode switch cannot recreate zero-height pages.
     // Only bounds/managed-surface checks run here; bitmap decoding stays with visible images.
     val pageSurfaces = pages.associate { page ->
         page.index to key(chapterId, page.index, page.sourceUrl) {
-            rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalVisible)
+            rememberReaderPageSurface(page, translatedBackgrounds[page.index], translated && !originalShown)
         }
     }
     val geometryChecked = pages.isNotEmpty() && pageSurfaces.values.all { it.geometryChecked }
     val currentGeometryChecked by key(chapterId) { rememberUpdatedState(geometryChecked) }
     val listState = rememberLazyListState()
+    val horizontalListState = rememberLazyListState()
     val modeKey = "mode_" + title.substringBefore("Chapter", title).trim().ifBlank { chapterId }
     var positionState by rememberSaveable(chapterId, stateSaver = listSaver<ReaderPositionState, Any>(
         save = { listOf(it.mode, it.page, it.offset) },
@@ -142,16 +176,44 @@ fun MangaContinuousReader(
             initialPosition, initialOffset))
     }
     val readingMode = positionState.mode
+    val configuration = LocalConfiguration.current
+    val layout = ReaderPageLayout(readingMode, pages.size, configuration.screenWidthDp >= configuration.screenHeightDp, displayOptions.spreadRtl)
+    ReaderWindowEffect(chapterId, displayOptions.effectiveWindow(readingMode))
     val activePage = positionState.page
+    var guidedLastPage by remember(chapterId) { mutableStateOf<Int?>(null) }
+    val guidedOwner = if (readingMode == "guided") pages.getOrNull(activePage)?.takeIf { it.localPath != null }?.let { page ->
+        ReaderGuidedOwner(chapterId, page.index, requireNotNull(page.localPath), page.contentRevision,
+            readerPresentationEpoch, displayOptions.spreadRtl)
+    } else null
+    val guidedSession = rememberReaderGuidedSession(guidedOwner, guidedLastPage == activePage) {
+        if (guidedLastPage == activePage) guidedLastPage = null
+    }
     val positionRestored = !positionState.restoring
     // Each direction gets a fresh layout, seeded by the accepted logical page.
-    val pagerState = key(chapterId, readingMode) {
-        rememberPagerState(initialPage = activePage.coerceIn(0, pages.lastIndex.coerceAtLeast(0))) { pages.size }
+    val pagerState = key(chapterId, readingMode, if (readingMode == "spread") layout.columns else 1) {
+        rememberPagerState(initialPage = layout.physicalForLogical(activePage)) { layout.physicalCount }
     }
     val currentViewport by key(chapterId) { rememberUpdatedState({
-        if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-        else pagerState.settledPage to 0
+        when (readingMode) {
+            "vertical" -> listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            "horizontal" -> horizontalListState.firstVisibleItemIndex to horizontalListState.firstVisibleItemScrollOffset
+            else -> layout.logicalForPhysical(pagerState.settledPage, positionState.page) to 0
+        }
     }) }
+    fun changeDisplay(next: ReaderDisplayOptions) {
+        val previous = displayOptions
+        displayPreferencesApplied = true
+        displayOptions = next
+        if (previous.marginCrop != next.marginCrop || previous.comparison != next.comparison || previous.pageSpacingDp != next.pageSpacingDp) {
+            val physical = currentViewport()
+            positionState = positionState.relayout(physical.first, physical.second, pages.size)
+        }
+        if (next.controlsLocked) { controls = false; hudVisible = false; languageMenu = false; styleMenu = false; autoScroll = false; peekOriginal = false }
+        preferenceScope.launch(start = CoroutineStart.UNDISPATCHED) { displayPreferences.save(next) }
+    }
+    LaunchedEffect(chapterId, readingMode, layout.columns) {
+        if (readingMode == "spread") positionState = positionState.relayout(positionState.page, 0, pages.size)
+    }
     fun observeReader(action: String, expectedRequest: Long? = null, targetPage: Int? = null,
                       physicalOverride: Pair<Int, Int>? = null, physicalMode: String = readingMode) {
         if (!ReaderNavigationDiagnostics.enabled) return
@@ -162,18 +224,70 @@ fun MangaContinuousReader(
                 expectedRequest, targetPage))
         }
     }
+    // Scalar-only fixture diagnostics. The refreshed closure keeps long-lived input
+    // handlers from reporting an earlier chapter/mode/geometry snapshot.
+    val hudReaderInstance = remember(chapterId, title) { ReaderHudDiagnostics.readerInstance(chapterId, title) }
+    val hudTimerSequence = remember(chapterId) { java.util.concurrent.atomic.AtomicLong() }
+    val latestHudReporter by rememberUpdatedState({ phase: ReaderHudPhase, writer: ReaderHudWriter,
+        previousHud: Boolean?, previousTools: Boolean?, timerSequence: Long,
+        zoomDelta: Float?, panDeltaX: Float?, panDeltaY: Float?, component: ReaderHudComponent,
+        animationCurrent: ReaderHudAnimation, animationTarget: ReaderHudAnimation, animationRunning: Boolean? ->
+        if (ReaderHudDiagnostics.enabled) {
+            val position = positionState
+            val physical = currentViewport()
+            val snapshot = ReaderHudSnapshot(ReaderHudMode.from(position.mode), position.page,
+                physical.second, position.request, position.restoring, currentGeometryChecked,
+                controls, hudVisible, translating || translationPaused, scale, panX, panY, hudReaderInstance, physical.first)
+            ReaderHudDiagnostics.observe(chapterId, title, ReaderHudObservation(phase, snapshot, writer,
+                previousHud, previousTools, timerSequence, zoomDelta, panDeltaX, panDeltaY,
+                component, animationCurrent, animationTarget, animationRunning))
+        }
+    })
+    fun observeHud(phase: ReaderHudPhase, writer: ReaderHudWriter = ReaderHudWriter.NONE,
+        previousHud: Boolean? = null, previousTools: Boolean? = null, timerSequence: Long = 0,
+        zoomDelta: Float? = null, panDeltaX: Float? = null, panDeltaY: Float? = null,
+        component: ReaderHudComponent = ReaderHudComponent.NONE,
+        animationCurrent: ReaderHudAnimation = ReaderHudAnimation.NONE,
+        animationTarget: ReaderHudAnimation = ReaderHudAnimation.NONE, animationRunning: Boolean? = null) {
+        if (!ReaderHudDiagnostics.enabled) return
+        runCatching { latestHudReporter(phase, writer, previousHud, previousTools, timerSequence,
+            zoomDelta, panDeltaX, panDeltaY, component, animationCurrent, animationTarget, animationRunning) }
+    }
+
     fun goToPage(position: Int, action: String = "page_command") {
         observeReader(action, targetPage = position)
         positionState = positionState.navigate(position, pages.size)
         observeReader("page_command_accepted", targetPage = position)
     }
+    val currentPageCommand by rememberUpdatedState({ ordinal: Int, action: String -> goToPage(ordinal, action) })
+    fun advanceGuided(delta: Int) {
+        if (displayOptions.controlsLocked) return
+        val step = guidedSession?.advance(delta) ?: ReaderGuidedStep(0, delta)
+        if (step.pageDelta != 0) {
+            val destination = activePage + step.pageDelta
+            if (destination in pages.indices) {
+                guidedLastPage = destination.takeIf { step.pageDelta < 0 }
+                goToPage(destination, "guided_panel_page")
+            }
+        }
+        scale = 1f; panX = 0f; panY = 0f
+    }
+    fun toggleGuidedWhole() {
+        if (displayOptions.controlsLocked) return
+        guidedSession?.let { if (it.wholePage) it.showPanel() else it.showWhole() }
+        scale = 1f; panX = 0f; panY = 0f
+    }
     val transformState = rememberTransformableState { zoom, pan, _ ->
+        if (displayOptions.controlsLocked) return@rememberTransformableState
+        val previousHud = hudVisible
         scale = (scale * zoom).coerceIn(1f, 4f)
         if (scale > 1f) {
             panX = (panX + pan.x).coerceIn(-1000f, 1000f)
             panY = (panY + pan.y).coerceIn(-1000f, 1000f)
         } else { panX = 0f; panY = 0f }
         hudVisible = true
+        observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.TRANSFORM, previousHud = previousHud,
+            zoomDelta = zoom, panDeltaX = pan.x, panDeltaY = pan.y)
     }
 
     LaunchedEffect(chapterId, readingMode, positionState.request, pages.isNotEmpty(), geometryChecked) {
@@ -185,15 +299,23 @@ fun MangaContinuousReader(
             if (captured.mode == "vertical") {
                 if (captured.animate) listState.animateScrollToItem(target, captured.offset)
                 else listState.scrollToItem(target, captured.offset)
+            } else if (captured.mode == "horizontal") {
+                if (captured.animate) horizontalListState.animateScrollToItem(target, captured.offset)
+                else horizontalListState.scrollToItem(target, captured.offset)
             } else {
-                if (captured.animate) pagerState.animateScrollToPage(target)
-                else pagerState.scrollToPage(target)
+                val physicalTarget = layout.physicalForLogical(target)
+                if (captured.animate) pagerState.animateScrollToPage(physicalTarget)
+                else pagerState.scrollToPage(physicalTarget)
             }
         } finally {
             // A user gesture may cancel animation. A newer command may cancel this effect.
             // Only the matching request can accept the actual viewport in either case.
-            val physical = if (captured.mode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
-            val offset = if (captured.mode == "vertical") listState.firstVisibleItemScrollOffset else 0
+            val physical = when (captured.mode) {
+                "vertical" -> listState.firstVisibleItemIndex
+                "horizontal" -> horizontalListState.firstVisibleItemIndex
+                else -> layout.logicalForPhysical(pagerState.settledPage, captured.page)
+            }
+            val offset = when (captured.mode) { "vertical" -> listState.firstVisibleItemScrollOffset; "horizontal" -> horizontalListState.firstVisibleItemScrollOffset; else -> 0 }
             positionState = positionState.restored(captured, physical, offset, currentPages.size,
                 geometryChecked = currentGeometryChecked)
             observeReader("restoration_finished", captured.request, target, physical to offset, captured.mode)
@@ -203,8 +325,7 @@ fun MangaContinuousReader(
         if (!positionRestored || !geometryChecked) return@LaunchedEffect
         val captured = positionState
         snapshotFlow {
-            if (readingMode == "vertical") listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-            else pagerState.settledPage to 0
+            currentViewport()
         }.collect { (position, offset) ->
             val previous = positionState
             positionState = positionState.observed(captured.request, captured.mode, position, offset, currentPages.size)
@@ -219,8 +340,9 @@ fun MangaContinuousReader(
         }
     }
     var zoomPage by rememberSaveable(chapterId) { mutableIntStateOf(activePage) }
-    LaunchedEffect(pagerState.settledPage) {
-        if (readingMode != "vertical" && zoomPage != pagerState.settledPage) { scale = 1f; panX = 0f; panY = 0f; zoomPage = pagerState.settledPage }
+    LaunchedEffect(pagerState.settledPage, horizontalListState.firstVisibleItemIndex) {
+        val page = if (readingMode == "horizontal") horizontalListState.firstVisibleItemIndex else layout.logicalForPhysical(pagerState.settledPage, positionState.page)
+        if (readingMode != "vertical" && zoomPage != page) { scale = 1f; panX = 0f; panY = 0f; zoomPage = page }
     }
     DisposableEffect(chapterId) { onDispose {
         if (currentPages.isNotEmpty()) {
@@ -235,116 +357,260 @@ fun MangaContinuousReader(
     val visiblePageCallback by rememberUpdatedState(onVisiblePage)
     LaunchedEffect(chapterId, activePage, pages.map { it.index }) { visiblePageCallback(pages.getOrNull(activePage)?.index) }
 
-    LaunchedEffect(autoScroll, speed) {
-        while (autoScroll && readingMode == "vertical") {
+    val visiblePagesCallback by rememberUpdatedState(onVisiblePages)
+    LaunchedEffect(chapterId, readingMode, layout.columns, pages.map { it.index }) {
+        snapshotFlow {
+            val ordinals = when (readingMode) {
+                "spread" -> layout.ordinals(pagerState.settledPage)
+                "horizontal" -> horizontalListState.layoutInfo.visibleItemsInfo.map { it.index }.take(2)
+                else -> listOf(positionState.page)
+            }
+            ordinals.mapNotNull { pages.getOrNull(it)?.index }.toSet()
+        }.collect { visiblePagesCallback(it) }
+    }
+
+    LaunchedEffect(autoScroll, speed, readingMode, displayOptions.controlsLocked) {
+        while (autoScroll && readingMode == "vertical" && !displayOptions.controlsLocked) {
             listState.scrollBy(3.5f * speed)
             delay(16L)
         }
     }
 
-    LaunchedEffect(hudVisible, controls) {
-        if (hudVisible) {
-            delay(4000)
-            if (!controls) {
-                hudVisible = false
-                observeReader("hud_expired")
+    // Loading and viewport restoration consume no part of the user's four-second
+    // control window. A new navigation request cancels the earlier timer.
+    LaunchedEffect(hudVisible, controls, geometryChecked, positionRestored) {
+        if (hudVisible && geometryChecked && positionRestored) {
+            val timerSequence = if (ReaderHudDiagnostics.enabled) hudTimerSequence.incrementAndGet() else 0
+            observeHud(ReaderHudPhase.TIMER_ARM, timerSequence = timerSequence)
+            var finished = false
+            try {
+                delay(4000)
+                observeHud(ReaderHudPhase.TIMER_FIRE, timerSequence = timerSequence)
+                if (!controls) {
+                    val previousHud = hudVisible
+                    hudVisible = false
+                    observeReader("hud_expired")
+                    observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.TIMER, previousHud = previousHud,
+                        timerSequence = timerSequence)
+                }
+                finished = true
+            } finally {
+                observeHud(if (finished) ReaderHudPhase.TIMER_FINISH else ReaderHudPhase.TIMER_CANCEL,
+                    timerSequence = timerSequence)
             }
         }
     }
 
     BoxWithConstraints(
-        modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).pointerInput(Unit) {
-            detectTapGestures(onTap = { hudVisible = !hudVisible; observeReader("surface_hud_tap") })
+        modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).pointerInput(displayOptions.controlsLocked) {
+            detectTapGestures(onTap = { if (displayOptions.controlsLocked) return@detectTapGestures; val previousHud = hudVisible; hudVisible = !hudVisible; observeReader("surface_hud_tap");
+                observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PARENT_TAP, previousHud = previousHud) })
         }
     ) {
-        SideEffect { observeReader("content_composed_" + readingMode, physicalMode = readingMode) }
+        SideEffect { observeReader("content_composed_" + readingMode, physicalMode = readingMode); observeHud(ReaderHudPhase.COMMITTED) }
         val navigationHeight = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
         val toolsHeight = readerHudToolsHeight(maxHeight.value, headerHeight.value, navigationHeight.value).dp
         if (readingMode == "vertical") {
             LazyColumn(
-                state = listState,
+                state = listState, userScrollEnabled = !displayOptions.controlsLocked,
+                verticalArrangement = Arrangement.spacedBy(displayOptions.pageSpacingDp.dp),
                 modifier = Modifier.fillMaxSize().clipToBounds()
-                    .transformable(transformState)
+                    .transformable(transformState, enabled = !displayOptions.controlsLocked)
                     .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
             ) {
                 items(pages, key = { it.index }) { page ->
                     val surface = pageSurfaces.getValue(page.index)
                     if (page.error != null || surface.sourceUnreadable) {
-                        PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) { onRetryPage(page) }
+                        PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) { if (!displayOptions.controlsLocked) onRetryPage(page) }
                         return@items
                     }
-                    val promoHidden = hidePromos && page.index in promoPages && page.index !in revealedPromoPages
+                    val promoHidden = hidePromos && page.index in detectedPromoPages && page.index !in revealedPromoPages
                     if (promoHidden) {
                         PromoPagePlaceholder(
                             page = page,
-                            onShow = { revealedPromoPages = revealedPromoPages + page.index }
+                            onShow = { if (!displayOptions.controlsLocked) revealedPromoPages = revealedPromoPages + page.index }
                         )
                         return@items
                     }
-                    Box(Modifier.fillMaxWidth().pointerInput(page.index, page.sourceUrl, page.contentRevision) {
-                        detectTapGestures(onTap = { hudVisible = !hudVisible; observeReader("vertical_hud_tap") },
-                            onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
-                            onLongPress = { onLongPressPage(page) })
+                    val bubbleCapture = rememberBubbleDrawCapture(page, overlays[page.index].orEmpty(),
+                        translated && !originalShown && surface.cleaned, onSavedBubble,
+                        if (customDisplay) listOf(comparison, displayOptions.marginCrop, displayOptions.splitFraction) else null)
+                    var bubbleFrame by remember(bubbleCapture) { mutableStateOf<ReaderBubbleCanvasFrame?>(null) }
+                    Box(Modifier.fillMaxWidth().pointerInput(page.index, page.sourceUrl, page.contentRevision, onSavedBubble, bubbleCapture, bubbleFrame, displayOptions.controlsLocked, displayOptions.marginCrop) {
+                        detectTapGestures(onTap = { tap ->
+                            if (displayOptions.controlsLocked) return@detectTapGestures
+                            val selectedBubble = bubbleCapture?.hit(bubbleFrame, tap.x, tap.y, displayOptions.marginCrop)
+                            if (selectedBubble != null && onSavedBubble != null) {
+                                onSavedBubble(selectedBubble.pageIndex, selectedBubble.letteringIndex, selectedBubble.expectedNative)
+                            } else { val previousHud = hudVisible; hudVisible = !hudVisible; observeReader("vertical_hud_tap");
+                observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.VERTICAL_TAP, previousHud = previousHud) } },
+                            onDoubleTap = { if (!displayOptions.controlsLocked) { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f } },
+                            onLongPress = { if (!displayOptions.controlsLocked) onLongPressPage(page) })
                     }) {
+                        if (customDisplay) ReaderComparedMangaPage(page, surface.model.takeIf { surface.cleaned }, surface.aspectRatio,
+                            displayOptions, comparison, applyPersonalReaderOverlays(overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty()).filter { surface.cleaned || it.lettering == null },
+                            textScale, bubbleCapture, { bubbleFrame = it }, surface.onOriginalError, surface.onTranslatedError,
+                            Modifier.fillMaxWidth().aspectRatio((surface.aspectRatio ?: 1f) * if (comparison == ReaderComparison.SIDE_BY_SIDE && surface.cleaned) 2f else 1f),
+                            fitted = false, viewportTransform = Triple(scale, panX, panY), diagnostics = recordedDiagnostics(page))
+                        else {
                         val imageModifier = surface.aspectRatio?.let { Modifier.fillMaxWidth().aspectRatio(it) } ?: Modifier.fillMaxWidth()
                         ReaderMangaImage(model = surface.model,
                             description = "Page ${page.index}", modifier = imageModifier,
                             contentScale = ContentScale.FillWidth, viewportTransform = Triple(scale, panX, panY),
                             contentRevision = page.contentRevision, onLoadError = surface.onDecodeError)
-                        if (translated && !originalVisible) MangaTranslationOverlay(
+                        if (translated && !originalShown) MangaTranslationOverlay(
                             overlays = applyPersonalReaderOverlays(overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty()).filter { surface.cleaned || it.lettering == null },
-                            textScale = textScale, modifier = Modifier.matchParentSize())
+                            textScale = textScale, modifier = Modifier.matchParentSize().then(if (bubbleCapture == null) Modifier else Modifier
+                                .onSizeChanged { bubbleFrame = ReaderBubbleCanvasFrame(0f, 0f, it.width.toFloat(), it.height.toFloat()) }
+                                .drawWithContent { drawContent(); bubbleCapture.painted(size.width, size.height) }))
+                        ReaderOcrDiagnosticsOverlay(recordedDiagnostics(page), Modifier.matchParentSize())
+                        }
                     }
+                }
+            }
+        } else if (readingMode == "horizontal") {
+            LazyRow(state = horizontalListState, horizontalArrangement = Arrangement.spacedBy(displayOptions.pageSpacingDp.dp),
+                userScrollEnabled = !displayOptions.controlsLocked && scale <= 1f,
+                modifier = Modifier.fillMaxSize().clipToBounds().transformable(transformState, enabled = !displayOptions.controlsLocked)
+                    .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)) {
+                items(pages, key = { it.index }) { page ->
+                    val surface = pageSurfaces.getValue(page.index)
+                    val itemWidth = (maxHeight * (surface.aspectRatio ?: 1f)).coerceIn(maxWidth * .5f, maxWidth * 2f)
+                    OptionalReaderPage(page, surface, displayOptions, comparison, customDisplay, translated && !originalShown,
+                        overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty(), textScale, onSavedBubble,
+                        hidePromos && page.index in detectedPromoPages && page.index !in revealedPromoPages,
+                        { revealedPromoPages = revealedPromoPages + page.index }, { if (!displayOptions.controlsLocked) onRetryPage(page) },
+                        { val previous = hudVisible; hudVisible = !hudVisible; observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PAGER_TAP, previousHud = previous) },
+                        { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f }, { onLongPressPage(page) },
+                        Modifier.width(itemWidth).fillMaxSize(), Triple(scale, panX, panY), diagnostics = recordedDiagnostics(page))
                 }
             }
         } else {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                HorizontalPager(state = pagerState, reverseLayout = readingMode == "rtl", beyondViewportPageCount = 1,
-                    userScrollEnabled = scale <= 1f, modifier = Modifier.fillMaxSize().onSizeChanged {
+                HorizontalPager(state = pagerState, reverseLayout = layout.reversed, beyondViewportPageCount = 1,
+                    userScrollEnabled = scale <= 1f && !displayOptions.controlsLocked, pageSpacing = displayOptions.pageSpacingDp.dp, modifier = Modifier.fillMaxSize().onSizeChanged {
                         observeReader("pager_measured_" + readingMode, physicalMode = readingMode)
                     }) { position ->
+                    if (readingMode == "spread") {
+                        Row(Modifier.fillMaxSize().clipToBounds().transformable(transformState, enabled = !displayOptions.controlsLocked)
+                            .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY),
+                            horizontalArrangement = Arrangement.spacedBy(displayOptions.pageSpacingDp.dp)) {
+                            layout.ordinals(position).forEach { ordinal ->
+                                val member = pages[ordinal]
+                                val spreadBubbleCallback = remember(chapterId, ordinal, member.index, onSavedBubble) {
+                                    onSavedBubble?.let { callback -> { nativePage: Int, nativeIndex: Int, native: com.mangalens.core.translation.SavedMangaLettering ->
+                                        currentPageCommand(ordinal, "spread_bubble"); callback(nativePage, nativeIndex, native)
+                                    } }
+                                }
+                                OptionalReaderPage(member, pageSurfaces.getValue(member.index), displayOptions, comparison, customDisplay,
+                                    translated && !originalShown, overlays[member.index].orEmpty(), personalOverlays[member.index].orEmpty(), textScale,
+                                    spreadBubbleCallback,
+                                    hidePromos && member.index in detectedPromoPages && member.index !in revealedPromoPages,
+                                    { revealedPromoPages = revealedPromoPages + member.index }, { if (!displayOptions.controlsLocked) onRetryPage(member) },
+                                    { val previous = hudVisible; hudVisible = !hudVisible; observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PAGER_TAP, previousHud = previous) },
+                                    { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f }, { onLongPressPage(member) },
+                                    Modifier.weight(1f).fillMaxSize(), Triple(scale, panX, panY), diagnostics = recordedDiagnostics(member))
+                            }
+                        }
+                        return@HorizontalPager
+                    }
                     val page = pages[position]
                     val surface = pageSurfaces.getValue(page.index)
                     if (page.error != null || surface.sourceUnreadable) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) { onRetryPage(page) }
+                            PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) { if (!displayOptions.controlsLocked) onRetryPage(page) }
                         }
                         return@HorizontalPager
                     }
-                    val promoHidden = hidePromos && page.index in promoPages && page.index !in revealedPromoPages
+                    val promoHidden = hidePromos && page.index in detectedPromoPages && page.index !in revealedPromoPages
                     if (promoHidden) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             PromoPagePlaceholder(
                                 page = page,
-                                onShow = { revealedPromoPages = revealedPromoPages + page.index },
-                                onSkip = { goToPage(position + 1) }
+                                onShow = { if (!displayOptions.controlsLocked) revealedPromoPages = revealedPromoPages + page.index },
+                                onSkip = { if (!displayOptions.controlsLocked) goToPage(position + 1) }
                             )
                         }
                         return@HorizontalPager
                     }
-                    FittedMangaPage(page, surface, modifier = Modifier.fillMaxSize().clipToBounds()
-                        .transformable(transformState)
+                    val bubbleCapture = rememberBubbleDrawCapture(page, overlays[page.index].orEmpty(),
+                        translated && !originalShown && surface.cleaned, onSavedBubble,
+                        if (customDisplay) listOf(comparison, displayOptions.marginCrop, displayOptions.splitFraction) else null)
+                    var bubbleFrame by remember(bubbleCapture) { mutableStateOf<ReaderBubbleCanvasFrame?>(null) }
+                    if (readingMode == "guided") {
+                        val panel = guidedSession?.panelFor(page, readerPresentationEpoch) ?: ReaderGuidedViewPolicy.WHOLE_PAGE
+                        val fitted = ReaderGuidedViewPolicy.transform(with(density) { maxWidth.toPx() }, with(density) { maxHeight.toPx() },
+                            surface.aspectRatio ?: 1f, panel)
+                        val guidedComparison = if (comparison == ReaderComparison.SIDE_BY_SIDE) ReaderComparison.TRANSLATED else comparison
+                        val guidedOptions = displayOptions.copy(marginCrop = 0f, comparison = guidedComparison)
+                        val guidedBubbleCallback = remember(chapterId, position, page.index, onSavedBubble) {
+                            onSavedBubble?.let { callback -> { nativePage: Int, nativeIndex: Int, native: com.mangalens.core.translation.SavedMangaLettering ->
+                                currentPageCommand(position, "guided_bubble"); callback(nativePage, nativeIndex, native)
+                            } }
+                        }
+                        OptionalReaderPage(page, surface, guidedOptions, guidedComparison, customDisplay = true,
+                            translatedVisible = translated && !originalShown, nativeOverlays = overlays[page.index].orEmpty(),
+                            personal = personalOverlays[page.index].orEmpty(), textScale = textScale,
+                            onSavedBubble = guidedBubbleCallback,
+                            promoHidden = false, onShowPromo = {}, onRetry = { onRetryPage(page) },
+                            onHud = { val previous = hudVisible; hudVisible = !hudVisible; observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PAGER_TAP, previousHud = previous) },
+                            onZoom = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f }, onLongPress = { onLongPressPage(page) },
+                            modifier = Modifier.fillMaxSize().clipToBounds().transformable(transformState, enabled = !displayOptions.controlsLocked)
+                                .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
+                                .graphicsLayer(scaleX = fitted.scale, scaleY = fitted.scale, translationX = fitted.x, translationY = fitted.y),
+                            viewportTransform = listOf(scale, panX, panY, panel),
+                            diagnostics = recordedDiagnostics(page),
+                            onUnselectedTap = { x, width ->
+                                val physicalX = (x - width * .5f) * fitted.scale + width * .5f + fitted.x
+                                if (scale > 1f || physicalX in width * .25f..width * .75f || guidedSession?.busy == true) {
+                                    val previous = hudVisible; hudVisible = !hudVisible
+                                    observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PAGER_TAP, previousHud = previous)
+                                } else advanceGuided(if ((physicalX > width / 2f) != displayOptions.spreadRtl) 1 else -1)
+                            })
+                        return@HorizontalPager
+                    }
+                    val fittedModifier = Modifier.fillMaxSize().clipToBounds()
+                        .transformable(transformState, enabled = !displayOptions.controlsLocked)
                         .graphicsLayer(scaleX = scale, scaleY = scale, translationX = panX, translationY = panY)
-                        .pointerInput(page.index, page.sourceUrl, page.contentRevision, readingMode) {
+                        .pointerInput(page.index, page.sourceUrl, page.contentRevision, readingMode, onSavedBubble, bubbleCapture, bubbleFrame, displayOptions.controlsLocked, displayOptions.marginCrop) {
                             detectTapGestures(onTap = { tap ->
-                                if (scale > 1f || tap.x in size.width * .25f..size.width * .75f) {
+                                if (displayOptions.controlsLocked) return@detectTapGestures
+                            val selectedBubble = bubbleCapture?.hit(bubbleFrame, tap.x, tap.y, displayOptions.marginCrop)
+                                if (selectedBubble != null && onSavedBubble != null) {
+                                    onSavedBubble(selectedBubble.pageIndex, selectedBubble.letteringIndex, selectedBubble.expectedNative)
+                                } else if (scale > 1f || tap.x in size.width * .25f..size.width * .75f) {
+                                    val previousHud = hudVisible
                                     hudVisible = !hudVisible
                                     observeReader("pager_hud_tap")
+                                    observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PAGER_TAP, previousHud = previousHud)
                                 } else {
                                     val next = (tap.x > size.width / 2) != (readingMode == "rtl")
                                     goToPage(positionState.page + if (next) 1 else -1, "pager_edge_tap")
                                 }
-                            }, onDoubleTap = { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f },
-                                onLongPress = { onLongPressPage(page) })
-                        }) {
-                        if (translated && !originalVisible) MangaTranslationOverlay(
+                            }, onDoubleTap = { if (!displayOptions.controlsLocked) { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f } },
+                                onLongPress = { if (!displayOptions.controlsLocked) onLongPressPage(page) })
+                        }
+                    if (customDisplay) ReaderComparedMangaPage(page, surface.model.takeIf { surface.cleaned }, surface.aspectRatio,
+                        displayOptions, comparison, applyPersonalReaderOverlays(overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty()).filter { surface.cleaned || it.lettering == null },
+                        textScale, bubbleCapture, { bubbleFrame = it }, surface.onOriginalError, surface.onTranslatedError,
+                        fittedModifier, fitted = true, viewportTransform = Triple(scale, panX, panY), diagnostics = recordedDiagnostics(page))
+                    else FittedMangaPage(page, surface, onOverlayFrame = if (bubbleCapture == null) null else { frame -> bubbleFrame = frame },
+                        modifier = fittedModifier) {
+                        if (translated && !originalShown) MangaTranslationOverlay(
                             overlays = applyPersonalReaderOverlays(overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty()).filter { surface.cleaned || it.lettering == null },
-                            textScale = textScale, modifier = Modifier.matchParentSize())
+                            textScale = textScale, modifier = Modifier.matchParentSize().then(if (bubbleCapture == null) Modifier else Modifier
+                                .drawWithContent { drawContent(); bubbleCapture.painted(size.width, size.height) }))
+                        ReaderOcrDiagnosticsOverlay(recordedDiagnostics(page), Modifier.matchParentSize())
                     }
                 }
             }
         }
 
+        if (displayOptions.controlsLocked) Surface(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp),
+            shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+            TextButton({ changeDisplay(displayOptions.copy(controlsLocked = false)); hudVisible = true },
+                modifier = Modifier.semantics { contentDescription = "Unlock Reader screen controls" }) { Text("Unlock Reader") }
+        }
         if (pages.isEmpty()) {
             Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (loading) androidx.compose.material3.CircularProgressIndicator()
@@ -360,13 +626,13 @@ fun MangaContinuousReader(
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Text(error, style = MaterialTheme.typography.bodySmall)
-                    Row { TextButton(onClick = onRetry) { Text("Retry") }; TextButton(onClick = onOpenWeb) { Text("Open in Web") } }
+                    Row { TextButton(onClick = { if (!displayOptions.controlsLocked) onRetry() }) { Text("Retry") }; TextButton(onClick = { if (!displayOptions.controlsLocked) onOpenWeb() }) { Text("Open in Web") } }
                 }
             }
         }
 
         AnimatedVisibility(
-            visible = hudVisible || translationActive,
+            visible = !displayOptions.controlsLocked && (hudVisible || translationActive),
             enter = fadeIn(androidx.compose.animation.core.tween(220)) +
                 androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { -it / 5 },
             exit = fadeOut(androidx.compose.animation.core.tween(180)) +
@@ -374,7 +640,11 @@ fun MangaContinuousReader(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth().onSizeChanged { headerHeight = with(density) { it.height.toDp() } }.statusBarsPadding(),
+                modifier = Modifier.fillMaxWidth().onSizeChanged { headerHeight = with(density) { it.height.toDp() } }.statusBarsPadding()
+                    .then(readerHudDrawProbe(ReaderHudComponent.HEADER) { phase, component, current, target, running ->
+                        observeHud(phase, component = component, animationCurrent = current,
+                            animationTarget = target, animationRunning = running)
+                    }),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 border = androidx.compose.foundation.BorderStroke(
@@ -394,8 +664,11 @@ fun MangaContinuousReader(
                             Text("Page ${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelSmall)
                         }
                         Row {
-                            if (translated) Text(if (originalVisible) "Original" else "Translated", color = MaterialTheme.colorScheme.secondary)
-                            TextButton(onClick = { controls = !controls; hudVisible = true; observeReader("tools_toggle") }) { Text("Reader tools") }
+                            if (translated) Text(if (originalShown) "Original" else "Translated", color = MaterialTheme.colorScheme.secondary)
+                            TextButton(onClick = { val previousHud = hudVisible; val previousTools = controls
+                                controls = !controls; hudVisible = true; observeReader("tools_toggle")
+                                observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.TOOLS_TOGGLE,
+                                    previousHud = previousHud, previousTools = previousTools) }) { Text("Reader tools") }
                         }
                     }
                     if (translationTotal > 0) {
@@ -418,7 +691,7 @@ fun MangaContinuousReader(
         }
 
         AnimatedVisibility(
-            visible = hudVisible,
+            visible = !displayOptions.controlsLocked && hudVisible,
             enter = fadeIn(androidx.compose.animation.core.tween(240)) +
                 androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(300)) { it / 3 },
             exit = fadeOut(androidx.compose.animation.core.tween(180)) +
@@ -426,7 +699,11 @@ fun MangaContinuousReader(
             modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp).navigationBarsPadding()
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth()
+                    .then(readerHudDrawProbe(ReaderHudComponent.DOCK) { phase, component, current, target, running ->
+                        observeHud(phase, component = component, animationCurrent = current,
+                            animationTarget = target, animationRunning = running)
+                    }),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = .96f),
                 contentColor = MaterialTheme.colorScheme.onSurface,
@@ -439,10 +716,12 @@ fun MangaContinuousReader(
             ) {
                 Column(Modifier.heightIn(max = toolsHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton({ goToPage(positionState.page - 1, "previous_button") }, enabled = pages.isNotEmpty() && activePage > 0) { Text("‹ Prev") }
+                        TextButton({ goToPage(layout.advance(positionState.page, -1), "previous_button") }, enabled = layout.canAdvance(activePage, -1)) { Text("‹ Prev") }
                         Text("${if (pages.isEmpty()) 0 else activePage + 1} / ${pages.size}", style = MaterialTheme.typography.labelMedium)
-                        TextButton({ goToPage(positionState.page + 1, "next_button") }, enabled = pages.isNotEmpty() && activePage < pages.lastIndex) { Text("Next ›") }
+                        TextButton({ goToPage(layout.advance(positionState.page, 1), "next_button") }, enabled = layout.canAdvance(activePage, 1)) { Text("Next ›") }
                     }
+                    if (readingMode == "guided") ReaderGuidedControls(guidedSession, activePage > 0, activePage < pages.lastIndex,
+                        onAdvance = ::advanceGuided, onWhole = ::toggleGuidedWhole)
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(pages, key = { it.index }) { page ->
                             AsyncImage(rememberMangaThumbnailRequest(page.localPath ?: page.sourceUrl, page.contentRevision), "Jump to page ${page.index}", Modifier.size(38.dp, 50.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(5.dp)).clickable { goToPage(pages.indexOf(page), "thumbnail") }, contentScale = ContentScale.Crop)
@@ -453,14 +732,15 @@ fun MangaContinuousReader(
                             modifier = Modifier.semantics { contentDescription = "Correct current page" }) { Text("Personal corrections") }
                         Text("Reading mode", style = MaterialTheme.typography.titleSmall)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL").forEach { (mode, label) ->
+                            listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL",
+                                "single" to "Single page", "horizontal" to "Continuous horizontal", "spread" to "Two-page landscape", "guided" to "Guided panels").forEach { (mode, label) ->
                                 androidx.compose.material3.FilterChip(selected = readingMode == mode, onClick = {
                                     observeReader("mode_click_" + mode)
                                     if (mode != positionState.mode) {
-                                        val physical = if (!geometryChecked) positionState.page
-                                            else if (readingMode == "vertical") listState.firstVisibleItemIndex else pagerState.settledPage
-                                        val offset = if (!geometryChecked) positionState.offset
-                                            else if (readingMode == "vertical") listState.firstVisibleItemScrollOffset else 0
+                                        val viewport = currentViewport()
+                                        val physical = if (!geometryChecked) positionState.page else viewport.first
+                                        val offset = if (!geometryChecked) positionState.offset else viewport.second
+                                        if (mode in setOf("spread", "guided") && readingMode == "rtl") changeDisplay(displayOptions.copy(spreadRtl = true))
                                         positionState = positionState.switchMode(mode, physical, offset, pages.size)
                                         autoScroll = false
                                         scale = 1f; panX = 0f; panY = 0f
@@ -472,13 +752,13 @@ fun MangaContinuousReader(
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Translation", style = MaterialTheme.typography.titleSmall)
-                            androidx.compose.material3.Switch(translated && !originalVisible, { enabled -> if (enabled) { originalVisible = false; if (!translated) onTranslate() } else originalVisible = true })
+                            androidx.compose.material3.Switch(translated && !originalShown, { enabled -> if (enabled) { originalVisible = false; changeDisplay(displayOptions.copy(comparison = ReaderComparison.TRANSLATED)); if (!translated) onTranslate() } else originalVisible = true })
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(Modifier.weight(1f)) {
-                                Text("Hide scan promos", style = MaterialTheme.typography.titleSmall)
+                                Text("Hide promotional pages", style = MaterialTheme.typography.titleSmall)
                                 Text(
-                                    if (promoPages.isEmpty()) "No promo pages detected yet" else "${promoPages.size} detected • tap a placeholder to reveal",
+                                    if (detectedPromoPages.isEmpty()) "No promo pages detected yet" else "${detectedPromoPages.size} detected • tap a placeholder to reveal",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -501,6 +781,13 @@ fun MangaContinuousReader(
                             Text("Text size", style = MaterialTheme.typography.bodySmall)
                             Slider(textScale, { textScale = it; prefs.edit().putFloat("text_scale", it).apply() }, Modifier.weight(1f), valueRange = .75f..1.5f)
                         }
+                        val diagnosticPage = pages.getOrNull(activePage)
+                        ReaderOcrDiagnosticsControls(diagnosticPage?.let { ocrDiagnostics[it.index]?.takeIf { value -> ReaderOcrDiagnosticsPolicy.matchesRevision(value, it.contentRevision) } },
+                            diagnosticPage?.index, readerPresentationEpoch, showOcrDiagnostics, { showOcrDiagnostics = it },
+                            { diagnosticPage?.let(onLongPressPage) })
+                        ReaderDisplayControls(displayOptions, readingMode, translated, { next ->
+                            if (next.comparison != displayOptions.comparison) originalVisible = false; changeDisplay(next)
+                        }, { peekOriginal = it })
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(
@@ -508,9 +795,9 @@ fun MangaContinuousReader(
                             enabled = !translationActive && pages.isNotEmpty(),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
                         ) { Text(if (translationPaused) "Paused" else if (translating) "Translating…" else "Translate", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
-                        TextButton({ originalVisible = !originalVisible }, Modifier.semantics {
-                            contentDescription = if (originalVisible) "Show translated page" else "Show original page"
-                        }) { Text(if (originalVisible) "Translation" else "Original") }
+                        TextButton({ originalVisible = !originalShown; if (!originalVisible) changeDisplay(displayOptions.copy(comparison = ReaderComparison.TRANSLATED)) }, Modifier.semantics {
+                            contentDescription = if (originalShown) "Show translated page" else "Show original page"
+                        }) { Text(if (originalShown) "Translation" else "Original") }
                         if (readingMode == "vertical") TextButton({ autoScroll = !autoScroll }) { Text(if (autoScroll) "Pause scroll" else "Auto-scroll") }
                         if (controls) { TextButton(onDownload) { Text("Download") }; TextButton(onMenu) { Text("More settings") } }
                     }
@@ -546,7 +833,7 @@ private fun PromoPagePlaceholder(
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .35f))
     ) {
         Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Scan-group promo page hidden", style = MaterialTheme.typography.titleMedium)
+            Text("Promotional page hidden", style = MaterialTheme.typography.titleMedium)
             Text("Page ${page.index + 1} was classified as an announcement, ad-free upsell or scan-credit page. Nothing was deleted.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -557,14 +844,69 @@ private fun PromoPagePlaceholder(
     }
 }
 
+/** New continuous/spread modes retain saved native indices before personal rendering. */
+@Composable
+private fun OptionalReaderPage(page: ChapterPage, surface: ReaderPageSurface, options: ReaderDisplayOptions,
+    comparison: ReaderComparison, customDisplay: Boolean, translatedVisible: Boolean,
+    nativeOverlays: List<TranslationOverlay>, personal: Map<Int, com.mangalens.core.translation.PersonalMangaLettering>,
+    textScale: Float, onSavedBubble: ((Int, Int, com.mangalens.core.translation.SavedMangaLettering) -> Unit)?,
+    promoHidden: Boolean, onShowPromo: () -> Unit, onRetry: () -> Unit,
+    onHud: () -> Unit, onZoom: () -> Unit, onLongPress: () -> Unit, modifier: Modifier, viewportTransform: Any?,
+    onUnselectedTap: ((Float, Int) -> Unit)? = null, diagnostics: com.mangalens.core.translation.SavedPageOcrDiagnostics? = null) {
+    if (page.error != null || surface.sourceUnreadable) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) {
+                if (!options.controlsLocked) onRetry()
+            }
+        }
+        return
+    }
+    if (promoHidden) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            PromoPagePlaceholder(page, { if (!options.controlsLocked) onShowPromo() })
+        }
+        return
+    }
+    val capture = rememberBubbleDrawCapture(page, nativeOverlays, translatedVisible && surface.cleaned, onSavedBubble,
+        if (customDisplay) listOf(comparison, options.marginCrop, options.splitFraction) else null)
+    var frame by remember(capture) { mutableStateOf<ReaderBubbleCanvasFrame?>(null) }
+    val imageModifier = modifier.pointerInput(page.index, page.sourceUrl, page.contentRevision, capture, frame,
+        onSavedBubble, options.controlsLocked, options.marginCrop, onUnselectedTap) {
+        detectTapGestures(onTap = { tap ->
+            if (!options.controlsLocked) {
+                val selected = capture?.hit(frame, tap.x, tap.y, options.marginCrop)
+                if (selected != null && onSavedBubble != null) onSavedBubble(selected.pageIndex, selected.letteringIndex, selected.expectedNative)
+                else if (onUnselectedTap != null) onUnselectedTap(tap.x, size.width) else onHud()
+            }
+        }, onDoubleTap = { if (!options.controlsLocked) onZoom() }, onLongPress = { if (!options.controlsLocked) onLongPress() })
+    }
+    val displayed = applyPersonalReaderOverlays(nativeOverlays, personal).filter { surface.cleaned || it.lettering == null }
+    if (customDisplay) ReaderComparedMangaPage(page, surface.model.takeIf { surface.cleaned }, surface.aspectRatio,
+        options, comparison, displayed, textScale, capture, { frame = it }, surface.onOriginalError,
+        surface.onTranslatedError, imageModifier, fitted = true, viewportTransform = viewportTransform, diagnostics = diagnostics)
+    else FittedMangaPage(page, surface, imageModifier,
+        onOverlayFrame = if (capture == null) null else { value: ReaderBubbleCanvasFrame -> frame = value }) {
+        if (translatedVisible) MangaTranslationOverlay(displayed, textScale,
+            Modifier.matchParentSize().then(if (capture == null) Modifier else Modifier.drawWithContent {
+                drawContent(); capture.painted(size.width, size.height)
+            }))
+        ReaderOcrDiagnosticsOverlay(diagnostics, Modifier.matchParentSize())
+    }
+}
+
 /** Keep overlays in image coordinates, including letterboxing in paged mode. */
 @Composable
-private fun FittedMangaPage(page: ChapterPage, surface: ReaderPageSurface, modifier: Modifier, overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+private fun FittedMangaPage(page: ChapterPage, surface: ReaderPageSurface, modifier: Modifier,
+    onOverlayFrame: ((ReaderBubbleCanvasFrame) -> Unit)? = null,
+    overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
     val ratio = surface.aspectRatio ?: 1f
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val width = minOf(maxWidth, maxHeight * ratio)
         val height = width / ratio
-        Box(Modifier.size(width, height)) {
+        Box(Modifier.size(width, height).then(if (onOverlayFrame == null) Modifier else Modifier.onGloballyPositioned { coordinates ->
+            val position = coordinates.positionInParent()
+            onOverlayFrame(ReaderBubbleCanvasFrame(position.x, position.y, coordinates.size.width.toFloat(), coordinates.size.height.toFloat()))
+        })) {
             ReaderMangaImage(surface.model, "Page ${page.index}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
                 contentRevision = page.contentRevision, onLoadError = surface.onDecodeError)
             overlay()
@@ -574,7 +916,7 @@ private fun FittedMangaPage(page: ChapterPage, surface: ReaderPageSurface, modif
 
 private data class ReaderPageSurface(val model: String, val aspectRatio: Float?, val cleaned: Boolean = false,
     val geometryChecked: Boolean = false, val sourceUnreadable: Boolean = false,
-    val onDecodeError: () -> Unit = {})
+    val onDecodeError: () -> Unit = {}, val onOriginalError: () -> Unit = {}, val onTranslatedError: () -> Unit = {})
 
 /** The caller supplies checksum-verified journal paths; IO rechecks decodability and geometry. */
 @Composable
@@ -617,7 +959,8 @@ private fun rememberReaderPageSurface(page: ChapterPage, cleanedPath: String?, s
     return ReaderPageSurface(translatedSurface?.first ?: original, translatedSurface?.second ?: sourceRatio,
         translatedSurface != null, geometryChecked,
         sourceUnreadable = originalDecodeFailed.value || (geometryChecked && page.localPath != null && sourceRatio == null),
-        onDecodeError = { failedSurface.value = true })
+        onDecodeError = { failedSurface.value = true }, onOriginalError = { originalDecodeFailed.value = true },
+        onTranslatedError = { cleanedDecodeFailed.value = true })
 }
 
 @Composable
@@ -626,5 +969,18 @@ private fun PageLoadError(page: ChapterPage, retry: () -> Unit) {
         Text("Page ${page.index} could not load", style = MaterialTheme.typography.titleMedium)
         Text(page.error.orEmpty(), style = MaterialTheme.typography.bodySmall)
         TextButton(retry) { Text("Retry page loading") }
+    }
+}
+
+/** Original list indices survive personal projection and renderer validity filtering. */
+@Composable
+private fun rememberBubbleDrawCapture(page: ChapterPage, nativeOverlays: List<TranslationOverlay>, enabled: Boolean,
+    callback: ((Int, Int, com.mangalens.core.translation.SavedMangaLettering) -> Unit)?, displayKey: Any? = null): ReaderBubbleDrawCapture? {
+    if (!enabled || callback == null) return null
+    return remember(page.index, page.sourceUrl, page.contentRevision, nativeOverlays, callback, displayKey) {
+        val targets = nativeOverlays.mapIndexedNotNull { index, overlay ->
+            overlay.lettering?.let { ReaderBubbleHitTarget(ReaderBubbleTap(page.index, index, it), overlay.imageWidthPx, overlay.imageHeightPx) }
+        }
+        if (targets.isEmpty()) null else ReaderBubbleDrawCapture(targets)
     }
 }

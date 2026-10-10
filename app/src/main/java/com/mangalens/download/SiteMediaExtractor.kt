@@ -70,7 +70,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             addOption("--skip-download")
             // Inventory is never persisted; the parser rejects JSON over 16 MiB.
             // Only safe selected facts persist with the complete source tuple.
-            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,format_id,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats,formats,id,language,original_language,subtitles,automatic_captions})j")
+            addOption("--print", "%(.{url,protocol,ext,height,vcodec,acodec,format_id,title,duration,extractor_key,http_headers,has_drm,_type,requested_formats,formats,id,language,original_language,subtitles,automatic_captions,is_live,live_status,extra_param_to_segment_url,fragments,fragment_base_url,manifest_url,fragment_query,is_upcoming})j")
             addOption("--no-warnings")
             addOption("--socket-timeout", "8")
             addOption("--retries", "1")
@@ -158,12 +158,16 @@ internal object SiteMediaInfoParser {
             if (parts.any { protectedOrUnsupportedProtocol(it) }) return null
             val videoUrl = video.optString("url").takeIf(::isWebUrl) ?: return null
             val audioUrl = audio.optString("url").takeIf(::isWebUrl) ?: return null
+            val videoFragments = fragmentPlan(info, video)
+            val audioFragments = fragmentPlan(info, audio)
             return ResolvedMediaLink(videoUrl, videoMime, info.optString("extractor_key", "yt-dlp"),
                 detectedHeight = heightHint(video), title = info.optString("title"),
                 sourcePageUrl = sourcePage, headers = safeHeaders(info) + safeHeaders(video),
                 audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio),
                 expectedDurationUs = durationUs(info), originalSelection = selection(info, video, audio),
-                providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, audio.optString("language")))
+                providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, audio.optString("language")),
+                audioMimeType = MediaTransportMime.audioContainer(audio.optString("ext")),
+                videoFragments = videoFragments, audioFragments = audioFragments)
         }
         if (info.optString("vcodec") == "none" || info.optString("acodec") == "none") return null
         // Never substitute one of requested_formats: those commonly contain separate tracks.
@@ -172,6 +176,7 @@ internal object SiteMediaInfoParser {
         val protocol = info.optString("protocol")
         if (protectedOrUnsupportedProtocol(info)) return null
         val mime = when {
+            protocol.startsWith("http_dash_segments") -> OriginalMediaFormatPolicy.videoMime(info.optString("ext")) ?: return null
             protocol.startsWith("m3u8") -> "application/x-mpegURL"
             protocol.contains("dash") || url.substringBefore('?').endsWith(".mpd", true) -> "application/dash+xml"
             else -> OriginalMediaFormatPolicy.videoMime(info.optString("ext")) ?: "video/mp4"
@@ -183,8 +188,16 @@ internal object SiteMediaInfoParser {
             title = info.optString("title").takeIf { it.isNotBlank() },
             sourcePageUrl = sourcePage, headers = headers, expectedDurationUs = durationUs(info),
             originalSelection = selection(info, info, info),
-            providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, info.optString("language"))
+            providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, info.optString("language")),
+            videoFragments = fragmentPlan(info, info)
         )
+    }
+
+    private fun fragmentPlan(info: JSONObject, format: JSONObject): OriginalFragmentPlan? {
+        val captured = JSONObject(format.toString())
+        if (info.optBoolean("is_live") || info.optString("live_status") in setOf("is_live", "is_upcoming")) captured.put("is_live", true)
+        val extra = info.optString("extra_param_to_segment_url").takeIf { it.isNotBlank() && it != "null" }
+        return OriginalFragmentPlan.capture(captured, durationUs(info), extra)
     }
 
     private fun protectedOrUnsupportedProtocol(info: JSONObject): Boolean =

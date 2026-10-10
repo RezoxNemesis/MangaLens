@@ -5,14 +5,28 @@ import android.content.ComponentCallbacks2
 import android.content.res.Configuration
 import coil.Coil
 import kotlinx.coroutines.launch
+import com.mangalens.diagnostics.StartupScalarTrace
+import com.mangalens.diagnostics.StartupStage
 
 class MangaLensApplication : Application() {
+    override fun attachBaseContext(base: android.content.Context) {
+        super.attachBaseContext(base)
+        StartupScalarTrace.markOnce(StartupStage.APPLICATION_ATTACHED)
+    }
+
     override fun onCreate() {
-        super.onCreate()
-        com.mangalens.core.compute.AndroidResourceSignalMonitor.install(this)
-        com.mangalens.orez.agent.OrezTaskRecovery.enqueue(this)
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
-            com.mangalens.ui.video.SubtitleGenerationJobs.recoverPending(this@MangaLensApplication)
+        StartupScalarTrace.measure(StartupStage.APPLICATION_CREATE) {
+            super.onCreate()
+            StartupScalarTrace.measure(StartupStage.RESOURCE_MONITOR_INSTALL) {
+                com.mangalens.core.compute.AndroidResourceSignalMonitor.install(this)
+            }
+            StartupScalarTrace.measure(StartupStage.RECOVERY_ENQUEUE) {
+                com.mangalens.orez.agent.OrezTaskRecovery.enqueue(this)
+            }
+            com.mangalens.widget.MangaLensWidgetUpdates.applicationStarted(this)
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
+                com.mangalens.ui.video.SubtitleGenerationJobs.recoverPending(this@MangaLensApplication)
+            }
         }
     }
 

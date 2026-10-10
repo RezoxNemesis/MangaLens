@@ -22,30 +22,31 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
     val context=LocalContext.current
     var showBlockEvents by remember { mutableStateOf(false) }
     var storage by remember { mutableStateOf<Pair<Long, Long>?>(null) }
-    var cacheBytes by remember { mutableLongStateOf(0L) }
-    var adaptiveMediaBytes by remember { mutableLongStateOf(0L) }
+    var overview by remember { mutableStateOf<ManagedStorageOverview?>(null) }
+    var storageStatus by remember { mutableStateOf<String?>(null) }
+    var clearingCache by remember { mutableStateOf(false) }
     var clearCache by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val disk = android.os.StatFs(context.filesDir.absolutePath)
             storage = disk.availableBytes to disk.totalBytes
-            cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-            adaptiveMediaBytes = java.io.File(context.filesDir, "media_download_cache")
-                .takeIf { it.exists() }
-                ?.walkTopDown()
-                ?.filter { it.isFile }
-                ?.sumOf { it.length() } ?: 0L
+            try { overview = AndroidManagedStorage.scan(context.applicationContext) }
+            catch (_: Exception) { storageStatus = "Some app storage could not be inspected. No files were changed." }
         }
     }
-    if (clearCache) AlertDialog(onDismissRequest = { clearCache = false }, title = { Text("Clear temporary cache?") }, text = { Text("Saved chapters, downloads, models and reading progress are retained. Temporary files can be recreated.") },
-        confirmButton = { TextButton({ clearCache = false; scope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                // Imported documents can be active; leave their working directory untouched.
-                context.cacheDir.listFiles().orEmpty().filterNot { it.name == "chapter_imports" }.forEach { it.deleteRecursively() }
-                cacheBytes = context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-            }
-        } }) { Text("Clear cache") } }, dismissButton = { TextButton({ clearCache = false }) { Text("Cancel") } })
+    if (clearCache) AlertDialog(onDismissRequest = { clearCache = false }, title = { Text("Clear image cache?") }, text = { Text("Cached thumbnails and images can be recreated. Saved chapters, offline videos, subtitles, models and active import or repair work are retained.") },
+        confirmButton = { TextButton({ clearCache = false; clearingCache = true; scope.launch {
+            try {
+                storageStatus = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val result = AndroidManagedStorage.clearImageCache(context.applicationContext)
+                    overview = AndroidManagedStorage.scan(context.applicationContext)
+                    result
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { storageStatus = "The image cache could not be fully cleared or inspected. Saved content was retained." }
+            finally { clearingCache = false }
+        } }, enabled = !clearingCache) { Text("Clear cache") } }, dismissButton = { TextButton({ clearCache = false }) { Text("Cancel") } })
     LazyColumn(Modifier.fillMaxWidth().statusBarsPadding().imePadding().padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{
             com.mangalens.ui.components.BrandHeader("Settings", "MANGALENS • AI • PROTECTION")
@@ -67,9 +68,12 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                     Text(formatBytes(available) + " free of " + formatBytes(total))
                     LinearProgressIndicator(progress = { 1f - available.toFloat() / total.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
                 }
-                Text("Temporary cache: " + formatBytes(cacheBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Adaptive offline media: " + formatBytes(adaptiveMediaBytes), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton({ clearCache = true }) { Text("Clear cache →") }
+                overview?.let { snapshot -> ManagedStorageCategory.entries.forEach { category ->
+                    Text(category.label + ": " + formatBytes(snapshot.bytes.getValue(category)), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } }
+                Text("App-managed storage. Shared Downloads files remain visible in Downloads.", style = MaterialTheme.typography.bodySmall)
+                TextButton({ clearCache = true }, enabled = !clearingCache) { Text(if (clearingCache) "Clearing image cache…" else "Clear image cache →") }
+                storageStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         }
         item{Text("Appearance",fontWeight=FontWeight.Bold)}

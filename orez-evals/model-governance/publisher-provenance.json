@@ -1,0 +1,121 @@
+{
+  "schema": 1,
+  "scope": "Actual pinned public LICENSE/API correspondence; source metadata is not weight-byte/tensor/performance/quality evidence. API counters may change; the archived snapshot SHA identifies this collection only.",
+  "models": [
+    {
+      "tier": "lite",
+      "publisher_repository": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+      "publisher_revision": "872f8a96064a1242ac3a3359cad77c3042548405",
+      "publisher_weight_filename": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "publisher_weight_metadata": {
+        "rfilename": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "blobId": "a0ee18ee2bcb22c2b6c95360b292c2c40a2d7a03",
+        "size": 491400032,
+        "lfs": {
+          "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+          "size": 491400032,
+          "pointerSize": 134
+        }
+      },
+      "publisher_metadata_snapshot": {
+        "url": "https://huggingface.co/api/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/revision/872f8a96064a1242ac3a3359cad77c3042548405?blobs=true",
+        "collected_utc": "2026-10-09T23:41:52.167517+00:00",
+        "http_status": 200,
+        "bytes": 8822,
+        "sha256": "dc413d2685ed7d0c39dfcff578d0bee2d0fa5fc982ed3a0ebd17c8287d6304af",
+        "asset": "app/src/main/assets/orez/model-governance/lite-publisher.json"
+      },
+      "license": {
+        "id": "Apache-2.0",
+        "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/raw/872f8a96064a1242ac3a3359cad77c3042548405/LICENSE",
+        "collected_utc": "2026-10-09T23:41:52.165089+00:00",
+        "http_status": 200,
+        "bytes": 11343,
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+        "git_blob": "6634c8cc3133b3848ec74b9f275acaaa1ea618ab",
+        "asset": "app/src/main/assets/orez/licenses/Qwen-GGUF-Apache-2.0.txt"
+      },
+      "qualification": "Pending; no weights inspected, tensor/native/model/device evaluation performed"
+    },
+    {
+      "tier": "core",
+      "publisher_repository": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "publisher_revision": "a615a81362316d7b9f5a7a9c4313adfdf9b54588",
+      "publisher_weight_filename": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "publisher_weight_metadata": {
+        "rfilename": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "blobId": "eca68f83004d8b86fa1742ee507ddee8f4b2abce",
+        "size": 1117320736,
+        "lfs": {
+          "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+          "size": 1117320736,
+          "pointerSize": 135
+        }
+      },
+      "publisher_metadata_snapshot": {
+        "url": "https://huggingface.co/api/models/Qwen/Qwen2.5-1.5B-Instruct-GGUF/revision/a615a81362316d7b9f5a7a9c4313adfdf9b54588?blobs=true",
+        "collected_utc": "2026-10-09T23:41:52.642032+00:00",
+        "http_status": 200,
+        "bytes": 8673,
+        "sha256": "09bd6b8e04b5eca58456a17e92e68a0fbbff1f0f00c8c0261793410db214c6e1",
+        "asset": "app/src/main/assets/orez/model-governance/core-publisher.json"
+      },
+      "license": {
+        "id": "Apache-2.0",
+        "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/raw/a615a81362316d7b9f5a7a9c4313adfdf9b54588/LICENSE",
+        "collected_utc": "2026-10-09T23:41:52.622234+00:00",
+        "http_status": 200,
+        "bytes": 11343,
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+        "git_blob": "6634c8cc3133b3848ec74b9f275acaaa1ea618ab",
+        "asset": "app/src/main/assets/orez/licenses/Qwen-GGUF-Apache-2.0.txt"
+      },
+      "qualification": "Pending; no weights inspected, tensor/native/model/device evaluation performed"
+    },
+    {
+      "tier": "legacy",
+      "publisher_repository": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+      "publisher_revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+      "publisher_weight_filename": "qwen2.5-0.5b-instruct-q6_k.gguf",
+      "publisher_weight_metadata": {
+        "rfilename": "qwen2.5-0.5b-instruct-q6_k.gguf",
+        "blobId": "78c7a511f5ac566eb075673682d677db7fccc614",
+        "size": 650379104,
+        "lfs": {
+          "sha256": "2f82233630c349ccf6b8daccf48f9a7865713d9f08a2eadfa456cebe9b97c7f5",
+          "size": 650379104,
+          "pointerSize": 134
+        }
+      },
+      "publisher_metadata_snapshot": {
+        "url": "https://huggingface.co/api/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/revision/9217f5db79a29953eb74d5343926648285ec7e67?blobs=true",
+        "collected_utc": "2026-10-09T23:42:57.240022+00:00",
+        "http_status": 200,
+        "bytes": 9060,
+        "sha256": "86efe4503306b84d8e967398972ec12a1fd30add0c18f81b3269da43d603cd46",
+        "asset": "app/src/main/assets/orez/model-governance/legacy-publisher.json"
+      },
+      "license": {
+        "id": "Apache-2.0",
+        "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/raw/9217f5db79a29953eb74d5343926648285ec7e67/LICENSE",
+        "collected_utc": "2026-10-09T23:42:57.238357+00:00",
+        "http_status": 200,
+        "bytes": 11343,
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+        "git_blob": "6634c8cc3133b3848ec74b9f275acaaa1ea618ab",
+        "asset": "app/src/main/assets/orez/licenses/Qwen-GGUF-Apache-2.0.txt"
+      },
+      "qualification": "Pending; no weights inspected, tensor/native/model/device evaluation performed"
+    }
+  ],
+  "runtime": {
+    "repository": "ggml-org/llama.cpp",
+    "revision": "4da6337767f973e2b4d0797e5b323d77d8565e4a",
+    "license": "MIT",
+    "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/4da6337767f973e2b4d0797e5b323d77d8565e4a/LICENSE",
+    "collected_utc": "2026-10-09T23:42:57.565473+00:00",
+    "bytes": 1078,
+    "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "asset": "app/src/main/assets/orez/licenses/llama.cpp-MIT.txt"
+  }
+}

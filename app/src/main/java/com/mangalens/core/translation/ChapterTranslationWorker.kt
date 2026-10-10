@@ -166,7 +166,11 @@ object ChapterTranslationJobs {
                     try { refiner.captureRequest(true, style) } finally { refiner.close() }
                 }
             }
-            val task = store.start(chapter, captured, requestedPages, ownerRequestId, allowOwnerReplacement, forceReprocess)
+            val capturedMemory = ChapterMemoryCapturePolicy.forStart(captured, chapter.id, ownerRequestId, forceReprocess, store.states.value) { selected ->
+                NativeGenerationMemoryCapture(com.mangalens.core.translation.memory.SeriesMemoryStore(context.filesDir), store)
+                    .capture(chapter, selected, requestedPages?.minOrNull() ?: chapter.pages.minOf { it.index })
+            }
+            val task = store.start(chapter, capturedMemory, requestedPages, ownerRequestId, allowOwnerReplacement, forceReprocess)
             try {
                 oldGenerations[task.id]?.takeIf { it != task.generation }?.let { old ->
                     // Cancellation is scoped to the old generation, never a global chapter tag.

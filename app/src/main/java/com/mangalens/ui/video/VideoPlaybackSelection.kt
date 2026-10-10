@@ -14,7 +14,9 @@ data class VideoPlaybackSelection(
     val audioUrl: String?,
     val audioHeaders: Map<String, String>,
     val durationUs: Long? = null,
-    val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null
+    val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
+    val videoMimeType: String? = null,
+    val audioMimeType: String? = null
 ) {
     fun captured() = copy(videoHeaders = videoHeaders.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
 
@@ -36,11 +38,14 @@ internal object VideoPlaybackPublication {
 
     fun capture(videoUrl: String, videoHeaders: Map<String, String>, pageUrl: String?,
         audioUrl: String?, audioHeaders: Map<String, String>,
-        providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null): VideoPlaybackSelection {
+        providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
+        videoMimeType: String? = null, audioMimeType: String? = null): VideoPlaybackSelection {
         require(safeUrl(videoUrl) && (audioUrl == null || safeUrl(audioUrl))) { "A detected media source is not a safe HTTP or HTTPS address." }
         return VideoPlaybackSelection(UUID.randomUUID().toString().replace("-", ""), videoUrl,
             headers(videoHeaders), pageUrl?.takeIf(::safeUrl), audioUrl,
-            if (audioUrl == null) emptyMap() else headers(audioHeaders), providerCaptions = providerCaptions?.captureSnapshot())
+            if (audioUrl == null) emptyMap() else headers(audioHeaders), providerCaptions = providerCaptions?.captureSnapshot(),
+            videoMimeType = com.mangalens.download.MediaTransportMime.capture(videoMimeType),
+            audioMimeType = audioMimeType.takeIf { audioUrl != null }?.let(com.mangalens.download.MediaTransportMime::capture))
     }
 
     fun sameTuple(left: VideoPlaybackSelection, right: VideoPlaybackSelection): Boolean =

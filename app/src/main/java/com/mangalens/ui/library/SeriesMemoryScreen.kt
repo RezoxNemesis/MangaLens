@@ -12,6 +12,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mangalens.core.reader.SavedChapter
 import com.mangalens.core.translation.parseMemoryChapterOrdinal
 import com.mangalens.core.translation.memory.*
@@ -22,12 +25,15 @@ import java.util.UUID
 /** Association is explicit; library display titles never create a series-memory identity. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SeriesMemoryScreen(chapter: SavedChapter?, targetLanguage: String, onBack: () -> Unit, suppliedStore: SeriesMemoryStore? = null) {
+internal fun SeriesMemoryScreen(chapter: SavedChapter?, targetLanguage: String, onBack: () -> Unit, suppliedStore: SeriesMemoryStore? = null, initialSeriesId: String = "", initialQuery: String = "") {
     val context = LocalContext.current.applicationContext
     val memory = remember(context, suppliedStore) { suppliedStore ?: SeriesMemoryStore(context.filesDir) }
     val scope = rememberCoroutineScope()
     var profiles by remember { mutableStateOf<List<SeriesMemoryProfile>>(emptyList()) }
-    var selectedId by rememberSaveable(chapter?.id) { mutableStateOf<String?>(null) }
+    val directSeries = initialSeriesId.takeIf(::memoryValidId)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var selectedId by rememberSaveable(chapter?.id, initialSeriesId) { mutableStateOf<String?>(directSeries) }
+    var termQuery by rememberSaveable(initialQuery) { mutableStateOf(runCatching { MemoryGlossaryMetadataQuery.query(initialQuery) }.getOrDefault("")) }
     var association by remember(memory, chapter?.id) { mutableStateOf<MemoryChapterAssociation?>(null) }
     var ordinal by rememberSaveable(chapter?.id) { mutableStateOf("") }
     var newTitle by rememberSaveable { mutableStateOf("") }
@@ -39,11 +45,28 @@ internal fun SeriesMemoryScreen(chapter: SavedChapter?, targetLanguage: String, 
     var deletingSeries by remember(memory, chapter?.id) { mutableStateOf<SeriesMemoryProfile?>(null) }
     var styleDialog by remember(memory, chapter?.id) { mutableStateOf(false) }
     var refresh by remember(memory, chapter?.id) { mutableIntStateOf(0) }
-    LaunchedEffect(memory, chapter?.id, refresh) {
+    var selectionInitialized by remember(memory, chapter?.id, initialSeriesId) { mutableStateOf(false) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(memory, chapter?.id, initialSeriesId, refresh) {
         try {
-            profiles = memory.listSeries()
+            error = null
+            if (initialSeriesId.isNotEmpty()) {
+                require(directSeries != null) { "This series identity is invalid. Return to search." }
+                profiles = emptyList()
+                val prepared = memory.prepareProfileRead(selectedId ?: directSeries)
+                if (prepared?.tryDeliver { current -> profiles = listOf(current); true } != true)
+                    error = "This series glossary changed or was removed. Return to search and refresh."
+            } else profiles = memory.listSeries()
             association = chapter?.id?.let { memory.inspectChapter(it).association }
-            if (refresh == 0) { selectedId = association?.seriesId; ordinal = association?.ordinal?.toString().orEmpty() }
+            if (!selectionInitialized) {
+                if (initialSeriesId.isEmpty()) selectedId = association?.seriesId
+                ordinal = association?.ordinal?.toString().orEmpty()
+                selectionInitialized = true
+            }
             if (selectedId != null && profiles.none { it.id == selectedId }) selectedId = null
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (problem: Exception) { error = problem.message ?: "Series memory could not be read." }
@@ -86,7 +109,7 @@ internal fun SeriesMemoryScreen(chapter: SavedChapter?, targetLanguage: String, 
             enabled = !busy, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "New memory series name" }) }
         item { Button({ perform("Series created. Link a chapter explicitly below.") { selectedId = memory.createSeries(newTitle).id; newTitle = "" } }, enabled = newTitle.isNotBlank() && !busy,
             modifier = Modifier.semantics { contentDescription = "Create memory series" }) { Text("Create series") } }
-        if (profiles.isEmpty()) item { Text("No personal series yet.") }
+        if (profiles.isEmpty() && initialSeriesId.isEmpty()) item { Text("No personal series yet.") }
         items(profiles, key = { it.id }) { profile ->
             FilterChip(profile.id == selectedId, { selectedId = profile.id }, enabled = !busy,
                 label = { Text(profile.title) }, modifier = Modifier.semantics { contentDescription = "Select memory series: ${profile.title}" })
@@ -112,8 +135,13 @@ internal fun SeriesMemoryScreen(chapter: SavedChapter?, targetLanguage: String, 
                 Text("${selected.title} glossary", style = MaterialTheme.typography.titleLarge)
                 TextButton({ editingTerm = null; termDialog = true }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Add glossary term" }) { Text("Add term") }
             } }
+            item { OutlinedTextField(termQuery, { value -> if (value.length <= 160 && value.none { it.code < 32 || it.code == 127 }) termQuery = value },
+                label = { Text("Filter source, preferred spelling or aliases") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            if (initialSeriesId.isNotEmpty()) item { Text("Search opened this current series directly. Imported terms keep their saved source metadata; reopen the saved bubble to verify an edit.", style = MaterialTheme.typography.bodySmall) }
             if (selected.glossary.isEmpty()) item { Text("Add names, places, phrases or a preferred spelling. User-created terms have no source-page origin.") }
-            items(selected.glossary, key = { it.id }) { term ->
+            val visibleTerms = selected.glossary.filter { termQuery.isBlank() || MemoryGlossaryMetadataQuery.matches(it, termQuery.trim()) }
+            if (selected.glossary.isNotEmpty() && visibleTerms.isEmpty()) item { Text("No current glossary terms match this filter.") }
+            items(visibleTerms, key = { it.id }) { term ->
                 OutlinedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("${term.source} → ${term.preferred}", style = MaterialTheme.typography.titleMedium)

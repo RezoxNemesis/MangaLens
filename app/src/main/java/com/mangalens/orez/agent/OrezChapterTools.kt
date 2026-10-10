@@ -116,6 +116,6 @@ class OrezChapterTools(
             "targetLanguage" to options.targetLanguage, "status" to status.name, "completedPages" to completedPages.toString(),
             "translatedRegions" to translatedRegions.toString()) + options.refinementRequestFingerprint()?.let {
                 mapOf("refinementRequestFingerprint" to it)
-            }.orEmpty()
+            }.orEmpty() + if (options.reconstructionVersion >= 2) mapOf("reconstructionVersion" to options.reconstructionVersion.toString()) else emptyMap()
     }
 }

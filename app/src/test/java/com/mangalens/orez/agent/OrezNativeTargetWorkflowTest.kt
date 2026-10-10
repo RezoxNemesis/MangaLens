@@ -7,6 +7,8 @@ import com.mangalens.core.translation.TranslationRefinementPolicy
 import com.mangalens.core.translation.TranslationRefinementRequest
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.orez.OrezModelPin
+import com.mangalens.orez.OrezLocalizationProfile
+import com.mangalens.ui.video.SubtitleRefinementCompletionEvidence
 import com.mangalens.orez.OrezTaskDao
 import com.mangalens.orez.OrezTaskEntity
 import com.mangalens.orez.agent.OrezSubtitleTools.Companion.outputs
@@ -249,7 +251,8 @@ class OrezNativeTargetWorkflowTest {
         val profile = TranslationStyleProfile("custom", "Chosen style", instruction, false, false, false)
         val pin = SubtitleRefinementPin("selected-local-model", "f".repeat(64), 2_000_000)
         val requested = SubtitleGenerationConfig(modelSha256 = model, threads = 2).withTarget(SubtitleTargetOptions(
-            "hi-latn", SubtitleOutputMode.DUAL, "custom", instruction, true, pin, profile)).orezOptions()
+            "hi-latn", SubtitleOutputMode.DUAL, "custom", instruction, true, pin, profile,
+            refinementInputProfileRevision = "orez-localization-v2")).orezOptions()
         val f = fixture(paired = true, options = requested)
         for (index in 0..1) {
             val task = f.native.get(f.taskId)!!
@@ -257,11 +260,22 @@ class OrezNativeTargetWorkflowTest {
             val hindi = if (index == 0) "आग!" else "हम शुरू कर सकते हैं।"
             val draft = TranslationQualityPolicy.chooseDraft(source, TranslationDraft(HindiRomanization.render(hindi, source), hindi), "", "hi-latn")
             // This deterministic receipt fixture verifies request/prompt/output binding. No local-model inference is asserted.
-            val request = TranslationRefinementRequest(true, profile, OrezModelPin(pin.modelId, pin.sha256, pin.bytes))
-            val promptHash = TranslationRefinementPolicy.hash(TranslationRefinementPolicy.prompt(source, draft.text, "hi-latn", request.style,
-                task.translationContext(0, index), emptyMap()))
+            val request = TranslationRefinementRequest(true, profile, OrezModelPin(pin.modelId, pin.sha256, pin.bytes),
+                task.config.refinementInputProfileRevision)
+            assertEquals(requested.refinementInputProfileRevision, request.inputProfileRevision)
+            val prompt = TranslationRefinementPolicy.capturedPrompt(source, draft.text, "hi-latn", request,
+                task.translationContext(0, index), emptyMap())
+            val completion = SubtitleRefinementCompletionEvidence(requireNotNull(request.inputProfileRevision),
+                OrezLocalizationProfile.hash(OrezLocalizationProfile.formattedPrompt(prompt, requireNotNull(request.inputProfileRevision))), "EOG",
+                1, 1, OrezLocalizationProfile.MAX_TOKENS, 0, 0, 0, 0)
+            val promptHash = TranslationRefinementPolicy.hash(prompt)
             val target = SubtitleTranslatedCue(index, draft.text, draft.hindiDraft,
-                SubtitleSavedRefinement(pin, promptHash, TranslationRefinementPolicy.hash(draft.text)), draft.text, draft.text, draft.hindiDraft)
+                SubtitleSavedRefinement(pin, promptHash, TranslationRefinementPolicy.hash(draft.text), completion), draft.text, draft.text, draft.hindiDraft)
+            assertThrows(IllegalArgumentException::class.java) {
+                f.native.checkpointTarget(f.taskId, f.generation, 0, pcm,
+                    target.copy(refinement = target.refinement!!.copy(completion = null)))
+            }
+            assertEquals(index, f.native.get(f.taskId)!!.windows.single().translations.size)
             assertTrue(f.native.checkpointTarget(f.taskId, f.generation, 0, pcm, target))
         }
         f.native.completeAudio(f.taskId, f.generation, 1)

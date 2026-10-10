@@ -23,10 +23,13 @@ internal fun captureResolvedBrowserMedia(
     audioHeaders = audioHeaders.toMap(),
     title = resolved.title ?: titleFallback,
     provider = resolved.provider,
-    providerCaptions = resolved.providerCaptions?.captureSnapshot()
+    providerCaptions = resolved.providerCaptions?.captureSnapshot(),
+    videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType
 )
 
 /** The browser hands the complete tuple to the same accepted-video publication as native ingest. */
 internal fun captureBrowserVideoSelection(media: SniffedMedia, sourcePage: String): VideoPlaybackSelection =
     VideoPlaybackPublication.capture(media.url, media.headers, sourcePage,
-        media.audioUrl, media.audioHeaders, media.providerCaptions)
+        media.audioUrl, media.audioHeaders, media.providerCaptions,
+        videoMimeType = media.videoMimeType ?: com.mangalens.download.MediaTransportMime.fromObservedKind(media.kind),
+        audioMimeType = media.audioMimeType)

@@ -40,8 +40,13 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
                 }, isExecuting = { store.isExecuting(id, plan.executionEpoch) }) }
             val subtitleTools = if (plan.steps.any { it.call.name in setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles") })
                 OrezSubtitleTools.forPlan(store, plan, OrezNativeSubtitleHost(applicationContext)) else null
+            val memoryTools = plan.authorization?.let { scope -> OrezMemoryTools(OrezNativeMemoryHost(applicationContext), scope, isExecuting = { store.isExecuting(id, plan.executionEpoch) }) }
+            val researchTools = if (plan.steps.any { it.call.name == "research_web" }) OrezResearchTools(plan,
+                isExecuting = { store.isExecuting(id, plan.executionEpoch) }) else null
             val executor = OrezTaskExecutor(store, OrezDurableTools { step, requestId ->
                 when (step.call.name) {
+                    "research_web" -> requireNotNull(researchTools).execute(step, requestId)
+                    "search_saved_memory" -> requireNotNull(memoryTools).execute(step, requestId)
                     "enqueue_download" -> executeDownload(step, requestId, id, plan.executionEpoch, store)
                     "inspect_saved_chapter", "translate_saved_chapter" -> requireNotNull(chapterTools).execute(step, requestId)
                     "inspect_selected_media", "inspect_downloaded_media", "generate_subtitles" -> requireNotNull(subtitleTools).execute(step, requestId)
@@ -133,6 +138,19 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
     }
 
     private fun completionMessage(plan: OrezTaskPlan): String {
+        val research = plan.steps.lastOrNull { it.outputKind == OrezOutputKind.RESEARCH_EVIDENCE }
+        if (research != null) return com.mangalens.orez.research.OrezResearchEvidenceCodec.receipt(research.outputs,
+            OrezDurablePlanRules.requestId(plan.id, research.index),
+            com.mangalens.orez.research.OrezResearchRequest.captured(plan.objective, research.call.arguments)).metadataCompletion()
+        val memory = plan.steps.lastOrNull { it.outputKind == OrezOutputKind.MEMORY_SEARCH }
+        if (memory != null) {
+            val rows = org.json.JSONArray(memory.outputs.getValue("memoryHits"))
+            val found = (0 until rows.length()).joinToString("\n") { index -> rows.getJSONObject(index).let { row ->
+                "Page ${row.getInt("pageIndex")}: ${row.getString("text")}" } }
+            val partial = if (memory.outputs["memoryIncomplete"] == "true") " Results are bounded; more saved text may exist." else ""
+            return "Found ${rows.length()} saved-text matches in the selected chapter.$partial" + if (found.isBlank()) "" else "\n$found"
+        }
+
         val subtitles = plan.steps.lastOrNull { it.outputKind == OrezOutputKind.SUBTITLE_TRACK }
         if (subtitles != null) return "Generated and saved verified English subtitles for “${subtitles.outputs["title"]}” (${subtitles.outputs["cueCount"]} cues)."
         val translated = plan.steps.lastOrNull { it.outputKind == OrezOutputKind.CHAPTER_TRANSLATION }
@@ -148,6 +166,8 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("Orez is executing your task")
             .setContentText(when {
+                plan.steps.any { it.call.name == "research_web" } -> "Gathering public sources • progress is available in Orez"
+                plan.steps.any { it.call.name == "search_saved_memory" } -> "Searching selected chapter memory"
                 plan.steps.any { it.call.name == "enqueue_download" } -> "Transfer progress is available in Downloads"
                 plan.steps.any { it.call.name == "generate_subtitles" } -> "Generating subtitles • progress is available in Orez"
                 else -> "Saving chapter translation • progress is available in Orez"

@@ -45,14 +45,16 @@ class ProgressiveChapterRepository(
     private val _pages = MutableStateFlow<List<ChapterPage>>(emptyList())
     val pages: StateFlow<List<ChapterPage>> = _pages
 
-    suspend fun persistPage(index: Int, sourceUrl: String, referrer: String? = null): ChapterPage = withContext(Dispatchers.IO) { transferMutex.withLock {
+    suspend fun persistPage(index: Int, sourceUrl: String, referrer: String? = null,
+        promotion: com.mangalens.core.acquisition.ChapterImagePromotion? = null): ChapterPage = withContext(Dispatchers.IO) { transferMutex.withLock {
         val jobContext = currentCoroutineContext()
         jobContext.ensureActive()
         val file = File(chapterDir, index.toString() + "_" + sha256(sourceUrl) + ".img")
         val revision = persistVerified(file, jobContext) { temp ->
             acquireRemote(sourceUrl, referrer, temp)
         }
-        val page = ChapterPage(index, sourceUrl, file.absolutePath, contentRevision = revision)
+        val page = ChapterPage(index, sourceUrl, file.absolutePath, contentRevision = revision,
+            promotionHint = promotion?.let { ChapterPromotionHint(it, revision.substringBefore(':')) })
         synchronized(pagePublicationLock) {
             jobContext.ensureActive()
             _pages.value = (_pages.value.filterNot { it.index == index } + page).sortedBy { it.index }
@@ -64,6 +66,15 @@ class ProgressiveChapterRepository(
         val result = mutableListOf<ChapterPage>()
         urls.distinct().forEachIndexed { index, url ->
             result += persistPage(index + 1, url, referrer)
+        }
+        return result
+    }
+
+    suspend fun persistDiscoveredCandidates(candidates: List<com.mangalens.core.acquisition.ChapterImageCandidate>, referrer: String? = null): List<ChapterPage> {
+        val selected = candidates.distinctBy { it.url }.take(com.mangalens.core.acquisition.ChapterImageCandidates.MAX_IMAGES)
+        val result = mutableListOf<ChapterPage>()
+        selected.forEachIndexed { index, candidate ->
+            result += persistPage(index + 1, candidate.url, referrer, candidate.promotion)
         }
         return result
     }
@@ -121,7 +132,8 @@ class ProgressiveChapterRepository(
                     input.use { copySynced(it, temp, jobContext) }
                 }
             }
-            val repaired = page.copy(localPath = file.absolutePath, error = null, contentRevision = revision)
+            val repaired = page.copy(localPath = file.absolutePath, error = null, contentRevision = revision,
+                promotionHint = page.promotionHint?.takeIf { it.sourceSha256 == revision.substringBefore(':') })
             synchronized(pagePublicationLock) {
                 jobContext.ensureActive()
                 check(_pages.value.any { it == page }) { "The selected chapter page has changed. Reopen it before retrying." }
@@ -229,6 +241,9 @@ class ProgressiveChapterRepository(
         android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "The page is not a supported image. Open the source in Web mode or choose another image." }
         check(bounds.outWidth.toLong() * bounds.outHeight <= 100_000_000L) { "The image is too large to decode safely." }
+        // Android accepts incomplete PNG rows as a Bitmap. Verify its actual
+        // compressed raster before cache reuse or verified atomic promotion.
+        PngRasterIntegrity.verifyIfPng(file, MAX_PAGE_BYTES, 100_000_000L) { jobContext.ensureActive() }
         // An intact dimensions header does not prove readable pixels. Verify a
         // bounded software raster without allocating the full original page.
         var sample = 1

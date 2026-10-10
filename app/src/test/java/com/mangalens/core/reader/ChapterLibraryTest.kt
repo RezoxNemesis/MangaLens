@@ -160,4 +160,48 @@ class ChapterLibraryTest {
         assertTrue(outside.isFile)
     }
 
+    @Test fun promotionHintReopensOnlyWithMatchingActualOriginalAndRetainsItsFile() = withRoot { root ->
+        val original = chapter(root)
+        val page = original.pages.single()
+        val image = File(requireNotNull(page.localPath))
+        val hash = java.security.MessageDigest.getInstance("SHA-256").digest(image.readBytes()).joinToString("") { "%02x".format(it) }
+        val hinted = page.copy(contentRevision = hash + ":incarnation", promotionHint = ChapterPromotionHint(
+            com.mangalens.core.acquisition.ChapterImagePromotion.COMMERCIAL_LINK, hash))
+        val library = ChapterLibrary(root, FileJournal())
+        library.save(original.copy(pages = listOf(hinted)))
+        val reopened = ChapterLibrary(root, FileJournal()).list().single().pages.single()
+        assertEquals(hinted.promotionHint, reopened.promotionHint)
+        assertTrue(reopened.promotionHint!!.matches(reopened))
+        assertTrue(image.isFile)
+        image.writeBytes(byteArrayOf(3, 2, 1)) // Same byte count must not preserve an obsolete hint.
+        val changed = ChapterLibrary(root, FileJournal()).list().single().pages.single()
+        assertNull(changed.promotionHint)
+        assertNotNull(changed.localPath)
+        assertArrayEquals(byteArrayOf(3, 2, 1), image.readBytes())
+    }
+    @Test fun unboundPresentationHintIsNotPersistedAsVerifiedEvidence() = withRoot { root ->
+        val original = chapter(root)
+        val page = original.pages.single().copy(promotionHint = ChapterPromotionHint(
+            com.mangalens.core.acquisition.ChapterImagePromotion.AD_CONTAINER, "a".repeat(64)))
+        val library = ChapterLibrary(root, FileJournal())
+        library.save(original.copy(pages = listOf(page)))
+        assertNull(ChapterLibrary(root, FileJournal()).list().single().pages.single().promotionHint)
+        assertTrue(File(requireNotNull(page.localPath)).isFile)
+    }
+    @Test fun metadataLookupKeepsChapterFieldsWithoutVerifiedPresentationHints() = withRoot { root ->
+        val original = chapter(root)
+        val page = original.pages.single()
+        val hash = java.security.MessageDigest.getInstance("SHA-256").digest(File(requireNotNull(page.localPath)).readBytes())
+            .joinToString("") { "%02x".format(it) }
+        val hinted = page.copy(contentRevision = hash, promotionHint = ChapterPromotionHint(
+            com.mangalens.core.acquisition.ChapterImagePromotion.AD_CONTAINER, hash))
+        val library = ChapterLibrary(root, FileJournal())
+        library.save(original.copy(pages = listOf(hinted)))
+        val metadata = requireNotNull(library.findMetadata(original.id))
+        assertEquals(original.title, metadata.title)
+        assertEquals(original.lastReadAt, metadata.lastReadAt)
+        assertEquals(page.localPath, metadata.pages.single().localPath)
+        assertNull(metadata.pages.single().promotionHint)
+        assertNull(metadata.pages.single().contentRevision)
+    }
 }

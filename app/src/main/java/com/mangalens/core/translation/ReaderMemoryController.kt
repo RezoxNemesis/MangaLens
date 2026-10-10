@@ -12,7 +12,9 @@ internal data class ReaderMemoryEditor(val captured: MemoryBubbleEditor, val bub
 internal data class ReaderMemoryUiState(val open: Boolean = false, val pageIndex: Int? = null,
     val choices: List<ReaderMemoryBubbleChoice> = emptyList(), val editor: ReaderMemoryEditor? = null,
     val busy: Boolean = false, val message: String? = null, val error: Boolean = false,
-    val personalOverlays: Map<Int, Map<Int, PersonalMangaLettering>> = emptyMap())
+    val personalOverlays: Map<Int, Map<Int, PersonalMangaLettering>> = emptyMap(),
+    val bubblePresentation: ReaderMemoryPresentation? = null,
+    val generatedEdit: MemoryCorrectionEdit? = null, val generatedLabel: String? = null)
 
 /** UI selection is one native receipt. Personal edits never enter the worker's journal or PNG. */
 class ReaderMemoryController internal constructor(
@@ -27,9 +29,34 @@ class ReaderMemoryController internal constructor(
     @Volatile private var readerVisible = false
     @Volatile private var accepted: ReaderTranslationReceipt? = null
     @Volatile private var visiblePage: Int? = null
+    @Volatile private var visiblePages: Set<Int> = emptySet()
     @Volatile private var pageRequest = 0L
     @Volatile private var overlayRequest = 0L
     private var overlayJob: Job? = null
+    @Volatile private var bubbleExplanation: SavedBubbleExplanation? = null
+    @Volatile private var regionActions: SavedBubbleRegionActions? = null
+    private var tools: ReaderBubbleToolsController? = null
+    internal val bubbleTools: ReaderBubbleToolsController
+        get() = tools ?: ReaderBubbleToolsController(filesRoot, scope, authority, storeProvider, writer,
+            explanation = { bubbleExplanation }, showEditor = ::showInspectedEditor,
+            regionActions = { regionActions }, showGeneratedEditor = ::showGeneratedEditor).also { tools = it }
+    internal fun configureBubbleExplanation(explanation: SavedBubbleExplanation) { bubbleExplanation = explanation }
+    internal fun configureBubbleRegionActions(actions: SavedBubbleRegionActions) { regionActions = actions }
+    private fun showGeneratedEditor(selected: ReaderMemoryPresentation, pageIndex: Int, editor: ReaderMemoryEditor,
+        edit: MemoryCorrectionEdit, label: String) {
+        if (!readerVisible || !authority.isCurrent(selected)) return
+        ++pageRequest
+        _state.update { it.copy(open = true, pageIndex = pageIndex, editor = editor, choices = emptyList(),
+            busy = false, message = null, error = false, generatedEdit = edit, generatedLabel = label) }
+        refreshOverlay(pageIndex)
+    }
+    private fun showInspectedEditor(selected: ReaderMemoryPresentation, pageIndex: Int, editor: ReaderMemoryEditor) {
+        if (!readerVisible || !authority.isCurrent(selected)) return
+        ++pageRequest
+        _state.update { it.copy(open = true, pageIndex = pageIndex, editor = editor, choices = emptyList(),
+            busy = false, message = null, error = false, generatedEdit = null, generatedLabel = null) }
+        refreshOverlay(pageIndex)
+    }
 
     internal fun bindAccepted(task: ChapterTranslationTask?, receipt: ReaderTranslationReceipt?) {
         if (task == null || receipt == null || task.validationPending || !ReaderTranslationPresentation.matchesTask(receipt, task) ||
@@ -43,35 +70,49 @@ class ReaderMemoryController internal constructor(
         val replaced = accepted != receipt || editorChanged
         accepted = receipt
         if (replaced) {
-            authority.retire(); ++pageRequest; _state.value = ReaderMemoryUiState()
+            tools?.dismiss(); authority.retire(); ++pageRequest; _state.value = ReaderMemoryUiState()
             if (readerVisible) authority.activate(receipt)
         } else if (readerVisible && authority.current() == null) authority.activate(receipt)
+        _state.update { it.copy(bubblePresentation = authority.peekCurrent()) }
         visiblePage?.let(::refreshOverlay)
     }
 
     internal fun enterReader() {
         readerVisible = true
         accepted?.let { if (authority.current() == null) authority.activate(it) }
+        _state.update { it.copy(bubblePresentation = authority.peekCurrent()) }
         visiblePage?.let(::refreshOverlay)
     }
     internal fun leaveReader() {
-        readerVisible = false; ++pageRequest; ++overlayRequest; authority.retire(); overlayJob?.cancel(); _state.value = ReaderMemoryUiState()
+        tools?.dismiss(); readerVisible = false; visiblePages = emptySet(); ++pageRequest; ++overlayRequest; authority.retire(); overlayJob?.cancel(); _state.value = ReaderMemoryUiState()
     }
     internal fun retire() {
-        accepted = null; ++pageRequest; ++overlayRequest; authority.retire(); overlayJob?.cancel(); _state.value = ReaderMemoryUiState()
+        tools?.dismiss(); accepted = null; visiblePages = emptySet(); ++pageRequest; ++overlayRequest; authority.retire(); overlayJob?.cancel(); _state.value = ReaderMemoryUiState()
     }
     internal fun onVisiblePage(pageIndex: Int?) {
         if (visiblePage == pageIndex) return
         visiblePage = pageIndex
+        if (visiblePages.size <= 1) visiblePages = pageIndex?.let { setOf(it) }.orEmpty()
+        tools?.onVisiblePage(pageIndex)
         if (_state.value.open && _state.value.pageIndex != pageIndex) dismiss()
         pageIndex?.let(::refreshOverlay)
     }
-    internal fun dismiss() { ++pageRequest; _state.update { it.copy(open = false, choices = emptyList(), editor = null, message = null, error = false) } }
+    /** Actual visible native page indices only; at most the two pages painted by the Reader. */
+    internal fun onVisiblePages(pageIndices: Set<Int>) {
+        val next = pageIndices.filter { it >= 0 }.take(2).toSet()
+        if (visiblePages == next) return
+        visiblePages = next
+        if (next.isEmpty()) { ++overlayRequest; overlayJob?.cancel(); _state.update { it.copy(personalOverlays = emptyMap()) } }
+        else refreshOverlay(visiblePage?.takeIf { it in next } ?: next.first())
+    }
+
+    internal fun dismiss() { ++pageRequest; _state.update { it.copy(open = false, choices = emptyList(), editor = null, message = null, error = false, generatedEdit = null, generatedLabel = null) } }
 
     internal suspend fun openPage(pageIndex: Int) {
+        tools?.dismiss()
         val selected = authority.current()
         val request = ++pageRequest
-        _state.update { it.copy(open = true, pageIndex = pageIndex, choices = emptyList(), editor = null, busy = true, message = null, error = false) }
+        _state.update { it.copy(open = true, pageIndex = pageIndex, choices = emptyList(), editor = null, busy = true, message = null, error = false, generatedEdit = null, generatedLabel = null) }
         try {
             val task = if (selected == null) null else withContext(Dispatchers.IO) {
                 storeProvider().refresh(selected.receipt.taskId, selected.receipt.generation)
@@ -108,7 +149,7 @@ class ReaderMemoryController internal constructor(
                     ?: error("The saved page changed. Reopen its correction editor.")
                 ReaderMemoryEditor(captured, bubble, native.savedHindiDraft)
             }
-            if (isPageRequestCurrent(request, selected, pageIndex)) _state.update { it.copy(editor = editor) }
+            if (isPageRequestCurrent(request, selected, pageIndex)) _state.update { it.copy(editor = editor, generatedEdit = null, generatedLabel = null) }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (problem: Exception) { if (isPageRequestCurrent(request, selected, pageIndex)) failure(problem) }
         finally { if (isPageRequestCurrent(request, selected, pageIndex)) _state.update { it.copy(busy = false) } }
@@ -134,7 +175,7 @@ class ReaderMemoryController internal constructor(
                 editor.copy(bubble = adapter.inspect(editor.captured) ?: error("This correction was removed."))
             }
             if (isPageRequestCurrent(request, selected, pageIndex) && _state.value.editor?.captured == editor.captured) {
-                _state.update { it.copy(editor = saved, message = "Personal correction saved.", error = false) }
+                _state.update { it.copy(editor = saved, message = "Personal correction saved.", error = false, generatedEdit = null, generatedLabel = null) }
             }
             if (authority.current() == selected && visiblePage == pageIndex) refreshOverlay(pageIndex)
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -147,19 +188,29 @@ class ReaderMemoryController internal constructor(
         overlayJob?.cancel()
         val request = ++overlayRequest
         val selected = authority.current()
+        val targets = visiblePages.takeIf { pageIndex in it } ?: setOf(pageIndex)
         if (!readerVisible || selected == null) { _state.update { it.copy(personalOverlays = emptyMap()) }; return }
         // Hide earlier facts while actual source/output bytes are checked again.
         _state.update { it.copy(personalOverlays = emptyMap()) }
         overlayJob = scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    adapter(storeProvider()).publishPersonalOverlay(selected, pageIndex) { overlay ->
-                        if (overlayRequest == request && visiblePage == pageIndex) _state.update { it.copy(personalOverlays = mapOf(pageIndex to overlay)) }
+                    val adapter = adapter(storeProvider())
+                    var acceptedOverlays = emptyMap<Int, Map<Int, PersonalMangaLettering>>()
+                    targets.forEach { target ->
+                        currentCoroutineContext().ensureActive()
+                        adapter.publishPersonalOverlay(selected, target) { overlay ->
+                            if (readerVisible && overlayRequest == request && authority.isCurrent(selected) &&
+                                (visiblePages == targets || visiblePages.isEmpty() && visiblePage == pageIndex)) {
+                                acceptedOverlays = acceptedOverlays + (target to overlay)
+                                _state.update { it.copy(personalOverlays = acceptedOverlays) }
+                            }
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
-                if (overlayRequest == request && authority.current() == selected && visiblePage == pageIndex) _state.update { it.copy(personalOverlays = emptyMap()) }
+                if (overlayRequest == request && authority.isCurrent(selected)) _state.update { it.copy(personalOverlays = emptyMap()) }
             }
         }
     }

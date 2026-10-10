@@ -57,7 +57,10 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
     private suspend fun recognizeWith(
         recognizer: TextRecognizer, bitmap: Bitmap, script: String = "LATIN", mergeBlocks: Boolean = true
     ): List<TranslationRegion> {
+        com.mangalens.core.compute.checkNativeComputePrecondition(false)
+        val caller = currentCoroutineContext()
         val result = awaitOcrCompletion<Text> { complete ->
+            caller.ensureActive()
             recognizer.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnCompleteListener(ocrCallbackExecutor) { task ->
                     complete(when {
@@ -206,6 +209,30 @@ class AdvancedTranslationEngine(private val context: Context? = null) {
         originalSource: OcrOriginalRegionSource?): List<TranslationRegion> {
         val session = OcrRecognizerSession(::createRecognizer) { it.close() }
         return try { recognizePage(bitmap, options, session, originalSource) } finally { session.close() }
+    }
+
+    /** Explicit saved-region reads keep the caller's bounded original crop; no page-scale retry allocation. */
+    internal suspend fun recognizeSavedRegionAlternatives(bitmap: Bitmap, options: OcrOptions): List<List<TranslationRegion>> {
+        require(bitmap.width > 0 && bitmap.height > 0 && bitmap.width <= 1280 && bitmap.height <= 1280 &&
+            bitmap.width.toLong() * bitmap.height <= 1_000_000)
+        val configured = options.script.uppercase(Locale.ROOT)
+        val scripts = if (configured != "AUTO") listOf(configured) else if (!options.highAccuracy) listOf("LATIN") else
+            listOf("LATIN", "DEVANAGARI", "CHINESE", "JAPANESE", "KOREAN")
+        val readings = mutableListOf<List<TranslationRegion>>()
+        for (script in scripts) {
+            com.mangalens.core.compute.checkNativeComputePrecondition(false)
+            val recognizer = createRecognizer(script)
+            try {
+                val result = recognizeWith(recognizer, bitmap, script, mergeBlocks = false)
+                val ordered = orderOcrReadings(result.map(::readingCandidate)).map(result::get)
+                if (ordered.isNotEmpty()) readings += ordered
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { Log.w("MangaLensOCR", "Selected-region recognizer unavailable", failure) }
+            finally { recognizer.close() }
+            // Ownership failures are outside the optional recognizer failure catch.
+            com.mangalens.core.compute.checkNativeComputePrecondition(false)
+        }
+        return readings
     }
 
     private suspend fun recognizePage(

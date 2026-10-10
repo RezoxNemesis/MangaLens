@@ -66,12 +66,13 @@ fun AdBlockedWebScreen(
     onOpenManga: (String) -> Unit = {},
     onOpenVideo: (SniffedMedia, String) -> Unit = { _, _ -> },
     onClose: (() -> Unit)? = null,
-    onPageChanged: (String) -> Unit = {}
+    onPageChanged: (String) -> Unit = {},
+    onResearchQuestion: ((String) -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val session = remember(context.applicationContext) { BrowserWorkspaceRepository.session(context) }
     BrowserWorkspaceScreen(session, url, translationEnabled, adBlockEnabled, modifier, targetLanguage,
-        onOpenManga, onOpenVideo, onClose, onPageChanged)
+        onOpenManga, onOpenVideo, onClose, onPageChanged, onResearchQuestion)
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -81,7 +82,7 @@ internal fun GuardedBrowserTabScreen(
     url: String, tab: BrowserTab, workspace: BrowserWorkspaceSnapshot, session: BrowserWorkspaceSession, workspaceError: String?,
     translationEnabled: Boolean, adBlockEnabled: Boolean, modifier: Modifier, targetLanguage: String,
     onOpenManga: (String) -> Unit, onOpenVideo: (SniffedMedia, String) -> Unit,
-    onClose: (() -> Unit)?, onPageChanged: (String) -> Unit
+    onClose: (() -> Unit)?, onPageChanged: (String) -> Unit, onResearchQuestion: ((String) -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var showAddress by remember { mutableStateOf(url.isBlank()) }
@@ -98,6 +99,10 @@ internal fun GuardedBrowserTabScreen(
     val captureActive by WebAudioCaptureService.active.collectAsState()
     val captureStatus by WebAudioCaptureService.status.collectAsState()
     var speechSettings by remember { mutableStateOf(false) }
+    var showDomTools by remember { mutableStateOf(false) }
+    var showCleanReading by remember { mutableStateOf(false) }
+    var showResearchQuestion by remember { mutableStateOf(false) }
+    var linkExport by remember { mutableStateOf<Triple<BrowserDomOwner, BrowserPublicLink, Boolean>?>(null) }
     val projectionManager = remember { context.getSystemService(android.media.projection.MediaProjectionManager::class.java) }
     val projectionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
@@ -162,6 +167,7 @@ internal fun GuardedBrowserTabScreen(
         )
     }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var captionWebViewToken by remember { mutableStateOf("") }
     var currentUrl by remember { mutableStateOf(url) }
     var pageTitle by remember { mutableStateOf("") }
     var pageLoad by remember { mutableStateOf(WebPageLoadState()) }
@@ -203,6 +209,20 @@ internal fun GuardedBrowserTabScreen(
             BrowserUploadScope(tab.id, ticket.epoch, ticket.url) else null
     }, onStatus = { translationStatus = it })
 
+    val sourceCaptions = remember(session, tab.id, context.applicationContext) {
+        BrowserSourceCaptionController(context, session.state, currentHost = {
+            val view = webView
+            val ticket = pageLoad.navigation
+            val current = session.state.value
+            if (!revoked.get() && current?.activeTabId == tab.id && view != null && ticket != null &&
+                pageLoad.readyFor(ticket) && current.activeTab.url == ticket.url && view.url == ticket.url &&
+                captionWebViewToken.matches(Regex("[a-f0-9]{32}")))
+                BrowserCaptionLiveHost(BrowserCaptionPageOwner(tab.id, ticket.epoch, ticket.url, captionWebViewToken), view)
+            else null
+        })
+    }
+    val sourceCaptionState by sourceCaptions.state.collectAsState()
+
     fun owns(view: WebView?): Boolean = !revoked.get() && view != null && view === webView && session.state.value?.activeTabId == tab.id
     fun clearFind() {
         findSerial++
@@ -220,6 +240,8 @@ internal fun GuardedBrowserTabScreen(
     }
 
     fun beginNavigation(target: String, record: Boolean = true, replace: Boolean = false) {
+        session.domTools?.retire()
+        sourceCaptions.retire()
         captureGate.revoke(); captureAuthority.set(null); captureConsentStatus = null
         context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
         uploadBridge.cancel()
@@ -239,22 +261,33 @@ internal fun GuardedBrowserTabScreen(
         observeBrowser("begin_navigation", targetUrl = target)
     }
 
-    fun loadPage(target: String) {
-        val view = webView ?: return
-        if (!owns(view) || runCatching { requireBrowserUrl(target) }.isFailure) return
+    fun loadPage(target: String, canDispatch: () -> Boolean = { true }, onDispatched: (Boolean) -> Unit = {}) {
+        val view = webView
+        if (view == null || !owns(view) || !canDispatch() || runCatching { requireBrowserUrl(target) }.isFailure) {
+            onDispatched(false); return
+        }
         val serial = ++commandSerial
         uploadBridge.cancel(); clearFind()
         beginNavigation(target, record = false)
         awaitingDispatch = true
-        val ticket = pageLoad.navigation ?: return
+        val ticket = pageLoad.navigation ?: run { onDispatched(false); return }
         scope.launch {
+            var dispatched = false
             try {
                 val saved = session.recordNavigation(tab.id, target).await()
+                if (!canDispatch()) {
+                    if (owns(view) && commandSerial == serial && pageLoad.navigation == ticket) {
+                        awaitingDispatch = false
+                        pageLoad = pageLoad.stopped(ticket)
+                    }
+                    return@launch
+                }
                 if (!owns(view) || commandSerial != serial || !pageLoad.loading || pageLoad.navigation != ticket ||
                     saved.activeTabId != tab.id || saved.activeTab.url != target) return@launch
                 observeBrowser("load_url_command", view, targetUrl = target)
                 awaitingDispatch = false
                 view.loadUrl(target)
+                dispatched = true
                 observeBrowser("load_url_dispatched", view, targetUrl = target)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
@@ -262,9 +295,68 @@ internal fun GuardedBrowserTabScreen(
                     awaitingDispatch = false
                     pageLoad = pageLoad.failed(ticket, target, true, "Page address could not be saved. Retry when storage is available.")
                 }
-            }
+            } finally { onDispatched(dispatched) }
         }
     }
+
+    val domTools = remember(session, tab.id) {
+        com.mangalens.orez.agent.OrezBrowserTools(BrowserDomExecutor(currentHost = {
+            val view = webView
+            val ticket = pageLoad.navigation
+            val current = session.state.value
+            if (view == null || ticket == null || !owns(view) || !view.isAttachedToWindow || !pageLoad.readyFor(ticket) ||
+                current == null || current.activeTabId != tab.id || current.activeTab.url != ticket.url ||
+                !WebPageLoadState.sameDocument(view.url.orEmpty(), ticket.url) || !BrowserDomPolicy.permittedAddress(ticket.url)) null
+            else {
+                val owner = BrowserDomOwner(tab.id, ticket.epoch, ticket.url, captionWebViewToken)
+                BrowserDomWebViewHost(owner, view, stillOwned = {
+                    owns(view) && pageLoad.readyFor(ticket) && captionWebViewToken == owner.viewToken &&
+                        session.state.value?.activeTab?.url == owner.url &&
+                        WebPageLoadState.sameDocument(view.url.orEmpty(), owner.url)
+                }, navigation = { target, stillExecuting ->
+                    suspendCancellableCoroutine { continuation ->
+                        loadPage(target, canDispatch = { continuation.isActive && stillExecuting() }, onDispatched = { accepted ->
+                            if (continuation.isActive) continuation.resume(accepted)
+                        })
+                    }
+                })
+            }
+        }, clock = android.os.SystemClock::elapsedRealtime))
+    }
+    DisposableEffect(session, domTools) {
+        session.bindDomTools(domTools)
+        onDispose { session.unbindDomTools(domTools) }
+    }
+    if (showDomTools) BrowserDomAgentDialog(domTools) { showDomTools = false }
+    if (showCleanReading) BrowserCleanReadingDialog(domTools, onOpenManga) { showCleanReading = false }
+    if (showResearchQuestion && onResearchQuestion != null) BrowserResearchDialog(onReview = { question ->
+        showResearchQuestion = false
+        onResearchQuestion(question)
+    }, onDismiss = { showResearchQuestion = false })
+    fun preparePublicLink(share: Boolean) {
+        val owner = domTools.currentOwner()
+        val publicLink = owner?.let { BrowserPublicLinkPolicy.prepare(it.url) }
+        if (owner == null || publicLink == null) translationStatus = "A public page link is unavailable for this address."
+        else linkExport = Triple(owner, publicLink, share)
+    }
+    linkExport?.let { export ->
+        BrowserPublicLinkDialog(export.second, export.third, onDismiss = { linkExport = null }, onConfirm = {
+            linkExport = null
+            if (domTools.currentOwner() != export.first) translationStatus = "The page changed. Select its public link again."
+            else try {
+                if (export.third) {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                        .putExtra(android.content.Intent.EXTRA_TEXT, export.second.address)
+                    context.startActivity(android.content.Intent.createChooser(intent, "Share page link"))
+                } else {
+                    requireNotNull(context.getSystemService(android.content.ClipboardManager::class.java))
+                        .setPrimaryClip(android.content.ClipData.newPlainText("Public page link", export.second.address))
+                    translationStatus = "Public page link copied."
+                }
+            } catch (_: Exception) { translationStatus = if (export.third) "No sharing app is available." else "The page link could not be copied." }
+        })
+    }
+
 
     fun reloadPage() {
         val view = webView ?: return
@@ -460,14 +552,22 @@ internal fun GuardedBrowserTabScreen(
         }
     }
     DisposableEffect(translator) { onDispose {
+        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.DISPOSE_BEGIN)
+        sourceCaptions.close()
         revoked.set(true)
         captureGate.revoke(); captureAuthority.set(null)
         uploadBridge.cancel()
         (webView?.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
         observeBrowser("dispose")
-        webView?.apply { stopLoading(); setFindListener(null); webChromeClient = null; webViewClient = android.webkit.WebViewClient(); destroy() }
+        webView?.apply {
+            stopLoading(); setFindListener(null); webChromeClient = null; webViewClient = android.webkit.WebViewClient()
+            browserLifecycleViewEvent(BrowserLifecyclePhase.WEBVIEW_DESTROY_BEGIN, this)
+            destroy()
+            browserLifecycleViewEvent(BrowserLifecyclePhase.WEBVIEW_DESTROY_END, this)
+        }
         webView = null
         translator.close()
+        BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.DISPOSE_END)
     } }
     BackHandler(canGoBack) { navigateHistory(-1) }
     if (clearSiteDialog) AlertDialog(
@@ -542,7 +642,7 @@ internal fun GuardedBrowserTabScreen(
         if (!translated) {
             guard.await { evaluateJavascriptAwait(view, "window.__mangalensTranslationOff && window.__mangalensTranslationOff();", guard) }
                 ?: return@LaunchedEffect
-            guard.publish { translating = false; translationStatus = "Original page restored." }
+            guard.publish { translating = false; translationStatus = "Page translation turned off." }
             return@LaunchedEffect
         }
 
@@ -553,7 +653,7 @@ internal fun GuardedBrowserTabScreen(
             val raw = guard.await { evaluateJavascriptAwait(view, WebTranslationScript.build(targetLanguage), guard) }
                 ?: return@LaunchedEffect
             val texts = parseJavascriptStringArray(raw.value).take(MAX_WEB_TEXT_NODES)
-            if (!guard.publish { totalTranslatable = texts.count { it.trim().length >= 2 && it.any(Char::isLetter) } }) return@LaunchedEffect
+            if (!guard.publish { totalTranslatable = texts.count { it.trim().length in 2..1200 && it.any(Char::isLetter) } }) return@LaunchedEffect
             if (texts.isEmpty()) {
                 val host = runCatching { java.net.URI(currentUrl).host.orEmpty().lowercase() }.getOrDefault("")
                 guard.publish { translationStatus = if (
@@ -563,6 +663,9 @@ internal fun GuardedBrowserTabScreen(
                 else "No readable page text found." }
                 return@LaunchedEffect
             }
+            var unchangedCount = 0
+            var unavailableCount = 0
+            var processedCount = 0
             for ((index, original) in texts.withIndex()) {
                 currentCoroutineContext().ensureActive()
                 if (!guard.current()) return@LaunchedEffect
@@ -572,19 +675,35 @@ internal fun GuardedBrowserTabScreen(
                     guard.await { translator.translate(source, targetLanguage) } ?: return@LaunchedEffect
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
+                    unavailableCount++; processedCount++
                     if (!guard.publish { translationStatus = "Translation paused: " + (failure.message ?: "language model unavailable") }) return@LaunchedEffect
                     continue
                 }
-                if (result.value.isNotBlank() && result.value != source) {
-                    guard.await { evaluateJavascriptAwait(view, WebTranslationScript.apply(index, result.value), guard) }
-                        ?: return@LaunchedEffect
+                if (result.value.isBlank()) unavailableCount++
+                else if (result.value.trim() == source) unchangedCount++
+                else {
+                    val application = guard.await {
+                        evaluateJavascriptAwait(view, WebTranslationScript.apply(index, result.value, original), guard)
+                    } ?: return@LaunchedEffect
+                    when (WebTranslationScript.applicationStatus(application.value)) {
+                        "applied" -> if (!guard.publish { translatedCount++ }) return@LaunchedEffect
+                        "unchanged" -> unchangedCount++
+                        else -> unavailableCount++
+                    }
                 }
+                processedCount++
                 if (!guard.publish {
-                    translatedCount++; translationStatus = "Translating page text… $translatedCount / $totalTranslatable"
+                    translationStatus = "Checking page text… $processedCount / $totalTranslatable · $translatedCount changed"
                 }) return@LaunchedEffect
             }
-            guard.publish { translationStatus = if (translatedCount > 0) "Page translation finished."
-                else "No text was translated. Check the language model and retry." }
+            guard.publish {
+                translationStatus = when {
+                    unavailableCount > 0 -> "$translatedCount text blocks translated; $unchangedCount unchanged; $unavailableCount unavailable or changed before application."
+                    translatedCount > 0 -> "Page translation applied to $translatedCount text blocks${if (unchangedCount > 0) "; $unchangedCount unchanged" else ""}."
+                    unchangedCount > 0 -> "Page text checked; $unchangedCount blocks were already unchanged."
+                    else -> "No translatable page text found."
+                }
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -598,6 +717,10 @@ internal fun GuardedBrowserTabScreen(
         Surface(shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BrowserSourceCaptionControls(sourceCaptions, sourceCaptionState,
+                    enabled = pageReady && !capturePending && !captureActive,
+                    initialTargetLanguage = targetLanguage, onStart = { speechSettings = false })
+                HorizontalDivider()
                 Button(onClick = {
                     speechSettings = false
                     openCurrentVideo()
@@ -625,6 +748,7 @@ internal fun GuardedBrowserTabScreen(
                     } else if (android.os.Build.VERSION.SDK_INT >= 29) {
                         val owner = captureOwner()
                         if (owner != null && captureGate.begin(owner)) {
+                            sourceCaptions.retire("Source captions stopped for explicit web audio capture.")
                             capturePending = true; captureConsentStatus = null
                             try { audioPermission.launch(android.Manifest.permission.RECORD_AUDIO) }
                             catch (_: Exception) {
@@ -657,6 +781,7 @@ internal fun GuardedBrowserTabScreen(
             onRemoveBookmark = { id -> session.submit { it.removeBookmark(id) } },
             onClearHistory = { session.submit { it.clearHistory() } },
             onFind = { panel = null; findOpen = true; hudVisible = true },
+            onDomTools = { panel = null; showDomTools = true; hudVisible = true },
             onDesktop = { session.submit { it.setDesktop(tab.id, !tab.desktop) }; panel = null },
             onExternal = {
                 panel = null
@@ -664,7 +789,11 @@ internal fun GuardedBrowserTabScreen(
                     try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(currentUrl))) }
                     catch (_: Exception) { translationStatus = "No external browser is available." }
                 }
-            })
+            },
+            onCleanReading = { panel = null; showCleanReading = true; hudVisible = true },
+            onCopyLink = { panel = null; preparePublicLink(share = false); hudVisible = true },
+            onShareLink = { panel = null; preparePublicLink(share = true); hudVisible = true },
+            onResearch = onResearchQuestion?.let { { panel = null; showResearchQuestion = true; hudVisible = true } })
     }
     if (findOpen) BrowserFindDialog(findQuery, findSearching, findOrdinal, findCount, findError,
         onQuery = { query ->
@@ -686,7 +815,8 @@ internal fun GuardedBrowserTabScreen(
         AndroidView(
             modifier = Modifier.fillMaxSize().padding(top = browserTopInset),
             factory = { ctx ->
-                WebView(ctx).apply {
+                createBrowserLifecycleWebView(ctx).apply {
+                    captionWebViewToken = java.util.UUID.randomUUID().toString().replace("-", "")
                     com.mangalens.core.web.SafeWebView.configure(this)
                     mobileUserAgent = settings.userAgentString.orEmpty()
                     if (tab.desktop) {
@@ -866,6 +996,7 @@ internal fun GuardedBrowserTabScreen(
                     (webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(this)
                 }
             },
+            onRelease = { view -> browserLifecycleViewEvent(BrowserLifecyclePhase.VIEW_RELEASE, view) },
             update = { view -> if (webView !== view) webView = view }
         )
 
@@ -943,6 +1074,18 @@ internal fun GuardedBrowserTabScreen(
             }
         }
         }
+        BrowserSourceCaptionOverlay(sourceCaptionState.cueText,
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                .padding(start = 12.dp, end = 12.dp, bottom = if (hudVisible) 180.dp else 24.dp))
+        if (sourceCaptionState.requested && sourceCaptionState.cueText.isNullOrBlank()) {
+            Surface(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                .padding(start = 12.dp, end = 12.dp, bottom = if (hudVisible) 180.dp else 24.dp)
+                .semantics { contentDescription = "Browser source-caption status" },
+                shape = RoundedCornerShape(10.dp), color = Color.Black.copy(alpha = .8f)) {
+                Text(sourceCaptionState.message, modifier = Modifier.padding(10.dp),
+                    color = Color.White, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         if (captureActive) com.mangalens.ui.video.LiveAudioSubtitleOverlay(speech,
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (hudVisible) 125.dp else 24.dp, start = 16.dp, end = 16.dp))
         if (hudVisible || translating || pageLoad.error != null || workspaceError != null || captureConsentStatus != null) {
@@ -957,7 +1100,7 @@ internal fun GuardedBrowserTabScreen(
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         com.mangalens.ui.video.VideoDockAction(
-                            label = if (translating) "Translating…" else if (translated) "Translated" else "Translate",
+                            label = if (translating) "Translating…" else if (translated && translatedCount > 0) "Translated" else if (translated) "Translate on" else "Translate",
                             status = if (translated) targetLanguage.uppercase() else "OCR / text",
                             selected = translated,
                             enabled = pageReady,

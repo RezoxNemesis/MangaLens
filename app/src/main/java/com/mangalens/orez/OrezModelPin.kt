@@ -5,7 +5,8 @@ import java.io.File
 /** Durable weight identity; a pin grants no readiness until the model store verifies it. */
 data class OrezModelPin(val modelId: String, val sha256: String, val bytes: Long)
 
-data class OrezModelAnswer(val text: String, val model: OrezModelPin)
+data class OrezModelAnswer @JvmOverloads constructor(val text: String, val model: OrezModelPin,
+    val completion: OrezGenerationCompletion? = null)
 
 internal data class OrezModelCandidate(val file: File, val pin: OrezModelPin)
 

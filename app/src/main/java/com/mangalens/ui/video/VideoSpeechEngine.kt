@@ -44,7 +44,15 @@ import okhttp3.Request
 
 /** Transcribes decoded media audio only; never opens the microphone. */
 @OptIn(UnstableApi::class)
-class VideoSpeechEngine(private val context: Context, private val scope: CoroutineScope) {
+class VideoSpeechEngine private constructor(private val context: Context, private val scope: CoroutineScope,
+    private val model: File, private val pinnedReadOnly: Boolean) {
+    constructor(context: Context, scope: CoroutineScope) : this(context, scope,
+        File(context.filesDir, "speech/whisper.bin"), false)
+    /** Internal microphone-only captured-FD path; ordinary install/load API remains unchanged. */
+    internal constructor(context: Context, scope: CoroutineScope, capturedModel: File) : this(context, scope, capturedModel, true) {
+        require(Regex("/proc/self/fd/[0-9]+").matches(capturedModel.absolutePath))
+    }
+
     private val mutable = MutableStateFlow(SpeechState())
     val state: StateFlow<SpeechState> = mutable
     private val lock = Mutex()
@@ -67,7 +75,6 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
     }
     private data class Chunk(val audio: FloatArray, val startMs: Long, val request: LiveSpeechWindowSnapshot)
     private val chunks = Channel<Chunk>(capacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    private val model = File(context.filesDir, "speech/whisper.bin")
     private val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
     val processor = SpeechAudioProcessor()
     init {
@@ -298,6 +305,7 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
         } ?: error("Cannot read model")
     }
     private suspend fun install(write: suspend (File) -> Unit) = withContext(Dispatchers.IO) {
+        check(!pinnedReadOnly) { "A captured microphone model is read-only. Use the ordinary speech model controls." }
         if (closed || mutable.value.busy) return@withContext
         setEnabled(false)
         mutable.value = mutable.value.copy(busy = true, status = "Preparing multilingual speech model…")
@@ -370,6 +378,9 @@ class VideoSpeechEngine(private val context: Context, private val scope: Corouti
                 // repeat cancellation until completion also covers a queued native start.
                 withContext(NonCancellable) {
                     val pending = async(Dispatchers.Default) {
+                        caller.ensureActive()
+                        // The independently scheduled entry must recheck its captured feature/model after waiting.
+                        if (pinnedReadOnly) withContext(caller) { checkNativeComputePrecondition(waited = false) }
                         caller.ensureActive()
                         com.mangalens.core.compute.ResourceGovernorRuntime.shared.requireNativeEntry(com.mangalens.core.compute.ResourceWorkKind.BACKGROUND)
                         native.infer(handle, samples, requestedLanguage, translateToEnglish && requestedLanguage != "en", threads.coerceIn(1, 4))

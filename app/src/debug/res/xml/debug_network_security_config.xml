@@ -7,6 +7,13 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">127.0.0.1</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/browser_caption_fixture_ca" />
+        </trust-anchors>
+    </domain-config>
+    <!-- The device-to-host fixture address retains only normal system trust. -->
+    <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">10.0.2.2</domain>
     </domain-config>
 </network-security-config>

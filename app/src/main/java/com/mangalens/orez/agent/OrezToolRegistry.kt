@@ -7,9 +7,19 @@ import com.mangalens.orez.OrezRoute
 class OrezToolRegistry {
     private data class Descriptor(val route: OrezRoute?, val capability: OrezCapability, val risk: OrezToolRisk, val requiresUrl: Boolean = false)
     private val tools = mapOf(
+        "check_model_status" to Descriptor(null, OrezCapability.SETTINGS, OrezToolRisk.READ_ONLY),
+        "inspect_app_diagnostics" to Descriptor(null, OrezCapability.SETTINGS, OrezToolRisk.READ_ONLY),
         "open_library" to Descriptor(OrezRoute.LIBRARY, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
         "open_settings" to Descriptor(OrezRoute.SETTINGS, OrezCapability.SETTINGS, OrezToolRisk.READ_ONLY),
         "open_downloads" to Descriptor(OrezRoute.DOWNLOADS, OrezCapability.DOWNLOADS, OrezToolRisk.READ_ONLY),
+        "research_web" to Descriptor(null, OrezCapability.RESEARCH, OrezToolRisk.NETWORK_READ),
+        "browser_observe" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.READ_ONLY),
+        "browser_extract" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.READ_ONLY),
+        "browser_navigate" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.NETWORK_MUTATION),
+        "browser_click" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.NETWORK_MUTATION),
+        "browser_fill" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.NETWORK_MUTATION),
+        "browser_scroll" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.LOCAL_MUTATION),
+        "search_saved_memory" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
         "inspect_saved_chapter" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
         "translate_saved_chapter" to Descriptor(null, OrezCapability.TRANSLATION, OrezToolRisk.LOCAL_MUTATION),
         "inspect_selected_media" to Descriptor(null, OrezCapability.MEDIA, OrezToolRisk.READ_ONLY),
@@ -31,9 +41,24 @@ class OrezToolRegistry {
         require(call.route == descriptor.route && call.capability == descriptor.capability && call.risk == descriptor.risk) {
             "Tool metadata does not match the trusted registry"
         }
+        if (call.name in setOf("check_model_status", "inspect_app_diagnostics")) {
+            require(call.arguments.isEmpty()) { "App inspection accepts no paths, settings or model-supplied arguments." }
+            return
+        }
+        if (call.name in com.mangalens.ui.web.BrowserDomPolicy.names) {
+            com.mangalens.ui.web.BrowserDomPolicy.validateArguments(call.name, call.arguments)
+            return
+        }
+        if (call.name == "research_web") {
+            require(call.arguments.keys == setOf("query", "limit", "freshness")) { "Research needs one captured question." }
+            com.mangalens.orez.research.OrezResearchRequest(call.arguments.getValue("query"),
+                com.mangalens.orez.research.ResearchFreshnessRequest.valueOf(call.arguments.getValue("freshness")),
+                call.arguments.getValue("limit").toInt()).validate()
+            return
+        }
         val nativeChapter = call.name in setOf("inspect_saved_chapter", "translate_saved_chapter")
         val nativeMedia = call.name in setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles")
-        val keys = if (nativeChapter) setOf("chapterId", "sourceFingerprint", "targetLanguage")
+        val keys = if (call.name == "search_saved_memory") setOf("chapterId", "query", "limit") else if (nativeChapter) setOf("chapterId", "sourceFingerprint", "targetLanguage")
             else if (nativeMedia) setOf("sourceId", "downloadId", "sourceFingerprint", "speechModelSha256", "captionInventorySha256", "targetLanguage")
             else setOf("value", "targetLanguage", "quality")
         require(call.arguments.keys.all { it in keys }) { "Unknown tool argument" }
@@ -43,6 +68,12 @@ class OrezToolRegistry {
         call.arguments["captionInventorySha256"]?.let { require(it.matches(Regex("[a-f0-9]{64}"))) { "Invalid captured caption inventory." } }
         call.arguments["sourceId"]?.let { require(it.matches(Regex("(?:selected-[a-f0-9]{32}|download-[A-Za-z0-9-]{1,140})"))) { "Invalid captured media identity." } }
         call.arguments["downloadId"]?.let { require(it.matches(Regex("[A-Za-z0-9-]{1,140}"))) { "Invalid owned download identity." } }
+        if (call.name == "search_saved_memory") {
+            require(call.arguments.keys in setOf(setOf("chapterId", "query"), setOf("chapterId", "query", "limit"))) { "Memory search requires one selected chapter and literal query." }
+            require(call.arguments.getValue("query").let { it.isNotBlank() && it.length <= 256 && '\u0000' !in it }) { "Memory query must contain 1–256 characters." }
+            call.arguments["limit"]?.let { require(it.toIntOrNull()?.let { value -> value in 1..8 } == true) { "Memory search returns up to 8 matches." } }
+        }
+
         if (call.name == "inspect_saved_chapter") {
             require(call.arguments.keys == setOf("chapterId")) { "Select one saved chapter to inspect." }
         }
@@ -70,6 +101,19 @@ class OrezToolRegistry {
         return OrezToolCall(name, descriptor.capability, descriptor.risk,
             name.replace('_', ' '), arguments, descriptor.route).also(::validate)
     }
+
+    /** Foreground-only catalog; these entries are deliberately absent from the durable/chat catalog. */
+    internal fun browserCatalog(): String = tools.entries.filter { it.key in com.mangalens.ui.web.BrowserDomPolicy.names }
+        .joinToString("\n") { (name, descriptor) ->
+            val arguments = when (name) {
+                "browser_navigate" -> "value=HTTP(S) address supplied by the user goal"
+                "browser_click" -> "elementId=observed link/button identity"
+                "browser_fill" -> "elementId=observed safe field identity; text=literal text from the user goal"
+                "browser_scroll" -> "delta=nonzero integer string between -2048 and 2048"
+                else -> "optional query=literal text up to 256 characters"
+            }
+            "$name: ${descriptor.capability.name}; ${descriptor.risk.name}; $arguments"
+        }
 
     // Native workflows are built from captured app scope, never invented by a model response.
     fun catalog(): String = tools.entries.filter { it.value.route != null }.joinToString("\n") { (name, descriptor) ->

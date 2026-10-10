@@ -16,7 +16,10 @@ internal class MediaResolutionTimeoutException(timeoutMs: Long) : IOException(
 )
 
 /** Each request owns its deadline and cleanup; a cancelled request cannot stop another request. */
-internal class MediaResolutionSession(val timeoutMs: Long) {
+internal class MediaResolutionSession(val timeoutMs: Long, internal val privateFileOwner: DownloadPrivateFileOwner? = null) {
+    private val fileCleanupUnproven = AtomicBoolean(false)
+    internal fun retainPrivateFiles() { fileCleanupUnproven.set(true) }
+    internal fun privateFilesReleased(): Boolean = !fileCleanupUnproven.get()
     val deadlineNanos: Long = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
     private val lock = Any()
     private var stopped: Exception? = null
@@ -85,37 +88,53 @@ internal object MediaResolutionRunner {
         Thread(task, "mangalens-media-deadline").apply { isDaemon = true }
     }.apply { removeOnCancelPolicy = true }
 
-    suspend fun <T> run(timeoutMs: Long, work: (MediaResolutionSession) -> T): T {
+    suspend fun <T> run(timeoutMs: Long, privateFileOwner: DownloadPrivateFileOwner? = null, work: (MediaResolutionSession) -> T): T {
         require(timeoutMs in 1L..300_000L) { "Media resolution timeout must be between 1 ms and 5 minutes." }
+        val reservation = privateFileOwner?.let(DownloadPrivateFileOwners::reserve)
         return suspendCancellableCoroutine { continuation ->
-            val session = MediaResolutionSession(timeoutMs)
+            val session = MediaResolutionSession(timeoutMs, privateFileOwner)
+            val ownerState = java.util.concurrent.atomic.AtomicInteger(0) // queued / running / returned
+            val requester = AtomicReference<kotlinx.coroutines.CancellableContinuation<T>?>(continuation)
+            fun settleQueuedOwner() {
+                if (ownerState.compareAndSet(0, 2)) reservation?.close()
+            }
             val completed = AtomicBoolean(false)
             val timeout = AtomicReference<ScheduledFuture<*>?>(null)
             val task = FutureTask<Unit> {
-                val result = runCatching {
-                    session.checkActive()
-                    work(session).also { session.checkActive() }
+                if (!ownerState.compareAndSet(0, 1)) return@FutureTask
+                var lease: DownloadPrivateFileOwners.Lease? = null
+                val result = try {
+                    runCatching {
+                        lease = privateFileOwner?.let(DownloadPrivateFileOwners::acquire)
+                        session.checkActive()
+                        work(session).also { session.checkActive() }
+                    }
+                } finally {
+                    session.cancel()
+                    if (!session.privateFilesReleased()) lease?.retain()
+                    try { lease?.close() } finally { reservation?.close(); ownerState.set(2) }
                 }
                 if (completed.compareAndSet(false, true)) {
                     timeout.get()?.cancel(false)
-                    continuation.resumeWith(result)
+                    requester.getAndSet(null)?.resumeWith(result)
                 }
-                session.cancel()
             }
             fun stop(cause: Exception) {
                 task.cancel(true)
                 workers.remove(task)
+                settleQueuedOwner()
                 session.cancel(cause)
             }
             timeout.set(timer.schedule({
                 if (completed.compareAndSet(false, true)) {
                     val failure = MediaResolutionTimeoutException(timeoutMs)
                     // Resume before cleanup so a native cleanup cannot extend the user deadline.
-                    continuation.resumeWith(Result.failure(failure))
+                    requester.getAndSet(null)?.resumeWith(Result.failure(failure))
                     stop(failure)
                 }
             }, timeoutMs, TimeUnit.MILLISECONDS))
             continuation.invokeOnCancellation {
+                requester.set(null)
                 if (completed.compareAndSet(false, true)) {
                     timeout.get()?.cancel(false)
                     stop(InterruptedException("Media resolution cancelled"))
@@ -130,7 +149,7 @@ internal object MediaResolutionRunner {
                 if (completed.compareAndSet(false, true)) {
                     timeout.get()?.cancel(false)
                     stop(failure)
-                    continuation.resumeWith(Result.failure(IOException("Other media requests are still stopping. Retry shortly.", failure)))
+                    requester.getAndSet(null)?.resumeWith(Result.failure(IOException("Other media requests are still stopping. Retry shortly.", failure)))
                 }
             }
         }

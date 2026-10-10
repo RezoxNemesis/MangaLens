@@ -31,7 +31,10 @@ data class ResolvedMediaLink(
     val requestedHeight: Int? = null,
     val expectedDurationUs: Long? = null,
     val originalSelection: OriginalMediaSelection? = null,
-    val providerCaptions: ProviderCaptionInventory? = null
+    val providerCaptions: ProviderCaptionInventory? = null,
+    val audioMimeType: String? = null,
+    val videoFragments: OriginalFragmentPlan? = null,
+    val audioFragments: OriginalFragmentPlan? = null
 )
 
 class MediaLinkResolver(

@@ -23,7 +23,8 @@ internal object AdBlockRequestPolicy {
         "adsrvr.org", "rubiconproject.com", "openx.net", "pubmatic.com",
         "criteo.com", "criteo.net", "smartadserver.com", "casalemedia.com",
         "serving-sys.com", "lijit.com", "contextweb.com", "yieldmo.com",
-        "sharethrough.com", "33across.com", "adform.net", "adform.com"
+        "sharethrough.com", "33across.com", "adform.net", "adform.com",
+        "monetag.com", "onclckstr.com", "popadscdn.net", "adsterra.net", "highperformanceformat.com"
     )
 
     private val blockedPathMarkers = setOf(

@@ -74,6 +74,11 @@ class SeriesMemoryUiTest {
             waitFor("Physical Unlink must return to chapter-only scope") { runBlocking { memory().inspectChapter(chapter.id).association == null } }
             scrollTo(By.text("Chapter-only memory").pkg(context.packageName)); node(By.text("Chapter-only memory").pkg(context.packageName))
             capture("unlinked-and-term-removed")
+        } catch (failure: Throwable) {
+            // Preserve the actual screen before ActivityScenario disposal; the outer
+            // smoke handler reuses this evidence and cannot replace it with the launcher.
+            runCatching { recordFailure(failure) }
+            throw failure
         } finally {
             try { scenario?.close() }
             finally {

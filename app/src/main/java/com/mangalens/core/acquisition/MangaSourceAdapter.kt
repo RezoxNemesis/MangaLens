@@ -6,10 +6,10 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URI
-import java.util.Locale
 
 data class SourceChapter(val title: String, val url: String)
-data class SourceContent(val title: String, val pageUrls: List<String>, val chapters: List<SourceChapter>)
+data class SourceContent(val title: String, val pageUrls: List<String>, val chapters: List<SourceChapter>,
+    val pageCandidates: List<ChapterImageCandidate> = pageUrls.map { ChapterImageCandidate(it) })
 
 interface MangaSourceAdapter {
     val id: String
@@ -18,7 +18,7 @@ interface MangaSourceAdapter {
 
 /** Conservative HTML fallback: only chapter reader containers supply pages, never site logos. */
 class GenericMangaSourceAdapter : MangaSourceAdapter {
-    override val id = "generic-html-v1"
+    override val id = "generic-html-v2"
     private val chapterPattern = Regex("(?i)(chapter|chap|episode|ep)[/ _-]*(\\d+(?:\\.\\d+)?)")
     private fun isLikelyChapterImage(url: String): Boolean {
         val lower = url.lowercase()
@@ -43,40 +43,56 @@ class GenericMangaSourceAdapter : MangaSourceAdapter {
         return resolved.takeIf(UrlEngineRouter::isSafeWebUrl)
     }
 
-    private fun imageUrl(image: Element): String? =
-        listOf("data-src", "data-original", "data-lazy-src", "src").asSequence()
-            .mapNotNull { normalizedWebUrl(image.attr(it), image.baseUri()) }
+    private fun imageUrl(image: Element): String? {
+        val sources = listOf("data-original", "data-src", "data-lazy-src", "data-url")
+            .map { image.attr(it) } + listOfNotNull(ChapterImageCandidates.largestSrcset(image.attr("data-srcset")),
+                ChapterImageCandidates.largestSrcset(image.attr("srcset"))) +
+            image.parent()?.takeIf { it.tagName() == "picture" }?.select("source")?.take(8)?.mapNotNull {
+                ChapterImageCandidates.largestSrcset(it.attr("data-srcset")) ?: ChapterImageCandidates.largestSrcset(it.attr("srcset"))
+            }.orEmpty() + image.attr("src")
+        return sources.asSequence().mapNotNull { ChapterImageCandidates.normalizedUrl(it, image.baseUri()) }
             .firstOrNull(::isLikelyChapterImage)
+    }
 
-    /** This provider uses standalone images; its advertisement shares the reader CSS class. */
-    private fun demonicChapterImages(document: Document, sourceUrl: String): List<String> {
-        val source = sourceUrl.toHttpUrlOrNull() ?: return emptyList()
-        if (source.host !in setOf("demonicscans.org", "www.demonicscans.org")) return emptyList()
-        val sourcePath = source.pathSegments
-        if (sourcePath.size !in 4..5 || sourcePath[0] != "title" || sourcePath[2] != "chapter" ||
-            !sourcePath[3].matches(Regex("\\d+(?:\\.\\d+)?"))) return emptyList()
-        val title = sourcePath[1].replace('-', ' ')
-        val chapter = sourcePath[3]
-        val caption = Regex("^${Regex.escape(title)}\\s+Chapter\\s+${Regex.escape(chapter)}\\s+(\\d+)$", RegexOption.IGNORE_CASE)
-        return document.select("img.imgholder[alt]").mapNotNull { image ->
-            val index = caption.matchEntire(image.attr("alt").trim())?.groupValues?.get(1)?.toIntOrNull()
-                ?.takeIf { it in 0 until 3000 } ?: return@mapNotNull null
-            val url = imageUrl(image)?.toHttpUrlOrNull() ?: return@mapNotNull null
-            val path = url.pathSegments
-            if (url.host !in setOf("cdn.demoniclibs.com", "cdn.librarydm.com") || path.size != 3 ||
-                !path[0].equals(title, ignoreCase = true) || path[1] != chapter ||
-                !path[2].lowercase(Locale.ROOT).matches(Regex("$index\\.(jpg|jpeg|png|webp|avif)"))) null
-            else url.toString()
+    private fun candidate(image: Element, sourceUrl: String): ChapterImageCandidate? {
+        val url = imageUrl(image) ?: return null
+        var parent: Element? = image
+        val tokens = StringBuilder()
+        var adSlot = false
+        var href: String? = null
+        for (depth in 0 until 6) {
+            val node = parent ?: break
+            if (node.tagName() in setOf("body", "html") || node.`is`(ChapterImageCandidates.READER_SELECTOR)) break
+            tokens.append(' ').append(node.id().take(256)).append(' ').append(node.className().take(256))
+            adSlot = adSlot || node.hasAttr("data-ad-slot")
+            if (href == null && node.tagName() == "a") href = normalizedWebUrl(node.attr("href"), sourceUrl)
+            parent = node.parent()
         }
+        return ChapterImageCandidate(url, ChapterImageCandidates.promotion(
+            image.attr("alt").take(500) + " " + image.attr("title").take(500), tokens.toString(), adSlot, href, sourceUrl))
     }
 
     override fun parse(html: String, sourceUrl: String): SourceContent {
         require(html.length <= 1_500_000) { "Source page is too large for lightweight extraction." }
         require(UrlEngineRouter.isSafeWebUrl(sourceUrl))
         val document = Jsoup.parse(html, sourceUrl)
-        val readers = document.select(".reading-content, .reader-area, .chapter-content, #readerarea, #chapter-images, .manga-reader")
-        val pages = (readers.select("img").mapNotNull(::imageUrl) + demonicChapterImages(document, sourceUrl))
-            .distinct().take(3000)
+        val readers = document.select(ChapterImageCandidates.READER_SELECTOR)
+        // The standalone provider also labels genuine and promotional originals with imgholder.
+        // Preserve those nodes; presentation evidence can collapse a promo without losing its file.
+        val standalone = sourceUrl.toHttpUrlOrNull()?.let {
+            val path = it.pathSegments
+            it.host in setOf("demonicscans.org", "www.demonicscans.org") && path.size in 4..5 &&
+                path[0] == "title" && path[2] == "chapter" && path[3].matches(Regex("\\d+(?:\\.\\d+)?"))
+        } == true
+        val standaloneImages = if (standalone) document.select("img.imgholder").filter { image ->
+            val item = candidate(image, sourceUrl)
+            item != null && (ChapterImageCandidates.standaloneProviderPage(item.url, image.attr("alt"), sourceUrl) || item.promotion != null)
+        } else emptyList()
+        val selected = (readers.select("img") + standaloneImages).toSet()
+        val candidates = document.select("img").asSequence().take(6000).filter { it in selected }
+            .filter { it.closest("form,[role=dialog],[aria-modal=true]") == null }
+            .mapNotNull { candidate(it, sourceUrl) }.distinctBy { it.url }.take(ChapterImageCandidates.MAX_IMAGES).toList()
+        val pages = candidates.map { it.url }
         val host = sourceUrl.toHttpUrlOrNull()?.host
         val chapters = document.select("a[href]").asSequence().mapNotNull { link ->
             val url = normalizedWebUrl(link.attr("href"), link.baseUri()) ?: return@mapNotNull null
@@ -86,6 +102,6 @@ class GenericMangaSourceAdapter : MangaSourceAdapter {
             else SourceChapter(title.ifBlank { URI(url).path.substringAfterLast('/') }, url)
         }.distinctBy { it.url }.take(2000).toList()
             .sortedWith(compareBy<SourceChapter> { chapterPattern.find(it.title)?.groupValues?.get(2)?.toDoubleOrNull() ?: Double.MAX_VALUE }.thenBy { it.title })
-        return SourceContent(document.title().take(300).ifBlank { "Chapter" }, pages, chapters)
+        return SourceContent(document.title().take(300).ifBlank { "Chapter" }, pages, chapters, candidates)
     }
 }

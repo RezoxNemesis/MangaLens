@@ -21,6 +21,10 @@ import com.mangalens.download.*
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 class DownloadsViewModel(app: android.app.Application) : AndroidViewModel(app) {
     private val manager = MediaDownloadManager(app)
@@ -38,16 +42,81 @@ class DownloadsViewModel(app: android.app.Application) : AndroidViewModel(app) {
     fun resume(id: String) = viewModelScope.launch { runCatching { manager.resume(id) }.onFailure { error = it.message } }
     fun cancel(id: String) = viewModelScope.launch { manager.cancel(id) }
     fun remove(id: String) = viewModelScope.launch { manager.remove(id) }
+    var cleaningPartialsId by mutableStateOf<String?>(null)
+        private set
+    var cleanupNotice by mutableStateOf<String?>(null)
+        private set
+    fun clearFailedPartials(requested: DownloadEntity) {
+        val id = requested.id
+        if (cleaningPartialsId != null) return
+        cleaningPartialsId = id; error = null; cleanupNotice = null
+        viewModelScope.launch {
+            try {
+                val removed = manager.clearFailedPartials(requested)
+                cleanupNotice = if (removed.filesRemoved == 0) "No managed partial files remained for this transfer."
+                    else "Removed ${removed.filesRemoved} partial files (${formatBytes(removed.bytesRemoved)})."
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (busy: DownloadFilesBusyException) { error = requireNotNull(busy.message) }
+            catch (refused: IllegalStateException) { error = refused.message ?: "Partial files were retained. Try again after the transfer stops." }
+            catch (_: Exception) { error = "Partial files could not be removed. Your saved media was retained." }
+            finally { cleaningPartialsId = null }
+        }
+    }
     fun clearError() { error = null }
+    internal fun reportPlaybackError(message: String) { error = message }
 }
 
 @Composable
-fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiState, onImport: (List<Uri>) -> Unit, onOpenLibrary: () -> Unit, onOpenTools: () -> Unit, onPlayVideo: (String) -> Unit, onPauseTranslation: (Boolean) -> Unit, onCancelTranslation: () -> Unit, vm: DownloadsViewModel = viewModel()) {
+fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiState, onImport: (List<Uri>) -> Unit, onOpenLibrary: () -> Unit, onOpenTools: () -> Unit, onPlayVideo: (String) -> Unit, onPlayDownloadedVideo: (Uri) -> Unit, onPauseTranslation: (Boolean) -> Unit, onCancelTranslation: () -> Unit, vm: DownloadsViewModel = viewModel(), focusedDownloadId: String? = null) {
     val context = LocalContext.current
-    val items by vm.items.collectAsState()
+    val allItems by vm.items.collectAsState()
+    var focused by remember(focusedDownloadId) { mutableStateOf(focusedDownloadId?.takeIf { it.isNotBlank() }) }
+    val items = focused?.let { id -> allItems.filter { it.id == id } } ?: allItems
     var url by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf(DownloadQuality.BEST) }
+    val playbackScope = rememberCoroutineScope()
+    var openingDownload by remember { mutableStateOf<String?>(null) }
+    var cleanupDownload by remember { mutableStateOf<DownloadEntity?>(null) }
 
+    fun openDownloadedVideo(id: String) {
+        if (openingDownload != null) return
+        openingDownload = id
+        vm.clearError()
+        playbackScope.launch {
+            try {
+                val saved = DownloadedVideoOpening.prepare(context.applicationContext, id)
+                currentCoroutineContext().ensureActive()
+                onPlayDownloadedVideo(Uri.parse(saved.uri))
+            } catch (_: TimeoutCancellationException) {
+                currentCoroutineContext().ensureActive()
+                vm.reportPlaybackError("Reading this saved video took too long. Try opening it again.")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (unavailable: SavedVideoUnavailableException) {
+                vm.reportPlaybackError(requireNotNull(unavailable.message))
+            } catch (busy: SavedVideoProbeBusyException) {
+                vm.reportPlaybackError(requireNotNull(busy.message))
+            } catch (cleanup: SavedVideoProbeCleanupException) {
+                vm.reportPlaybackError(requireNotNull(cleanup.message))
+            } catch (_: Exception) {
+                vm.reportPlaybackError("Could not open this saved video. Check that the download still exists and try again.")
+            } finally {
+                openingDownload = null
+            }
+        }
+    }
+
+    cleanupDownload?.let { selected ->
+        val stillCurrent = allItems.singleOrNull { it.id == selected.id } == selected
+        AlertDialog(onDismissRequest = { cleanupDownload = null },
+            title = { Text("Remove failed partial files?") },
+            text = { Text(if (stillCurrent) "Stop this failed transfer and remove only its unfinished private files. Completed downloads, offline streams, favourites and saved subtitles are retained. If it is still releasing files, retry cleanup after it stops."
+                else "This transfer changed. Keep the files and review its current row before cleanup.") },
+            confirmButton = { TextButton(enabled = stillCurrent && vm.cleaningPartialsId == null, onClick = {
+                cleanupDownload = null; vm.clearFailedPartials(selected)
+            }) { Text("Remove partial files") } },
+            dismissButton = { TextButton(onClick = { cleanupDownload = null }) { Text("Keep files") } })
+    }
     var tab by remember { mutableStateOf("Downloads") }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { if (it.isNotEmpty()) onImport(it) }
     Column(
@@ -67,6 +136,7 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
         com.mangalens.ui.components.BrandHeader("Download Room", "BEST AVAILABLE QUALITY • RESUMABLE") {
             TextButton(onClick = onBack) { Text("Back") }
         }
+        if (focused != null) TextButton({ focused = null }) { Text("Show all downloads") }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(
                 "Downloads" to "Media",
@@ -151,13 +221,14 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
         }
 
         Spacer(Modifier.height(16.dp))
+        vm.cleanupNotice?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         HorizontalDivider()
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (items.isEmpty()) item { Text("No media downloads yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (items.isEmpty()) item { Text(if (focused == null) "No media downloads yet." else "This selected download is no longer available.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(items, key = { it.id }) { item ->
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
@@ -213,6 +284,12 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
                             Text(friendly, color = MaterialTheme.colorScheme.error)
                         }
 
+                        if (!item.isAdaptive && item.destination == null &&
+                            (item.state == DownloadState.FAILED || item.state == DownloadState.CANCELLED && item.stage == FailedDownloadPartialPolicy.PENDING)) {
+                            TextButton(enabled = vm.cleaningPartialsId == null, onClick = { cleanupDownload = item }) {
+                                Text(if (vm.cleaningPartialsId == item.id) "Removing partial files…" else "Remove partial files")
+                            }
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             when (item.state) {
                                 DownloadState.DOWNLOADING, DownloadState.QUEUED ->
@@ -222,11 +299,15 @@ fun DownloadsScreen(onBack: () -> Unit, appState: com.mangalens.ui.MangaLensUiSt
                                 DownloadState.COMPLETED -> {
                                     if (item.isAdaptive) {
                                         TextButton(onClick = { onPlayVideo(item.sourceUrl) }) { Text("Play offline") }
+                                    } else if (item.isVideo) {
+                                        TextButton(onClick = { openDownloadedVideo(item.id) }, enabled = openingDownload == null) {
+                                            Text(if (openingDownload == item.id) "Opening…" else "Open")
+                                        }
                                     } else {
                                         item.destination?.let { destination ->
                                             TextButton(onClick = {
                                                 val uri = Uri.parse(destination)
-                                                val type = if (item.isVideo) "video/*" else if (item.mimeType.startsWith("image/")) "image/*" else "*/*"
+                                                val type = if (item.mimeType.startsWith("image/")) "image/*" else "*/*"
                                                 val intent = Intent(Intent.ACTION_VIEW).apply {
                                                     setDataAndType(uri, type)
                                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

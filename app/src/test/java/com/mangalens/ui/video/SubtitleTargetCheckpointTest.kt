@@ -11,6 +11,8 @@ import com.mangalens.core.translation.HinglishTranslationOutput
 import com.mangalens.core.translation.TranslationRefinementPolicy
 import com.mangalens.core.translation.TranslationStyleProfile
 import com.mangalens.core.translation.TranslationDraft
+import com.mangalens.core.translation.buildTranslationRefinementPrompt
+import com.mangalens.orez.OrezLocalizationProfile
 
 class SubtitleTargetCheckpointTest {
     private val source = SubtitleSourceIdentity(SubtitleMediaSource("content://fixture/original-speech"), "a".repeat(64))
@@ -231,8 +233,13 @@ class SubtitleTargetCheckpointTest {
         }
     }
 
+    @Test fun actualPreProfileRefinementHashRemainsReadableAcrossColdJournal() {
+        assertRespectfulCandidateRestores(TranslationStyleProfile.FORMAL, "hi",
+            "अपनी पुस्तक दो।", "कृपया अपनी पुस्तक दीजिए।", legacyReceipt = true)
+    }
+
     private fun assertRespectfulCandidateRestores(style: TranslationStyleProfile, target: String,
-        draft: String, candidate: String, hindiDraft: String? = null) {
+        draft: String, candidate: String, hindiDraft: String? = null, legacyReceipt: Boolean = false) {
         val root = Files.createTempDirectory("subtitle-captured-register").toFile()
         try {
             val store = store(root)
@@ -248,11 +255,24 @@ class SubtitleTargetCheckpointTest {
             val selected = config.selectTargetDraft(original.text, TranslationDraft(draft, hindiDraft), candidate)
             assertEquals("Generation must preserve the captured register before saving its receipt", candidate, selected.text)
             assertEquals(hindiDraft, selected.hindiDraft)
-            val prompt = TranslationRefinementPolicy.prompt(original.text, draft, target, style,
+            // Scalar protocol fixtures bind the request and journal; they do not assert real native inference.
+            val prompt = if (legacyReceipt) "STYLE PROFILE ID: ${style.id}\n" +
+                buildTranslationRefinementPrompt(original.text, draft, target, style, saved.translationContext(0, 0), emptyMap())
+            else TranslationRefinementPolicy.prompt(original.text, draft, target, style,
                 saved.translationContext(0, 0), emptyMap())
+            val completion = if (legacyReceipt) null else SubtitleRefinementCompletionEvidence(
+                OrezLocalizationProfile.REVISION, OrezLocalizationProfile.hash(OrezLocalizationProfile.formattedPrompt(prompt)),
+                "EOG", 1, 1, OrezLocalizationProfile.MAX_TOKENS, 0, 0, 0, 0)
             val accepted = SubtitleTranslatedCue(0, candidate, hindiDraft,
                 SubtitleSavedRefinement(config.refinementPin!!, TranslationRefinementPolicy.hash(prompt),
-                    TranslationRefinementPolicy.hash(candidate)), draft, candidate, hindiDraft)
+                    TranslationRefinementPolicy.hash(candidate), completion), draft, candidate, hindiDraft)
+            if (!legacyReceipt) {
+                assertThrows("A current request hash cannot borrow pre-profile null completion", IllegalArgumentException::class.java) {
+                    store.checkpointTarget(task.id, task.generation, 0, window.pcmSha256,
+                        accepted.copy(refinement = accepted.refinement!!.copy(completion = null)))
+                }
+                assertTrue(store.get(task.id)!!.windows.single().translations.isEmpty())
+            }
             assertTrue("A verified captured-style candidate must not be rewritten as natural dialogue",
                 store.checkpointTarget(task.id, task.generation, 0, window.pcmSha256, accepted))
             store.completeAudio(task.id, task.generation, 1)

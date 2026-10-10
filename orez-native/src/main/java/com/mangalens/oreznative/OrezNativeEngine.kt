@@ -27,6 +27,7 @@ class OrezNativeEngine {
 
     private external fun nativeLoad(path: String): Boolean
     private external fun nativeGenerate(prompt: String, maxTokens: Int, requestId: Long): String
+    private external fun nativeGenerateWithReceipt(prompt: String, maxTokens: Int, requestId: Long): NativeGenerationResult
     private external fun nativeUnload()
     private external fun nativeCreateRequest(): Long
     private external fun nativeCancelRequest(requestId: Long)
@@ -70,6 +71,17 @@ class OrezNativeEngine {
     fun generate(prompt: String, maxTokens: Int, generation: Generation): String {
         require(generation.engine === this) { "Generation belongs to another engine" }
         return if (available && loaded) nativeGenerate(prompt.take(24_000), maxTokens.coerceIn(1, 512), generation.id) else ""
+    }
+
+    fun generateWithReceipt(prompt: String, maxTokens: Int = 384): NativeGenerationResult =
+        newGeneration().use { generateWithReceipt(prompt, maxTokens, it) }
+
+    @Synchronized
+    fun generateWithReceipt(prompt: String, maxTokens: Int, generation: Generation): NativeGenerationResult {
+        require(generation.engine === this) { "Generation belongs to another engine" }
+        val limit = maxTokens.coerceIn(1, 512)
+        return if (available && loaded) nativeGenerateWithReceipt(prompt.take(24_000), limit, generation.id)
+        else NativeGenerationResult("", "UNAVAILABLE", 0, 0, limit, 0, 0, 0, 0)
     }
 
     fun close() {

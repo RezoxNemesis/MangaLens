@@ -53,8 +53,26 @@ data class OrezTaskEntity(
     val lastError: String? = null
 )
 
+/** Explicit opt-in search returns only a bounded message prefix and public role/time metadata. */
+data class OrezMessageSearchCandidate(val id: Long, val role: String, val snippet: String, val createdAt: Long)
+
+data class OrezMessageSearchMetadata(val id: Long, val role: String, val snippet: String, val createdAt: Long)
+
 @Dao
 interface OrezMessageDao {
+    @Query("""SELECT id, role, substr(text, MAX(1, instr(lower(text), lower(:needle)) - 60), 320) AS snippet, createdAt FROM orez_messages WHERE text LIKE :pattern ESCAPE '\' ORDER BY id DESC LIMIT :limit""")
+    suspend fun searchLocalMetadata(pattern: String, needle: String, limit: Int): List<OrezMessageSearchMetadata>
+    @Query("SELECT id, substr(role, 1, 64) AS role, substr(text, 1, 16001) AS snippet, createdAt FROM orez_messages ORDER BY id DESC LIMIT :limit")
+    suspend fun firstSearchCandidates(limit: Int): List<OrezMessageSearchCandidate>
+    @Query("SELECT id, substr(role, 1, 64) AS role, substr(text, 1, 16001) AS snippet, createdAt FROM orez_messages WHERE id < :beforeId ORDER BY id DESC LIMIT :limit")
+    suspend fun nextSearchCandidates(beforeId: Long, limit: Int): List<OrezMessageSearchCandidate>
+    @Query("SELECT EXISTS(SELECT 1 FROM orez_messages LIMIT 1)")
+    suspend fun hasSearchCandidates(): Boolean
+    @Query("SELECT EXISTS(SELECT 1 FROM orez_messages WHERE id < :beforeId LIMIT 1)")
+    suspend fun hasSearchCandidatesBefore(beforeId: Long): Boolean
+    @Query("SELECT id, role, substr(text, 1, 16000) AS snippet, createdAt FROM orez_messages WHERE id = :id LIMIT 1")
+    suspend fun searchMessageDetail(id: Long): OrezMessageSearchMetadata?
+
     @Query("SELECT * FROM (SELECT * FROM orez_messages ORDER BY id DESC LIMIT 200) ORDER BY id ASC")
     fun observe(): Flow<List<OrezMessageEntity>>
     @Insert suspend fun insert(message: OrezMessageEntity)

@@ -8,14 +8,14 @@ import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import com.mangalens.core.adblock.AdBlockWebViewClient
+import com.mangalens.core.acquisition.ChapterImageCandidate
+import com.mangalens.core.acquisition.ChapterImageCandidates
+import com.mangalens.core.acquisition.ChapterImageExtractionScript
 import com.mangalens.core.adblock.AdBlockEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -27,7 +27,8 @@ data class RenderedPageSet(
     val resourceImageUrls: List<String>,
     val observations: Int,
     val mainFrameHttpStatus: Int,
-    val navigationError: String?
+    val navigationError: String?,
+    val imageCandidates: List<ChapterImageCandidate> = imageUrls.map { ChapterImageCandidate(it) }
 )
 
 /**
@@ -53,7 +54,11 @@ class RenderedBrowserAcquirer(
             val finished = AtomicBoolean(false)
             val networkImages = ConcurrentHashMap.newKeySet<String>()
             val networkVideos = ConcurrentHashMap.newKeySet<String>()
-            val discoveredDomUrls = LinkedHashSet<String>()
+            var discoveredImages = emptyList<ChapterImageCandidate>()
+            var navigationGeneration = 0L
+            val observationGuard = Any()
+            var currentDocument: String? = null
+            val retiredDocuments = LinkedHashSet<String>()
             val handler = Handler(Looper.getMainLooper())
 
             val webView = WebView(context.applicationContext).apply {
@@ -71,6 +76,7 @@ class RenderedBrowserAcquirer(
             fun finishAcquisition(result: RenderedPageSet) {
                 if (finished.compareAndSet(false, true)) {
                     handler.removeCallbacksAndMessages(null)
+                    (webView.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
                     webView.stopLoading()
                     webView.destroy()
                     if (continuation.isActive) continuation.resume(result)
@@ -78,11 +84,8 @@ class RenderedBrowserAcquirer(
             }
 
             handler.postDelayed({
-                val fallbackImages = if (discoveredDomUrls.isNotEmpty()) {
-                    discoveredDomUrls.toList()
-                } else {
-                    networkImages.filter { isImageCandidate(it) }
-                }
+                // Network scheduling does not prove node identity, chapter membership or reading order.
+                val fallbackImages = discoveredImages.map { it.url }
 
                 finishAcquisition(
                     RenderedPageSet(
@@ -94,7 +97,8 @@ class RenderedBrowserAcquirer(
                         mainFrameHttpStatus = 200,
                         navigationError = if (fallbackImages.isEmpty() && networkVideos.isEmpty()) {
                             "Acquisition timeout: No valid media streams found"
-                        } else null
+                        } else null,
+                        imageCandidates = discoveredImages
                     )
                 )
             }, timeoutMs.coerceIn(5_000L, 20_000L))
@@ -102,6 +106,7 @@ class RenderedBrowserAcquirer(
             continuation.invokeOnCancellation { handler.post {
                 if (finished.compareAndSet(false, true)) {
                     handler.removeCallbacksAndMessages(null)
+                    (webView.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
                     webView.stopLoading()
                     webView.destroy()
                 }
@@ -115,14 +120,40 @@ class RenderedBrowserAcquirer(
                 ): WebResourceResponse? {
                     val reqUrl = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
 
+                    val captured = synchronized(observationGuard) { navigationGeneration to currentDocument }
+                    val blocked = super.shouldInterceptRequest(view, request)
+                    if (blocked != null || finished.get()) return blocked
                     val cleanUrl = reqUrl.substringBefore("#")
-                    if (isVideoCandidate(cleanUrl)) {
-                        if (networkVideos.size < MAX_VIDEO_URLS) networkVideos.add(cleanUrl)
-                    } else if (isImageCandidate(cleanUrl)) {
-                        if (networkImages.size < MAX_IMAGE_URLS) networkImages.add(cleanUrl)
+                    val referer = request.requestHeaders.entries.firstOrNull { it.key.equals("Referer", true) }?.value?.let {
+                        ChapterImageCandidates.normalizedUrl(it, captured.second ?: url)
                     }
+                    synchronized(observationGuard) {
+                        if (finished.get() || captured.first != navigationGeneration || captured.second != currentDocument)
+                            return null
+                        if (referer != null && referer != currentDocument && referer in retiredDocuments) return null
+                        // Unknown frame/origin-only Referer observations remain candidates, not source or playback proof.
+                        if (isVideoCandidate(cleanUrl)) {
+                            if (networkVideos.size < MAX_VIDEO_URLS) networkVideos.add(cleanUrl)
+                        } else if (isImageCandidate(cleanUrl)) {
+                            if (networkImages.size < MAX_IMAGE_URLS) networkImages.add(cleanUrl)
+                        }
+                    }
+                    return null
+                }
 
-                    return super.shouldInterceptRequest(view, request)
+                override fun onPageStarted(view: WebView?, loadedUrl: String?, favicon: android.graphics.Bitmap?) {
+                    if (finished.get()) return
+                    synchronized(observationGuard) {
+                        currentDocument?.let { retiredDocuments.add(it) }
+                        currentDocument = loadedUrl?.let { ChapterImageCandidates.normalizedUrl(it, it) }
+                        currentDocument?.let { retiredDocuments.remove(it) }
+                        while (retiredDocuments.size > 64) retiredDocuments.remove(retiredDocuments.first())
+                        navigationGeneration++
+                        networkImages.clear()
+                        networkVideos.clear()
+                    }
+                    discoveredImages = emptyList()
+                    super.onPageStarted(view, loadedUrl, favicon)
                 }
 
                 override fun onRenderProcessGone(
@@ -131,9 +162,10 @@ class RenderedBrowserAcquirer(
                 ): Boolean {
                     if (finished.compareAndSet(false, true)) {
                         handler.removeCallbacksAndMessages(null)
+                        clearScriptRegistration()
                         view?.stopLoading()
                         view?.destroy()
-                        continuation.resume(
+                        if (continuation.isActive) continuation.resume(
                             RenderedPageSet(
                                 finalUrl = url,
                                 imageUrls = emptyList(),
@@ -153,80 +185,32 @@ class RenderedBrowserAcquirer(
                 }
 
                 override fun onPageFinished(view: WebView?, loadedUrl: String?) {
-                    val extractionJs = """
-                        (function() {
-                            window.scrollTo(0, document.body.scrollHeight);
-
-                            let urls = [];
-                            let seen = new Set();
-
-                            function addUrl(src) {
-                                if (!src || src.startsWith('data:')) return;
-                                try {
-                                    let resolved = new URL(src, location.href).href.split('#')[0];
-                                    if (!seen.has(resolved)) {
-                                        seen.add(resolved);
-                                        urls.push(resolved);
-                                    }
-                                } catch(e) {}
-                            }
-
-                            document.querySelectorAll('img, source, video, [data-src], [data-original], [data-lazy-src]').forEach(el => {
-                                addUrl(el.src);
-                                addUrl(el.currentSrc);
-                                addUrl(el.getAttribute('data-src'));
-                                addUrl(el.getAttribute('data-original'));
-                                addUrl(el.getAttribute('data-lazy-src'));
-                            });
-
-                            return encodeURIComponent(JSON.stringify(urls));
-                        })();
-                    """.trimIndent()
-
+                    super.onPageFinished(view, loadedUrl)
+                    if (finished.get() || loadedUrl == null || loadedUrl != webView.url) return
+                    val capturedGeneration = navigationGeneration
+                    // Trigger lazy image loading before the bounded observation, not after it.
+                    webView.evaluateJavascript("window.scrollTo(0,document.body?document.body.scrollHeight:0);", null)
                     handler.postDelayed({
-                        webView.evaluateJavascript(extractionJs) { rawResult ->
-                            if (finished.get()) return@evaluateJavascript
-
-                            val decoded = try {
-                                URLDecoder.decode(rawResult ?: "", StandardCharsets.UTF_8.name())
-                                    .trim('"')
-                                    .replace("\\\"", "\"")
-                            } catch (e: Exception) {
-                                ""
+                        if (finished.get() || navigationGeneration != capturedGeneration || webView.url != loadedUrl) return@postDelayed
+                        webView.evaluateJavascript(ChapterImageExtractionScript.extract) { rawResult ->
+                            if (finished.get() || navigationGeneration != capturedGeneration || webView.url != loadedUrl) return@evaluateJavascript
+                            discoveredImages = ChapterImageCandidates.decode(rawResult.orEmpty(), loadedUrl)
+                            synchronized(observationGuard) {
+                                ChapterImageCandidates.decodeVideos(rawResult.orEmpty(), loadedUrl).filter(::isVideoCandidate)
+                                    .take((MAX_VIDEO_URLS - networkVideos.size).coerceAtLeast(0)).forEach(networkVideos::add)
                             }
-
-                            val parsedUrls = parseJsonArray(decoded)
-                            for (candidate in parsedUrls) {
-                                if (isVideoCandidate(candidate)) {
-                                    if (networkVideos.size < MAX_VIDEO_URLS) networkVideos.add(candidate)
-                                } else if (isImageCandidate(candidate) && discoveredDomUrls.size < MAX_IMAGE_URLS) {
-                                    discoveredDomUrls.add(candidate)
-                                }
-                            }
-
-                            val finalImages = if (discoveredDomUrls.isNotEmpty()) {
-                                discoveredDomUrls.toList()
-                            } else {
-                                networkImages.filter { isImageCandidate(it) }
-                            }
-
-                            if (finalImages.isNotEmpty() || networkVideos.isNotEmpty()) {
-                                finishAcquisition(
-                                    RenderedPageSet(
-                                        finalUrl = loadedUrl ?: url,
-                                        imageUrls = finalImages,
-                                        videoStreamUrls = networkVideos.toList(),
-                                        resourceImageUrls = networkImages.toList(),
-                                        observations = 1,
-                                        mainFrameHttpStatus = 200,
-                                        navigationError = null
-                                    )
-                                )
+                            if (discoveredImages.isNotEmpty() || networkVideos.isNotEmpty()) {
+                                finishAcquisition(RenderedPageSet(
+                                    finalUrl = loadedUrl, imageUrls = discoveredImages.map { it.url },
+                                    videoStreamUrls = networkVideos.toList(), resourceImageUrls = networkImages.toList(),
+                                    observations = 1, mainFrameHttpStatus = 200, navigationError = null,
+                                    imageCandidates = discoveredImages))
                             }
                         }
                     }, 2500L)
                 }
             }
+            (webView.webViewClient as AdBlockWebViewClient).prepareForNavigation(webView)
 
             webView.loadUrl(url)
         }
@@ -260,16 +244,4 @@ class RenderedBrowserAcquirer(
         ).any { lower.contains(it) }
     }
 
-    private fun parseJsonArray(json: String): List<String> {
-        return try {
-            json.replace("[", "")
-                .replace("]", "")
-                .replace("\"", "")
-                .split(",")
-                .map { it.trim().replace("\\/", "/") }
-                .filter { it.startsWith("http") }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
 }

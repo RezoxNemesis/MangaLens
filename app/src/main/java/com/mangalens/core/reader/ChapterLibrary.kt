@@ -86,7 +86,20 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
     private val images = File(filesRoot, "chapters")
 
     fun list(): List<SavedChapter> = synchronized(mutationFence) {
-        manifestFiles().mapNotNull(::read).sortedWith(compareByDescending<SavedChapter> { it.updatedAt }.thenBy { it.id })
+        val hints = PromotionVerificationBudget()
+        manifestFiles().mapNotNull { read(it, hints) }.sortedWith(compareByDescending<SavedChapter> { it.updatedAt }.thenBy { it.id })
+    }
+
+    /** One explicit managed identity; callers on IO need not decode every Library manifest. */
+    internal fun find(id: String): SavedChapter? = synchronized(mutationFence) {
+        require(validId.matches(id))
+        read(File(directory, "$id.json"))
+    }
+
+    /** Metadata consumers own manifest streams only; this lookup never opens original-image streams. */
+    internal fun findMetadata(id: String): SavedChapter? = synchronized(mutationFence) {
+        require(validId.matches(id))
+        read(File(directory, "$id.json"), PromotionVerificationBudget(0))
     }
 
     fun save(chapter: SavedChapter) = synchronized(mutationFence) {
@@ -105,9 +118,9 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
 
     fun remove(id: String) = synchronized(mutationFence) {
         require(validId.matches(id))
-        val target = read(File(directory, "$id.json")) ?: return@synchronized
+        val target = read(File(directory, "$id.json"), PromotionVerificationBudget(0)) ?: return@synchronized
         io.delete(File(directory, "$id.json"))
-        val remaining = manifestFiles().map { read(it) }
+        val remaining = manifestFiles().map { read(it, PromotionVerificationBudget(0)) }
         // Preserve source pages if an unreadable journal prevents proving that they are unshared.
         if (remaining.any { it == null }) return@synchronized
         val retained = remaining.filterNotNull().flatMap { it.pages }.mapNotNull { it.localPath }.map { File(it).canonicalFile }.toSet()
@@ -132,6 +145,8 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
             .put("pages", JSONArray().apply {
                 saved.pages.forEach { page -> put(JSONObject().put("index", page.index).put("source", page.sourceUrl)
                     .put("file", page.localPath?.let { File(it).name }).put("error", page.error)
+                    .put("promotionHint", page.promotionHint?.takeIf { it.matches(page) }?.let { hint ->
+                        JSONObject().put("reason", hint.reason.name).put("sourceSha256", hint.sourceSha256) })
                     .put("documentSource", page.documentSource?.validate()?.let { source -> JSONObject()
                         .put("uri", source.uri).put("kind", source.kind).put("pageIndex", source.pageIndex)
                         .put("sha256", source.documentSha256).put("entry", source.archiveEntryName)
@@ -148,7 +163,7 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
         if (name.endsWith(".json") && validId.matches(name.removeSuffix(".json"))) File(directory, name) else null
     }.distinctBy { it.name }
 
-    private fun read(file: File): SavedChapter? = runCatching {
+    private fun read(file: File, hints: PromotionVerificationBudget = PromotionVerificationBudget()): SavedChapter? = runCatching {
         require(file.canonicalFile.parentFile == directory.canonicalFile)
         val bytes = io.read(file).use { stream ->
             val output = java.io.ByteArrayOutputStream()
@@ -183,7 +198,11 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
                 name.isBlank() || name == "null" -> ChapterPage(pageIndex, source, error = row.optString("error").takeIf { it.isNotBlank() && it != "null" } ?: "Page needs to be downloaded. Retry.", documentSource = originalDocument)
                 name != File(name).name || image.canonicalFile.parentFile != images.canonicalFile -> ChapterPage(pageIndex, source, error = "Saved page path is invalid. Retry the source.", documentSource = originalDocument)
                 !image.isFile || image.length() == 0L -> ChapterPage(pageIndex, source, error = "Saved page is missing. Retry the source.", documentSource = originalDocument)
-                else -> ChapterPage(pageIndex, source, image.absolutePath, row.optString("error").takeIf { it.isNotBlank() && it != "null" }, documentSource = originalDocument)
+                else -> {
+                    val hint = verifiedPromotionHint(row, image, hints)
+                    ChapterPage(pageIndex, source, image.absolutePath, row.optString("error").takeIf { it.isNotBlank() && it != "null" },
+                        contentRevision = hint?.sourceSha256, documentSource = originalDocument, promotionHint = hint)
+                }
             }
         }
         val collections = json.optJSONArray("collections")
@@ -194,6 +213,32 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
             json.optInt("position").coerceAtLeast(0), json.optInt("offset").coerceAtLeast(0), json.optLong("updatedAt").coerceAtLeast(0), json.optBoolean("bookmarked"),
             ReadingStatus.entries.firstOrNull { it.name == json.optString("readingStatus") } ?: ReadingStatus.READING,
             metadata.seriesTitle, metadata.notes, metadata.collections, json.optLong("addedAt", 0L).coerceAtLeast(0), json.optLong("lastReadAt", 0L).coerceAtLeast(0))
+    }.getOrNull()
+
+    /** Older manifests have no hint. A hint only survives reopening when its actual original SHA matches. */
+    private class PromotionVerificationBudget(private var remaining: Long = 64L * 1024 * 1024) {
+        fun reserve(bytes: Long): Boolean = if (bytes in 1..remaining) { remaining -= bytes; true } else false
+    }
+
+    private fun verifiedPromotionHint(row: JSONObject, image: File, hints: PromotionVerificationBudget): ChapterPromotionHint? = runCatching {
+        val json = row.optJSONObject("promotionHint") ?: return@runCatching null
+        val hint = ChapterPromotionHint(com.mangalens.core.acquisition.ChapterImagePromotion.valueOf(json.getString("reason")),
+            json.getString("sourceSha256"))
+        val size = image.length(); val modified = image.lastModified()
+        require(size in 1..40L * 1024 * 1024 && hints.reserve(size))
+        val digest = MessageDigest.getInstance("SHA-256")
+        var count = 0L
+        image.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                count += read; require(count <= 40L * 1024 * 1024)
+                digest.update(buffer, 0, read)
+            }
+        }
+        val sha = digest.digest().joinToString("") { "%02x".format(it) }
+        hint.takeIf { count == size && image.length() == size && image.lastModified() == modified && sha == hint.sourceSha256 }
     }.getOrNull()
 
     companion object {

@@ -32,7 +32,12 @@ class OrezAgentRuntime(
                     options.copy(style = "natural", pipeline = com.mangalens.ui.video.SubtitlePipeline.SOURCE_TRANSLATION,
                         translationPolicy = "mlkit-dialogue-v1", capturedStyle = com.mangalens.core.translation.TranslationStyleProfile.NATURAL)
                 else options
-            }).takeIf {
+            }).let { options ->
+                // This is a new trusted request. Journal decode/resume never enters this capture point.
+                if (options.localRefinement && options.refinementInputProfileRevision == null)
+                    options.copy(refinementInputProfileRevision = com.mangalens.core.translation.TranslationRefinementPolicy.INPUT_PROFILE_VERSION)
+                else options
+            }.takeIf {
                 plan.steps.any { it.call.name in setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles") }
             }
         ))

@@ -1,6 +1,8 @@
 package com.mangalens.ui.web
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,8 +33,13 @@ internal fun BrowserWorkspaceDialog(
     onRemoveBookmark: (String) -> Unit,
     onClearHistory: () -> Unit,
     onFind: () -> Unit,
+    onDomTools: () -> Unit = {},
     onDesktop: () -> Unit,
-    onExternal: () -> Unit
+    onExternal: () -> Unit,
+    onCleanReading: (() -> Unit)? = null,
+    onCopyLink: (() -> Unit)? = null,
+    onShareLink: (() -> Unit)? = null,
+    onResearch: (() -> Unit)? = null
 ) {
     val title = when (panel) {
         BrowserWorkspacePanel.TABS -> "Browser tabs"
@@ -43,7 +50,7 @@ internal fun BrowserWorkspaceDialog(
     AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, confirmButton = {
         TextButton(onClick = onDismiss) { Text("Close") }
     }, text = {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().then(if (panel == BrowserWorkspacePanel.TOOLS) Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()) else Modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             when (panel) {
                 BrowserWorkspacePanel.TABS -> {
                     Button(onClick = onNewTab, enabled = snapshot.tabs.size < BrowserWorkspaceLimits.TABS) { Text("New tab") }
@@ -72,6 +79,11 @@ internal fun BrowserWorkspaceDialog(
                     TextButton(onClick = { onPanel(BrowserWorkspacePanel.BOOKMARKS) }) { Text("Bookmarks") }
                     TextButton(onClick = { onPanel(BrowserWorkspacePanel.HISTORY) }) { Text("History") }
                     TextButton(onClick = onFind, enabled = ready) { Text("Find on page") }
+                    TextButton(onClick = onDomTools, enabled = ready) { Text("Orez page tools") }
+                    onCleanReading?.let { TextButton(onClick = it, enabled = ready) { Text("Clean reading") } }
+                    onCopyLink?.let { TextButton(onClick = it, enabled = ready) { Text("Copy public link") } }
+                    onShareLink?.let { TextButton(onClick = it, enabled = ready) { Text("Share public link") } }
+                    onResearch?.let { TextButton(onClick = it) { Text("Research in Orez") } }
                     TextButton(onClick = onDesktop) { Text(if (snapshot.activeTab.desktop) "Use mobile site" else "Use desktop site") }
                     TextButton(onClick = onExternal, enabled = pageUrl.isNotBlank()) { Text("Open in external browser") }
                 }

@@ -8,7 +8,8 @@ class TranslationOrezRefiner(private val context: Context) {
     private val model = OrezLocalModelService(OrezModelManager(context))
 
     suspend fun captureRequest(enabled: Boolean, style: TranslationStyleProfile = TranslationStyleProfile.NATURAL): TranslationRefinementRequest =
-        TranslationRefinementRequest(enabled, style, if (enabled) model.captureModelPin() else null)
+        TranslationRefinementRequest(enabled, style, if (enabled) model.captureModelPin(com.mangalens.orez.OrezModelTask.LOCALIZATION) else null,
+            if (enabled) TranslationRefinementPolicy.INPUT_PROFILE_VERSION else null)
 
     /** Captured jobs never read ambient enable/style/model settings or choose a replacement model. */
     suspend fun refineCaptured(
@@ -17,23 +18,26 @@ class TranslationOrezRefiner(private val context: Context) {
         targetLanguage: String,
         request: TranslationRefinementRequest,
         chapterContext: String = "",
-        glossary: Map<String, String> = emptyMap()
+        glossary: Map<String, String> = emptyMap(),
+        memoryPacketSha256: String? = null
     ): TranslationRefinementResult {
         if (!request.enabled) return TranslationRefinementResult(translated, status = TranslationRefinementStatus.DISABLED)
-        if (request.pinnedModel == null || !TranslationRefinementPolicy.validInputs(source, translated, targetLanguage,
-                request.style, chapterContext, glossary))
+        if (!TranslationRefinementPolicy.validCapturedInputs(source, translated, targetLanguage,
+                request, chapterContext, glossary, memoryPacketSha256))
             return TranslationRefinementResult(translated, status = TranslationRefinementStatus.UNAVAILABLE)
         val capturedGlossary = glossary.toMap()
-        val prompt = TranslationRefinementPolicy.prompt(source, translated, targetLanguage, request.style, chapterContext, capturedGlossary)
+        val prompt = TranslationRefinementPolicy.capturedPrompt(source, translated, targetLanguage, request, chapterContext, capturedGlossary, memoryPacketSha256)
         val attempt = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
-            model.answerWithReceipt(prompt, emptyList(), pinnedModel = request.pinnedModel) to Unit
+            model.localizeWithReceipt(prompt, requireNotNull(request.pinnedModel), requireNotNull(request.inputProfileRevision)) to Unit
         } ?: return TranslationRefinementResult(translated, status = TranslationRefinementStatus.TIMED_OUT)
         val answer = attempt.first ?: return TranslationRefinementResult(translated, status = TranslationRefinementStatus.UNAVAILABLE)
+        if (answer.completion?.completedLocalization(prompt, requireNotNull(request.inputProfileRevision)) != true)
+            return TranslationRefinementResult(translated, status = TranslationRefinementStatus.UNAVAILABLE)
         val text = answer.text.replace(Regex("\\s+"), " ").trim()
         val result = TranslationRefinementResult(text,
-            TranslationRefinementReceipt(answer.model, TranslationRefinementPolicy.hash(prompt), TranslationRefinementPolicy.hash(text)),
+            TranslationRefinementReceipt(answer.model, TranslationRefinementPolicy.hash(prompt), TranslationRefinementPolicy.hash(text), answer.completion),
             TranslationRefinementStatus.GENERATED)
-        return result.takeIf { TranslationRefinementPolicy.matches(it, source, translated, targetLanguage, request, chapterContext, capturedGlossary) }
+        return result.takeIf { TranslationRefinementPolicy.matches(it, source, translated, targetLanguage, request, chapterContext, capturedGlossary, memoryPacketSha256) }
             ?: TranslationRefinementResult(translated, status = TranslationRefinementStatus.UNAVAILABLE)
     }
 
@@ -53,20 +57,11 @@ class TranslationOrezRefiner(private val context: Context) {
             .getBoolean("local_refinement", false)
         if (!enabled) return translated
 
-        val prompt = buildTranslationRefinementPrompt(
-            source = source,
-            translated = translated,
-            targetLanguage = targetLanguage,
-            style = style,
-            chapterContext = chapterContext,
-            glossary = glossary
-        )
-
-        return kotlinx.coroutines.withTimeoutOrNull(8_000L) { model.answer(prompt, emptyList()) }
-            ?.replace(Regex("\\s+"), " ")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: translated
+        // Capture and generation both remain inside the original total deadline.
+        return kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+            val request = captureRequest(true, style)
+            refineCaptured(source, translated, targetLanguage, request, chapterContext, glossary).text
+        } ?: translated
     }
 
     fun close() = model.close()

@@ -33,17 +33,23 @@ object MangaLettering {
         bounds: RectF,
         lines: List<RectF>,
         source: String,
-        preserveStyle: Boolean = true
+        preserveStyle: Boolean = true,
+        reconstructionVersion: Int = 1,
+        writableLimit: Rect? = null,
+        cancellationCheck: () -> Unit = {}
     ): Patch {
+        require(reconstructionVersion in 1..2)
+        cancellationCheck()
         val sourceLines = lines.ifEmpty { listOf(bounds) }
         val lineHeight = sourceLines.map { it.height() }.filter { it > 0f }.average()
             .takeIf { it.isFinite() }?.toFloat() ?: bounds.height().coerceAtLeast(8f)
         val padding = max(2, (lineHeight * .14f).toInt())
         val reference = borderColor(image, bounds, padding)
         val uniformSurface = isUniformSurface(image, bounds, reference, padding)
-        val rect = expandWritableSurface(image, bounds, reference, padding, lineHeight, uniformSurface)
+        val rect = expandWritableSurface(image, bounds, reference, padding, lineHeight, uniformSurface, writableLimit)
 
         require(rect.width() > 0 && rect.height() > 0)
+        if (reconstructionVersion >= 2) require(rect.width().toLong() * rect.height() <= 2_000_000L) { "This region exceeds the bounded reconstruction area. Retry a smaller region." }
         val patch = Bitmap.createBitmap(rect.width(), rect.height(), Bitmap.Config.ARGB_8888)
         Canvas(patch).drawBitmap(image, rect, Rect(0, 0, rect.width(), rect.height()), null)
 
@@ -73,7 +79,7 @@ object MangaLettering {
             Style(color = ink, size = representative.height().coerceAtLeast(12f), alignment = alignment)
         }
 
-        eraseSourceGlyphs(
+        try { eraseSourceGlyphs(
             source = image,
             destination = patch,
             destinationBounds = rect,
@@ -81,8 +87,8 @@ object MangaLettering {
             lines = sourceLines,
             padding = padding,
             uniformSurface = uniformSurface,
-            surfaceColor = reference
-        )
+            surfaceColor = reference, reconstructionVersion = reconstructionVersion, cancellationCheck = cancellationCheck
+        ) } catch (failure: Throwable) { patch.recycle(); throw failure }
         return Patch(rect, patch, style)
     }
 
@@ -97,12 +103,17 @@ object MangaLettering {
         reference: Int,
         padding: Int,
         lineHeight: Float,
-        uniformSurface: Boolean
+        uniformSurface: Boolean,
+        writableLimit: Rect?
     ): Rect {
         var left = (bounds.left.toInt() - padding).coerceAtLeast(0)
         var top = (bounds.top.toInt() - padding).coerceAtLeast(0)
         var right = (bounds.right.toInt() + padding + 1).coerceAtMost(image.width)
         var bottom = (bounds.bottom.toInt() + padding + 1).coerceAtMost(image.height)
+        val limit = writableLimit ?: Rect(0, 0, image.width, image.height)
+        if (writableLimit != null) require(limit.left >= 0 && limit.top >= 0 && limit.right <= image.width && limit.bottom <= image.height &&
+            limit.left <= bounds.left && limit.top <= bounds.top && limit.right >= bounds.right && limit.bottom >= bounds.bottom)
+        left = max(left, limit.left); top = max(top, limit.top); right = min(right, limit.right); bottom = min(bottom, limit.bottom)
 
         val maxHorizontal = min(
             (bounds.width() * if (uniformSurface) .85f else .65f).toInt().coerceAtLeast(padding * 2),
@@ -117,10 +128,10 @@ object MangaLettering {
         )
         val step = max(2, min(8, (lineHeight * .16f).toInt().coerceAtLeast(2)))
 
-        val minLeft = (left - maxHorizontal).coerceAtLeast(0)
-        val maxRight = (right + maxHorizontal).coerceAtMost(image.width)
-        val minTop = (top - maxVertical).coerceAtLeast(0)
-        val maxBottom = (bottom + maxVertical).coerceAtMost(image.height)
+        val minLeft = (left - maxHorizontal).coerceAtLeast(limit.left)
+        val maxRight = (right + maxHorizontal).coerceAtMost(limit.right)
+        val minTop = (top - maxVertical).coerceAtLeast(limit.top)
+        val maxBottom = (bottom + maxVertical).coerceAtMost(limit.bottom)
 
         var changed = true
         while (changed) {
@@ -222,7 +233,9 @@ object MangaLettering {
         lines: List<RectF>,
         padding: Int,
         uniformSurface: Boolean,
-        surfaceColor: Int
+        surfaceColor: Int,
+        reconstructionVersion: Int,
+        cancellationCheck: () -> Unit
     ) {
         val width = destination.width
         val height = destination.height
@@ -243,11 +256,13 @@ object MangaLettering {
             val b = (line.bottom.toInt() + expand + 1).coerceIn(t + 1, destinationBounds.bottom)
 
             for (gy in t until b) {
+                if (gy % 16 == 0) cancellationCheck()
                 val py = gy - destinationBounds.top
                 for (gx in l until r) {
                     val px = gx - destinationBounds.left
                     val pixel = source.getPixel(gx, gy)
-                    if (uniform || distance(pixel, localBackground) >= threshold) {
+                    val detectedInk = distance(pixel, localBackground) >= threshold && distance(pixel, localInk) <= contrast * .65f + 24f
+                    if (if (reconstructionVersion == 1) uniform || distance(pixel, localBackground) >= threshold else detectedInk) {
                         masked[py * width + px] = true
                     }
                 }
@@ -258,7 +273,7 @@ object MangaLettering {
         // punctuation line. Reconstruct the entire recognised text zone so those missed glyphs
         // cannot survive underneath the translation. Artwork-heavy regions keep the conservative
         // glyph-only mask above.
-        if (uniformSurface) {
+        if (uniformSurface && reconstructionVersion == 1) {
             val extraX = max(padding * 2, (sourceBounds.height() * .10f).toInt())
             val extraY = max(padding * 2, (lines.map { it.height() }.average() * .35f).toInt())
             val l = (sourceBounds.left.toInt() - extraX).coerceIn(destinationBounds.left, destinationBounds.right - 1)
@@ -274,10 +289,11 @@ object MangaLettering {
             }
         }
 
-        val dilation = if (uniformSurface) max(4, min(8, padding + 2)) else max(2, min(5, padding / 2 + 1))
+        val dilation = if (reconstructionVersion >= 2) 2 else if (uniformSurface) max(4, min(8, padding + 2)) else max(2, min(5, padding / 2 + 1))
         repeat(dilation) {
             val grown = masked.clone()
             for (y in 1 until height - 1) {
+                if (y % 16 == 0) cancellationCheck()
                 for (x in 1 until width - 1) {
                     val index = y * width + x
                     if (!masked[index]) continue
@@ -304,9 +320,9 @@ object MangaLettering {
         )
         val search = max(10, min(48, padding * 8))
 
-        val smoothed = MangaGlyphReconstruction.reconstruct(
+        val smoothed = if (reconstructionVersion == 1) MangaGlyphReconstruction.reconstruct(
             original, masked, width, height, uniformSurface, surfaceColor, fallback, search
-        )
+        ) else MangaGlyphReconstructionV2.reconstruct(original, masked, width, height, uniformSurface, surfaceColor, fallback, search, cancellationCheck)
         destination.setPixels(smoothed, 0, width, 0, 0, width, height)
     }
 

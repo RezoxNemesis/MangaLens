@@ -40,11 +40,34 @@ data class DownloadEntity(
     val canPreview: Boolean get() = isVideo && bytesDownloaded >= 5L * 1024L * 1024L && (!destination.isNullOrBlank() || isAdaptive)
 }
 
+/** Minimal read-only search page; scanRowId is a SQLite cursor, never a playback identity. */
+data class DownloadSearchCandidate(val scanRowId: Long, val id: String?, val title: String,
+    val mimeType: String, val state: String, val createdAt: Long)
+
+data class DownloadSearchMetadata(val id: String, val title: String, val mimeType: String, val state: String, val createdAt: Long)
+
 @Dao
 interface DownloadDao {
+    @Query("""SELECT id, substr(title, 1, 768) AS title, mimeType, state, createdAt FROM media_downloads WHERE title LIKE :pattern ESCAPE '\' ORDER BY createdAt DESC LIMIT :limit""")
+    suspend fun searchLocalMetadata(pattern: String, limit: Int): List<DownloadSearchMetadata>
+
+    @Query("SELECT rowid AS scanRowId, CASE WHEN length(substr(id, 1, 129)) <= 128 THEN id ELSE NULL END AS id, substr(title, 1, 769) AS title, substr(mimeType, 1, 192) AS mimeType, substr(state, 1, 32) AS state, createdAt FROM media_downloads ORDER BY rowid DESC LIMIT :limit")
+    suspend fun firstSearchCandidates(limit: Int): List<DownloadSearchCandidate>
+    @Query("SELECT rowid AS scanRowId, CASE WHEN length(substr(id, 1, 129)) <= 128 THEN id ELSE NULL END AS id, substr(title, 1, 769) AS title, substr(mimeType, 1, 192) AS mimeType, substr(state, 1, 32) AS state, createdAt FROM media_downloads WHERE rowid < :beforeRowId ORDER BY rowid DESC LIMIT :limit")
+    suspend fun nextSearchCandidates(beforeRowId: Long, limit: Int): List<DownloadSearchCandidate>
+    @Query("SELECT id, substr(title, 1, 768) AS title, substr(mimeType, 1, 192) AS mimeType, substr(state, 1, 32) AS state, createdAt FROM media_downloads WHERE id = :id LIMIT 1")
+    suspend fun searchMetadataDetail(id: String): DownloadSearchMetadata?
+    @Query("SELECT EXISTS(SELECT 1 FROM media_downloads LIMIT 1)")
+    suspend fun hasSearchCandidates(): Boolean
+    @Query("SELECT EXISTS(SELECT 1 FROM media_downloads WHERE rowid < :beforeRowId LIMIT 1)")
+    suspend fun hasSearchCandidatesBefore(beforeRowId: Long): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(item: DownloadEntity)
     @Query("SELECT * FROM media_downloads ORDER BY createdAt DESC") fun observe(): Flow<List<DownloadEntity>>
     @Query("SELECT * FROM media_downloads WHERE id = :id LIMIT 1") suspend fun get(id: String): DownloadEntity?
+    /** Exact saved destination lookup; two rows expose ambiguity instead of picking a neighbour. */
+    @Query("SELECT * FROM media_downloads WHERE destination = :uri LIMIT 2")
+    suspend fun atDestination(uri: String): List<DownloadEntity>
     @Query("UPDATE media_downloads SET state = :state, error = :message WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED', 'PAUSED')")
     suspend fun stopIfActive(id: String, state: DownloadState, message: String?): Int
     @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = 'DOWNLOADING', error = NULL WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED')")
@@ -65,6 +88,16 @@ interface DownloadDao {
     suspend fun stageIfActive(id: String, stage: String): Int
     @Query("UPDATE media_downloads SET actualHeight = :height, stage = :stage WHERE id = :id AND state = 'COMPLETED'")
     suspend fun completedDetails(id: String, height: Int?, stage: String): Int
+    @Query("""UPDATE media_downloads SET state = 'CANCELLED', stage = 'Partial cleanup requested', error = 'Stopped for partial cleanup'
+        WHERE id = :id AND state = 'FAILED' AND destination IS NULL AND sourceUrl = :url AND createdAt = :createdAt
+        AND bytesDownloaded = :done AND totalBytes = :total AND mimeType = :mime AND title = :title
+        AND stage IS :stage AND error IS :error AND provider = :provider AND sourcePageUrl IS :page AND requestedHeight IS :height""")
+    suspend fun claimFailedPartials(id: String, url: String, createdAt: Long, done: Long, total: Long, mime: String,
+        title: String, stage: String?, error: String?, provider: String, page: String?, height: Int?): Int
+    @Query("""UPDATE media_downloads SET bytesDownloaded = 0, totalBytes = -1, stage = 'Partial files removed', error = NULL
+        WHERE id = :id AND state = 'CANCELLED' AND stage = 'Partial cleanup requested' AND destination IS NULL
+        AND sourceUrl = :url AND createdAt = :createdAt AND bytesDownloaded = :done AND totalBytes = :total""")
+    suspend fun finishFailedPartials(id: String, url: String, createdAt: Long, done: Long, total: Long): Int
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 

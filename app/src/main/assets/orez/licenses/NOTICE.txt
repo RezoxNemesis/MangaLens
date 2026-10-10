@@ -1,0 +1,16 @@
+Orez pinned model and native-runtime attribution
+
+Lite, Core and authenticated historical Lite use the official Qwen GGUF publisher
+repositories at the exact revisions in OrezModelGovernance.kt. Their collected
+LICENSE bodies are Apache License 2.0; the full text is Qwen-GGUF-Apache-2.0.txt.
+Retain publisher attribution and the full license text when redistributing weights.
+No publisher NOTICE file was listed in the exact pinned repository inventories.
+This statement records those inventories; it does not waive later applicable notices.
+
+The pinned ggml-org/llama.cpp source is MIT licensed at
+4da6337767f973e2b4d0797e5b323d77d8565e4a. The full copyright/permission text is
+llama.cpp-MIT.txt. Native dependencies may have their own separately retained notices.
+
+License and publisher metadata are correspondence evidence, not tensor inspection,
+empirical quality/performance qualification, physical-device proof or model activation.
+Existing model ids, local file names, byte/SHA pins and activation journals are unchanged.

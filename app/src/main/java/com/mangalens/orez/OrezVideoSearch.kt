@@ -15,7 +15,17 @@ import java.util.UUID
 data class OrezVideoResult(val title: String, val url: String, val thumbnail: String?, val creator: String, val durationSeconds: Int?, val uploadDate: String?, val description: String)
 
 class OrezVideoSearch(private val context: Context) {
-    suspend fun search(query: String): List<OrezVideoResult> = MediaResolutionRunner.run(25_000L) { session ->
+    private val app = context.applicationContext
+    suspend fun search(query: String): List<OrezVideoResult> {
+        if (!OrezPublicVideoDiscovery.validQuery(query)) return emptyList()
+        // Preserve the original 25s user budget; reserve time for an independent source-backed fallback.
+        return kotlinx.coroutines.withTimeoutOrNull(25_000L) {
+            OrezVideoDiscoveryFlow.discover(query,
+                native = { searchNative(it) },
+                public = { OrezPublicVideoDiscovery.production().search(it) })
+        }.orEmpty()
+    }
+    private suspend fun searchNative(query: String): List<OrezVideoResult> = MediaResolutionRunner.run(16_000L) { session ->
         session.checkActive()
         val recent = Regex("(?i)latest|recent|today|newest").containsMatchIn(query)
         val request = YoutubeDLRequest((if (recent) "ytsearchdate5:" else "ytsearch5:") + query.take(500)).apply {
@@ -24,13 +34,13 @@ class OrezVideoSearch(private val context: Context) {
             addOption("--skip-download"); addOption("--socket-timeout", "10"); addOption("--retries", "0")
         }
         val source = "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query.take(500), "UTF-8")
-        NativeOwnedExtractorTools.configure(context, request, session)
-        AndroidNativeExtractorNetworking.configure(context, request, source, session::checkActive)
+        NativeOwnedExtractorTools.configure(app, request, session)
+        AndroidNativeExtractorNetworking.configure(app, request, source, session::checkActive)
         val id = "orez-video-${UUID.randomUUID()}"
         val guard = MediaProcessGuard(session, id, session.remainingMillis(), YoutubeDL::destroyProcessById)
         try {
             session.checkActive()
-            OrezVideoResultCodec.parseSearch(YoutubeDL.execute(request, processId = id, callback = null).out)
+            guard.run { OrezVideoResultCodec.parseSearch(YoutubeDL.execute(request, processId = id, callback = null).out) }
         } finally { guard.close() }
     }
     companion object {
@@ -42,7 +52,7 @@ object OrezVideoResultCodec {
     const val MARKER = "\n\nVideo results:\n"
     fun parseSearch(json: String): List<OrezVideoResult> {
         if (json.length > 2_000_000) return emptyList()
-        return decode(JSONObject(json).optJSONArray("entries") ?: JSONArray())
+        return decode(JSONObject(json).optJSONArray("entries") ?: JSONArray(), youtubeOnly = true)
     }
     fun encode(results: List<OrezVideoResult>): String = JSONArray().apply {
         results.take(5).forEach { r -> put(JSONObject().put("title", r.title).put("webpage_url", r.url).put("thumbnail", r.thumbnail)
@@ -50,16 +60,21 @@ object OrezVideoResultCodec {
     }.toString()
     fun fromMessage(message: String): List<OrezVideoResult> = if (!message.contains(MARKER)) emptyList()
         else runCatching { decode(JSONArray(message.substringAfter(MARKER))) }.getOrDefault(emptyList())
-    private fun decode(array: JSONArray): List<OrezVideoResult> = (0 until minOf(array.length(), 5)).mapNotNull { i ->
+    private fun decode(array: JSONArray, youtubeOnly: Boolean = false): List<OrezVideoResult> = (0 until minOf(array.length(), 5)).mapNotNull { i ->
         val row = array.optJSONObject(i) ?: return@mapNotNull null
         val id = row.optString("id")
-        val direct = row.optString("webpage_url").takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)
-            ?: row.optString("url").takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)
-        val url = direct
-            ?: if (id.matches(Regex("[a-zA-Z0-9_-]{11}"))) "https://www.youtube.com/watch?v=$id" else return@mapNotNull null
-        if (!com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(url)) return@mapNotNull null
+        val raw = row.optString("webpage_url").takeIf { it.isNotBlank() && it != "null" }
+            ?: row.optString("url").takeIf { it.isNotBlank() && it != "null" }
+        val url = if (raw != null) {
+            // Flat ytsearch can supply a bare observed video ID; other returned values need exact page admission.
+            if (youtubeOnly && raw.matches(Regex("[A-Za-z0-9_-]{11}"))) "https://www.youtube.com/watch?v=$raw"
+            else (if (youtubeOnly) OrezVideoDiscoveryLinks.youtubePage(raw) else OrezVideoDiscoveryLinks.normalizeIndividualVideo(raw))
+                ?: return@mapNotNull null
+        } else if (id.matches(Regex("[a-zA-Z0-9_-]{11}"))) "https://www.youtube.com/watch?v=$id" else return@mapNotNull null
         val thumbnail = row.optString("thumbnail").takeIf { it.startsWith("https://") && com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(it) }
-            ?: row.optJSONArray("thumbnails")?.optJSONObject(0)?.optString("url")?.takeIf { it.startsWith("https://") }
+            ?: row.optJSONArray("thumbnails")?.optJSONObject(0)?.optString("url")?.takeIf {
+                it.length <= 2048 && it.startsWith("https://") && com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(it)
+            }
         OrezVideoResult(row.optString("title").take(250), url, thumbnail,
             row.optString("channel", row.optString("uploader", "")).take(150),
             row.optDouble("duration", 0.0).toInt().takeIf { it > 0 },

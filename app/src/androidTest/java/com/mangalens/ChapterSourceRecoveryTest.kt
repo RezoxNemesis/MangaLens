@@ -212,13 +212,15 @@ class ChapterSourceRecoveryTest {
         }
     }
 
-    @Test fun intactPngDimensionsCannotMakeAnUnreadableRasterASuccessfulCachedPage() = runBlocking<Unit> {
+    @Test fun intactImageDimensionsCannotMakeAnUnreadableRasterASuccessfulCachedPage() = runBlocking<Unit> {
         Fixture().use { f ->
             val url = f.url("broken-raster.png")
             f.server.enqueue(imageResponse(png(Color.RED)))
             val page = f.repository.persistPage(1, url)
             val cached = File(requireNotNull(page.localPath))
-            cached.writeBytes(unreadablePng(png(Color.RED)))
+            // Fatal native-raster decoding is separate from Android's tolerant
+            // incomplete PNG path, whose rejection remains asserted below.
+            cached.writeBytes(BoundsReadableRasterFixture.create(32, 48))
             assertUnreadableRasterWithIntactBounds(cached)
             val replacement = png(Color.BLUE)
             f.server.enqueue(imageResponse(replacement))

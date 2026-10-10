@@ -40,10 +40,19 @@ internal object SubtitleInputs {
             it.validate()
             require(source.sourceResolutionId?.matches(Regex("[a-f0-9]{32}")) == true) { "Provider captions need the current accepted video selection." }
         }
+        if (source.captionDocumentOnly) {
+            require(source.headers.isEmpty() && source.uri == source.providerCaptions?.sourcePageUrl) {
+                "Browser source captions need their captured page and original caption inventory."
+            }
+        }
         val uri = Uri.parse(source.uri)
         val descriptor = (listOf(source.uri, source.headers.toSortedMap().entries.joinToString("\n") { "${it.key}:${it.value}" }) +
             if (source.providerCaptions == null) emptyList() else listOf(source.sourceResolutionId.orEmpty(), source.providerCaptions.fingerprint()))
             .joinToString("|") { "${it.length}:$it" }
+        if (source.captionDocumentOnly) {
+            // This fingerprints a captured caption source; it is never media-byte or PCM proof.
+            return@withContext SubtitleSourceIdentity(source, SubtitleGenerationStore.digest(descriptor + "|caption-document-only-v1"), false)
+        }
         if (uri.scheme in listOf("content", "file", "android.resource") || uri.scheme == null) {
             if (uri.scheme == "content") runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             val input = if (uri.scheme == null) File(source.uri).inputStream() else context.contentResolver.openInputStream(uri)
@@ -89,10 +98,15 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
         val workerCaller = currentCoroutineContext()
         try {
             val captured = store.get(id)?.takeIf { it.generation == generation } ?: return@withContext Result.success()
-            suspend fun checkOwner() = enforceSubtitleOwnerGate(store, captured) {
-                OrezTaskRecovery.allowSubtitleWork(applicationContext, store, it)
+            suspend fun checkOwner() {
+                if (captured.source.source.captionDocumentOnly &&
+                    !store.browserCaptionAuthority.permits(browserCaptionBinding(captured))) throw BrowserCaptionAuthorityRetired()
+                enforceSubtitleOwnerGate(store, captured) { OrezTaskRecovery.allowSubtitleWork(applicationContext, store, it) }
+                if (captured.source.source.captionDocumentOnly &&
+                    !store.browserCaptionAuthority.permits(browserCaptionBinding(captured))) throw BrowserCaptionAuthorityRetired()
             }
             checkOwner()
+            check(!captured.source.source.captionDocumentOnly || captured.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && captured.config.modelSha256 == null) { "Browser source captions cannot recognise audio." }
             if (!com.mangalens.core.compute.ResourceGovernorRuntime.shared.awaitBoundary(
                     com.mangalens.core.compute.ResourceWorkKind.BACKGROUND) { store.current(id, generation) })
                 return@withContext Result.success()
@@ -107,6 +121,9 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                         }).process()
                     if (handled) return@withContext if (store.get(id)?.status == SubtitleGenerationStatus.COMPLETED) Result.success() else Result.failure()
                 } finally { translator.close() }
+                check(!captured.source.source.captionDocumentOnly) {
+                    "Original source captions are unavailable for this browser video. Audio capture remains a separate explicit action."
+                }
                 check(captured.config.modelSha256 != null) {
                     "Original provider captions are unavailable. Install or import a multilingual Whisper model to recognise the original audio."
                 }
@@ -284,6 +301,11 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                     }
                 }
             }
+        } catch (_: BrowserCaptionAuthorityRetired) {
+            // No browser authority survives process death or source retirement. The exact old
+            // generation is retired on IO; saved journals cannot revive a live operation.
+            store.retireBrowserGeneration(id, generation)
+            Result.success()
         } catch (blocked: SubtitleOwnedWorkBlocked) {
             // A workflow stop is authoritative. An unacknowledged IO failure
             // defers work without replacing the pending stop with native FAILED.
@@ -328,9 +350,15 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
 object SubtitleGenerationJobs {
     suspend fun start(context: Context, source: SubtitleSourceIdentity, config: SubtitleGenerationConfig, force: Boolean = false,
         ownerRequestId: String? = null, allowOwnerReplacement: Boolean = true): SubtitleGenerationTask =
+        startCaptured(context, source, config, force, ownerRequestId, allowOwnerReplacement, null)
+    internal suspend fun startBrowser(context: Context, source: SubtitleSourceIdentity, config: SubtitleGenerationConfig,
+        operation: BrowserCaptionOperation): SubtitleGenerationTask =
+        startCaptured(context, source, config, true, null, false, operation)
+    private suspend fun startCaptured(context: Context, source: SubtitleSourceIdentity, config: SubtitleGenerationConfig, force: Boolean,
+        ownerRequestId: String?, allowOwnerReplacement: Boolean, browserOperation: BrowserCaptionOperation?): SubtitleGenerationTask =
         withContext(NonCancellable + Dispatchers.IO) {
             val store = SubtitleGenerationStore.shared(context)
-            val outcome = store.startResult(source, config, force, ownerRequestId, allowOwnerReplacement)
+            val outcome = store.startResult(source, config, force, ownerRequestId, allowOwnerReplacement, browserOperation)
             val task = outcome.task
             outcome.replaced?.takeIf { it.generation != task.generation }?.let { WorkManager.getInstance(context).cancelUniqueWork(name(it)).awaitCompletion() }
             enqueue(context, store, task)
@@ -340,9 +368,14 @@ object SubtitleGenerationJobs {
         val store = SubtitleGenerationStore.shared(context); val task = store.pause(id, generation) ?: return@withContext null
         WorkManager.getInstance(context).cancelUniqueWork(name(task)).awaitCompletion(); store.commandSnapshot(task)
     }
-    suspend fun resume(context: Context, id: String, generation: String): SubtitleGenerationTask? = withContext(NonCancellable + Dispatchers.IO) {
+    suspend fun resume(context: Context, id: String, generation: String): SubtitleGenerationTask? =
+        resumeCaptured(context, id, generation, null)
+    internal suspend fun resumeBrowser(context: Context, id: String, generation: String, operation: BrowserCaptionOperation): SubtitleGenerationTask? =
+        resumeCaptured(context, id, generation, operation)
+    private suspend fun resumeCaptured(context: Context, id: String, generation: String,
+        browserOperation: BrowserCaptionOperation?): SubtitleGenerationTask? = withContext(NonCancellable + Dispatchers.IO) {
         val store = SubtitleGenerationStore.shared(context); val old = store.get(id)?.takeIf { it.generation == generation } ?: return@withContext null
-        val task = store.resume(id, generation) ?: return@withContext null
+        val task = store.resume(id, generation, browserOperation) ?: return@withContext null
         WorkManager.getInstance(context).cancelUniqueWork(name(old)).awaitCompletion(); enqueue(context, store, task); store.commandSnapshot(task)
     }
     suspend fun cancel(context: Context, id: String, generation: String): SubtitleGenerationTask? = withContext(NonCancellable + Dispatchers.IO) {

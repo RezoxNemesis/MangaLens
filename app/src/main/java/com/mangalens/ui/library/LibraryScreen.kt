@@ -40,7 +40,10 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
     onOpenReader: () -> Unit, onOpenLocalVideo: () -> Unit,
     onChapterDetails: (String, Boolean, ReadingStatus) -> Unit,
     onChapterMetadata: (suspend (String, LibraryChapterMetadata) -> Unit)? = null,
-    onOpenSeriesMemory: ((String?) -> Unit)? = null) {
+    onOpenSeriesMemory: ((String?) -> Unit)? = null,
+    onSearchSavedText: ((String) -> Unit)? = null,
+    onSearchAllSavedText: (() -> Unit)? = null,
+    onOpenSemanticSearch: ((String) -> Unit)? = null) {
     val context = LocalContext.current.applicationContext
     val settings = remember(context) { LibrarySettingsStore(context) }
     val scope = rememberCoroutineScope()
@@ -49,6 +52,7 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
     var filtersOpen by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var exportChapter by remember { mutableStateOf<SavedChapter?>(null) }
     var savingSettings by remember { mutableStateOf(false) }
     var settingsError by remember { mutableStateOf<String?>(null) }
     val options = LibraryOptionsCodec.decode(optionsJson)
@@ -102,6 +106,7 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
             confirmButton = { TextButton({ onDeleteChapter(chapter.id); pendingDeleteId = null }) { Text("Delete") } },
             dismissButton = { TextButton({ pendingDeleteId = null }) { Text("Cancel") } })
     }
+    exportChapter?.let { LibraryCbzExportDialog(it, onDismiss = { exportChapter = null }) }
     if (filtersOpen) LibraryFilterSheet(options, sources, collections, savingSettings, settingsError,
         onDismiss = { if (!savingSettings) filtersOpen = false }, onApply = { acceptOptions(it, true) })
     val editing = state.library.firstOrNull { it.id == editingId }
@@ -114,6 +119,16 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
         item(span = { GridItemSpan(maxLineSpan) }) { BrandHeader("My Library", "YOUR STORIES, YOUR PACE") }
         if (onOpenSeriesMemory != null) item(span = { GridItemSpan(maxLineSpan) }) {
             TextButton({ onOpenSeriesMemory(null) }, modifier = Modifier.semantics { contentDescription = "Open series memory" }) { Text("Series memory and glossary") }
+        }
+        if (onSearchAllSavedText != null) item(span = { GridItemSpan(maxLineSpan) }) {
+            TextButton(onSearchAllSavedText, modifier = Modifier.semantics { contentDescription = "Search text across all saved chapters" }) {
+                Text("Search saved OCR, translations and personal text")
+            }
+        }
+        if (onOpenSemanticSearch != null) item(span = { GridItemSpan(maxLineSpan) }) {
+            TextButton({ onOpenSemanticSearch(query.take(160)) }, modifier = Modifier.semantics { contentDescription = "Open optional English semantic Library search" }) {
+                Text("Search chapter meaning · optional English CPU model")
+            }
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             OutlinedTextField(query, { if (it.length <= 512) query = it }, Modifier.fillMaxWidth().semantics { contentDescription = "Search saved chapters" },
@@ -180,6 +195,12 @@ fun LibraryScreen(state: MangaLensUiState, onDeleteChapter: (String) -> Unit, on
                             modifier = Modifier.semantics { contentDescription = "Edit library details for ${chapter.title}" }, onClick = { editingId = chapter.id; menu = false })
                         if (onOpenSeriesMemory != null) DropdownMenuItem(text = { Text("Link series memory and glossary") },
                             modifier = Modifier.semantics { contentDescription = "Link series memory for ${chapter.title}" }, onClick = { menu = false; onOpenSeriesMemory(chapter.id) })
+                        if (onSearchSavedText != null) DropdownMenuItem(text = { Text("Search saved text") },
+                            modifier = Modifier.semantics { contentDescription = "Search saved text in ${chapter.title}" },
+                            onClick = { menu = false; onSearchSavedText(chapter.id) })
+                        DropdownMenuItem(text = { Text("Export original pages (CBZ)") },
+                            modifier = Modifier.semantics { contentDescription = "Export original pages for ${chapter.title}" },
+                            onClick = { menu = false; exportChapter = chapter })
                         DropdownMenuItem(text = { Text("Delete offline chapter") }, onClick = { pendingDeleteId = chapter.id; menu = false })
                     }
                 })

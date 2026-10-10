@@ -39,6 +39,7 @@ import coil.request.Options
 import coil.size.Precision
 import coil.size.Scale
 import com.mangalens.core.reader.MangaImagePolicy
+import com.mangalens.core.reader.PngRasterIntegrity
 import com.mangalens.core.translation.ChapterTranslationStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -97,6 +98,10 @@ internal fun readMangaImageSource(file: File, checkActive: () -> Unit = {}): Man
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.absolutePath, bounds)
     val size = MangaImagePolicy.dimensions(bounds.outWidth, bounds.outHeight) ?: return null
+    // Verify PNG once with this captured IO fingerprint, never on every paint
+    // or tile. A tolerant partial native decode must still expose source retry
+    // (or the existing cleaned-surface fallback) through the same load owner.
+    PngRasterIntegrity.verifyIfPng(file, ChapterTranslationStore.MAX_SURFACE_BYTES, 100_000_000L, checkActive)
     val regionCapable = MangaImagePolicy.supportsRegionFormat(bounds.outMimeType) && runCatching {
         val decoder = BitmapRegionDecoder.newInstance(file.absolutePath, false) ?: return@runCatching false
         try { decoder.width == size.width && decoder.height == size.height } finally { decoder.recycle() }
@@ -176,7 +181,8 @@ internal fun ReaderMangaImage(
     contentScale: ContentScale,
     viewportTransform: Any? = null,
     contentRevision: String? = null,
-    onLoadError: () -> Unit = {}
+    onLoadError: () -> Unit = {},
+    normalizedPlane: Boolean = false
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -207,7 +213,7 @@ internal fun ReaderMangaImage(
     }
     LaunchedEffect(coordinates, source, viewportTransform) { coordinates?.let(::updateViewport) }
 
-    val tiled = source?.takeIf { it.regionCapable && contentScale == ContentScale.FillWidth && it.size.height > MangaImagePolicy.MAX_DECODE_SIDE }
+    val tiled = source?.takeIf { it.regionCapable && (contentScale == ContentScale.FillWidth || normalizedPlane && contentScale == ContentScale.FillBounds) && it.size.height > MangaImagePolicy.MAX_DECODE_SIDE }
     Box(modifier.clipToBounds().onGloballyPositioned { coordinates = it; updateViewport(it) }
         .then(if (tiled != null) Modifier.semantics { contentDescription = description } else Modifier)) {
         // A cold restored page has no runtime token. Obtain its actual fingerprint

@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangalens.engine.OrezLiveSearchConnector
@@ -38,6 +39,7 @@ import com.mangalens.orez.agent.OrezDurablePlanRules
 import com.mangalens.orez.agent.OrezTaskControls
 import com.mangalens.orez.agent.OrezPendingControl
 import com.mangalens.ui.components.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -62,6 +64,13 @@ class OrezAiViewModel @JvmOverloads constructor(
     private val taskControls = OrezTaskControls(app, taskStore)
     private val toolRegistry = OrezToolRegistry()
     private val enginePrefs = app.getSharedPreferences("orez_engine", android.content.Context.MODE_PRIVATE)
+
+    private val resourcePreferences = OrezResourceModePreferences.get(app)
+    internal val resourceModeState get() = resourcePreferences.state
+    internal fun selectResourceMode(mode: OrezResourceMode) { resourcePreferences.select(mode) }
+    internal suspend fun observeLoadedModel() = modelManager.observeLoadedModel()
+    internal fun loadedModelObservationCurrent(observation: OrezLoadedModelObservation): Boolean =
+        OrezLoadedModelPolicy.stillCurrent(observation, com.mangalens.oreznative.OrezNativeEngine.sharedModelPath)
 
     val modelState get() = modelManager.state
     val messages = dao.observe().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -150,28 +159,39 @@ class OrezAiViewModel @JvmOverloads constructor(
         onRoute: (String, OrezRoute) -> Unit = { _, _ -> },
         activeChapterId: String? = null,
         selectedMedia: com.mangalens.orez.agent.OrezMediaSelection? = null,
-        subtitleOptions: com.mangalens.orez.agent.OrezSubtitleOptions = com.mangalens.orez.agent.OrezSubtitleOptions()
+        subtitleOptions: com.mangalens.orez.agent.OrezSubtitleOptions = com.mangalens.orez.agent.OrezSubtitleOptions(),
+        imageAttachment: OrezImageAttachment? = null,
+        imageSourceOwner: OrezImageSourceOwner? = null
     ) {
         val input = query.trim()
         if (input.isBlank() || typing) return
+        val acceptedImage = imageAttachment?.copy(region=imageAttachment.region.copy())?.validated()
+        if (acceptedImage != null && imageSourceOwner == null) {
+            thinkingStage = "The image source owner is unavailable. Pick and read it again."
+            return
+        }
         val acceptedMedia = selectedMedia?.captured()
         typing = true
         thinkingStage = "Understanding your request…"
         replyJob = viewModelScope.launch {
             var activePlan: OrezTaskPlan? = null
             try {
+                val resources = resourcePreferences.capture()
+                kotlinx.coroutines.withContext(resources) request@ {
                 dao.insert(OrezMessageEntity(role = "YOU", text = input))
                 val appContext = OrezAgentContext(
                         hasActiveChapter = hasActiveChapter,
                         hasLibrary = libraryContext.isNotBlank(),
                         activeUrl = activeUrl,
                         activeChapterId = activeChapterId,
-                        translationOptions = capturedTranslationOptions(),
+                        translationOptions = capturedTranslationOptions().captureForNewRequest(),
                         selectedMedia = acceptedMedia,
-                        subtitleOptions = subtitleOptions.normalized()
+                        subtitleOptions = subtitleOptions.captureForNewRequest()
                     )
-                var agentDecision = agentRuntime.decide(input, appContext)
-                if (agentDecision.continueToBrain && answerRequest == null) {
+                // Image questions are local text explanations. OCR cannot enter app planning or research.
+                var agentDecision = if (acceptedImage != null) com.mangalens.orez.agent.OrezAgentDecision(continueToBrain=true)
+                    else agentRuntime.decide(input, appContext)
+                if (acceptedImage == null && agentDecision.continueToBrain && answerRequest == null) {
                     brain.planAction(input, appContext)?.let { agentDecision = agentRuntime.decidePlan(it, appContext) }
                 }
                 agentDecision.plan?.let { proposed ->
@@ -213,7 +233,7 @@ class OrezAiViewModel @JvmOverloads constructor(
                         if (durablePlan.steps.first().call.name == "enqueue_download")
                             onRoute(agentDecision.routeValue, OrezRoute.DOWNLOADS)
                         thinkingStage = "Task queued • runs in background"
-                        return@launch
+                        return@request
                     }
                     val route = agentDecision.immediateRoute
                     if (route != null) {
@@ -235,7 +255,7 @@ class OrezAiViewModel @JvmOverloads constructor(
                         activePlan = null
                         thinkingStage = if (handedOff) "Handed to MangaLens • ready" else "Ready"
                     }
-                    return@launch
+                    return@request
                 }
 
                 // Questions mentioning URLs remain questions. All executable URL actions
@@ -245,7 +265,7 @@ class OrezAiViewModel @JvmOverloads constructor(
                     .getSharedPreferences("mangalens_preferences", android.content.Context.MODE_PRIVATE)
                     .getString("translation_target", "hi") ?: "hi"
 
-                thinkingStage = when (_engineMode.value) {
+                thinkingStage = if (acceptedImage != null) "Explaining image OCR text locally…" else when (_engineMode.value) {
                     OrezEngineMode.LOCAL_LITE -> "Using local intelligence…"
                     OrezEngineMode.HYBRID_AUTO -> "Choosing the fastest reliable route…"
                     OrezEngineMode.WEB_ASSIST -> "Checking readable web sources…"
@@ -258,7 +278,9 @@ class OrezAiViewModel @JvmOverloads constructor(
                             recentMessages = recent,
                             targetLanguage = targetLanguage,
                             libraryContext = libraryContext,
-                            chapterText = chapterText.takeIf(String::isNotBlank)
+                            chapterText = chapterText.takeIf(String::isNotBlank),
+                            imageAttachment = acceptedImage,
+                            imageSourceOwner = imageSourceOwner
                         )
                     )
                 } ?: OrezBrainResponse(
@@ -267,15 +289,19 @@ class OrezAiViewModel @JvmOverloads constructor(
                 )
 
                 currentCoroutineContext().ensureActive()
+                if (acceptedImage != null && imageSourceOwner?.isCurrent(acceptedImage) != true)
+                    throw kotlinx.coroutines.CancellationException("The image question or source changed before delivery.")
                 thinkingStage = "Preparing answer…"
                 val sources = answer.sources.distinct()
                     .filter(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)
                     .take(6)
                 val resultText = answer.text +
                     (if (sources.isEmpty()) "" else "\n\nSources:\n" + sources.joinToString("\n")) +
-                    (if (answer.videos.isEmpty()) "" else OrezVideoResultCodec.MARKER + OrezVideoResultCodec.encode(answer.videos))
+                    (if (answer.videos.isEmpty()) "" else OrezVideoResultCodec.MARKER + OrezVideoResultCodec.encode(answer.videos)) +
+                    com.mangalens.orez.OrezVideoSearchActionCodec.encode(answer.videoSearchAction)
                 dao.insert(OrezMessageEntity(role = "OREZ", text = resultText))
                 thinkingStage = "Ready"
+                }
             } catch (t: Throwable) {
                 activePlan?.let { plan ->
                     kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
@@ -284,7 +310,10 @@ class OrezAiViewModel @JvmOverloads constructor(
                             "Action interrupted. Check the destination before retrying.")
                     }
                 }
-                if (t is kotlinx.coroutines.CancellationException) throw t
+                if (t is kotlinx.coroutines.CancellationException) {
+                    if (acceptedImage != null) thinkingStage = "Image question stopped • re-read the attachment if source access is unavailable"
+                    throw t
+                }
                 dao.insert(OrezMessageEntity(role = "OREZ", text = "I hit a recoverable error: " + (t.message ?: "unknown error") + ". The chat stayed alive, so you can retry immediately."))
                 thinkingStage = "Recovered • ready"
             } finally {
@@ -332,6 +361,10 @@ class OrezAiViewModel @JvmOverloads constructor(
 
     fun subtitleResultReferences(encoded: String): List<com.mangalens.orez.agent.OrezSubtitleResultReference> =
         runCatching { com.mangalens.orez.agent.OrezSubtitleResult.references(taskStore.decode(encoded)) }.getOrDefault(emptyList())
+
+    fun researchResults(encoded: String): List<com.mangalens.orez.research.OrezResearchEvidence> = runCatching {
+        com.mangalens.orez.agent.OrezResearchResults.evidence(taskStore.decode(encoded))
+    }.getOrDefault(emptyList())
 
     fun resumeTask(id: String) = viewModelScope.launch {
         taskControlMessage { taskControls.resume(id) }
@@ -409,17 +442,71 @@ fun OrezAiScreen(
     selectedMedia: com.mangalens.orez.agent.OrezMediaSelection? = null,
     subtitleOptions: com.mangalens.orez.agent.OrezSubtitleOptions = com.mangalens.orez.agent.OrezSubtitleOptions(),
     onOpenSubtitleResult: (com.mangalens.orez.agent.OrezSubtitleResultReference) -> Unit = {},
+    initialUserRequest: String = "",
+    onOpenSpeechModels: () -> Unit = {},
     onRoute: (String, OrezRoute) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val messages by vm.messages.collectAsState()
     val modelState by vm.modelState.collectAsState()
+    val resourceModeState by vm.resourceModeState.collectAsState()
     val engineMode by vm.engineMode.collectAsState()
     val activeTasks by vm.activeTasks.collectAsState()
     val completedTasks by vm.completedTasks.collectAsState()
-    var input by rememberSaveable { mutableStateOf("") }
+    var input by rememberSaveable(initialUserRequest) { mutableStateOf(initialUserRequest.take(1_024)) }
+    var draftRevision by remember { mutableLongStateOf(0L) }
+    val attachmentScope = rememberCoroutineScope()
+    val imageAttachment = remember(context, vm) { OrezImageAttachmentController(context, attachmentScope, vm::stopReply) }
+    val imageState by imageAttachment.state.collectAsState()
+    var imagePickerTicket by remember { mutableLongStateOf(0L) }
+    val imagePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> imageAttachment.acceptPick(imagePickerTicket, uri) }
+    fun changeDraft(value: String) {
+        if (value != input) {
+            draftRevision++
+            if (imageState.hasSelection) imageAttachment.draftChanged()
+            input = value
+        }
+    }
+    LaunchedEffect(initialUserRequest) { draftRevision++ }
+    val voiceControls = com.mangalens.ui.ai.voice.rememberOrezVoiceControls(input, draftRevision, ::changeDraft)
+    val imageLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(imageAttachment, imageLifecycleOwner) {
+        imageAttachment.setForeground(imageLifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED))
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> imageAttachment.setForeground(true)
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> imageAttachment.setForeground(false)
+                else -> Unit
+            }
+        }
+        imageLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { imageLifecycleOwner.lifecycle.removeObserver(observer); imageAttachment.close() }
+    }
     var showEngine by rememberSaveable { mutableStateOf(false) }
+    var loadedModel by remember(vm) { mutableStateOf<OrezLoadedModelObservation?>(null) }
+    val runtimeLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(showEngine, vm, runtimeLifecycle) {
+        loadedModel = null
+        if (showEngine) runtimeLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            try {
+                while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    val observation = try { vm.observeLoadedModel() }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }
+                    loadedModel = observation?.takeIf(vm::loadedModelObservationCurrent)
+                    kotlinx.coroutines.delay(1_000L)
+                }
+            } finally { loadedModel = null }
+        }
+    }
     var selectedMessage by remember { mutableStateOf<OrezMessageEntity?>(null) }
+    var selectedResearch by remember { mutableStateOf<com.mangalens.orez.research.OrezResearchEvidence?>(null) }
+    selectedResearch?.let { result ->
+        OrezResearchResultPanel(result, onDismiss = { selectedResearch = null },
+            onOpenSource = { url -> onRoute(url, OrezRoute.WEB_VIEW) })
+    }
     var confirmClear by remember { mutableStateOf(false) }
     val expandedMessages = remember { mutableStateMapOf<Long, Boolean>() }
     val list = rememberLazyListState()
@@ -473,7 +560,7 @@ fun OrezAiScreen(
             title = { Text("Clear Orez conversation?") },
             text = { Text("This removes the visible chat history on this device. Orez model files and translation memory stay installed.") },
             confirmButton = {
-                TextButton(onClick = { vm.clearConversation(); confirmClear = false }) { Text("Clear chat") }
+                TextButton(onClick = { imageAttachment.remove(); vm.clearConversation(); confirmClear = false }) { Text("Clear chat") }
             },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } }
         )
@@ -493,6 +580,15 @@ fun OrezAiScreen(
             item {
                 NeonActionTile("Translate a chapter", "Import images, PDF or CBZ", Icons.Outlined.Translate,
                     Modifier.fillMaxWidth()) { picker.launch(com.mangalens.core.reader.DocumentImporter.MIME_TYPES) }
+            }
+
+            item {
+                OrezImageAttachmentPanel(imageAttachment, imageState) {
+                    imageAttachment.beginPick()?.let { ticket ->
+                        imagePickerTicket = ticket
+                        imagePicker.launch(arrayOf("image/*"))
+                    }
+                }
             }
 
             if (activeTasks.isNotEmpty()) {
@@ -530,8 +626,23 @@ fun OrezAiScreen(
                                 if (task.status in setOf("WAITING", "FAILED") && vm.canResumeTask(task.planJson)) {
                                     TextButton(onClick = { vm.resumeTask(task.id) }) { Text("Resume task") }
                                 }
-                                TextButton(onClick = { input = task.objective }) { Text("Review request") }
+                                TextButton(onClick = { changeDraft(task.objective) }) { Text("Review request") }
                                 TextButton(onClick = { vm.dismissTask(task.id) }) { Text("Dismiss task") }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                val research = completedTasks.flatMap { task -> vm.researchResults(task.planJson) }.take(5)
+                if (research.isNotEmpty()) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Saved research results", style = MaterialTheme.typography.titleMedium)
+                            research.forEach { result ->
+                                Text(result.query, maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { selectedResearch = result }) { Text("Inspect source excerpts") }
                             }
                         }
                     }
@@ -555,10 +666,11 @@ fun OrezAiScreen(
 
             item {
                 androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { AssistChip(onClick = { input = "Find manga: " }, label = { Text("Find") }) }
-                    item { AssistChip(onClick = { input = "Summarize this chapter faithfully without spoilers." }, label = { Text("Summarize") }) }
-                    item { AssistChip(onClick = { input = "Help me improve OCR for this chapter." }, label = { Text("Fix OCR") }) }
-                    item { AssistChip(onClick = { input = "Help me plan my reading list from my saved chapters." }, label = { Text("Reading list") }) }
+                    item { AssistChip(onClick = { changeDraft("Research \"your public question\"") }, label = { Text("Research") }) }
+                    item { AssistChip(onClick = { changeDraft("Find manga: ") }, label = { Text("Find") }) }
+                    item { AssistChip(onClick = { changeDraft("Summarize this chapter faithfully without spoilers.") }, label = { Text("Summarize") }) }
+                    item { AssistChip(onClick = { changeDraft("Help me improve OCR for this chapter.") }, label = { Text("Fix OCR") }) }
+                    item { AssistChip(onClick = { changeDraft("Help me plan my reading list from my saved chapters.") }, label = { Text("Reading list") }) }
                 }
             }
 
@@ -569,6 +681,7 @@ fun OrezAiScreen(
                     exit = fadeOut() + shrinkVertically()
                 ) {
                     Panel(Modifier.fillMaxWidth()) {
+                        val currentLoaded = loadedModel?.takeIf(vm::loadedModelObservationCurrent)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("OREZ Engine", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
@@ -580,7 +693,7 @@ fun OrezAiScreen(
                                                 " • " + ((modelState.progress * 100).toInt()) + "%"
                                         modelState.selectedInstalled ->
                                             (modelState.selectedDescriptor?.label ?: modelState.selectedTier.displayName) +
-                                                " local intelligence • " + (modelState.total / 1_000_000L) + " MB"
+                                                " installed • warm on demand • " + (modelState.total / 1_000_000L) + " MB"
                                         modelState.legacyInstalled && modelState.installedTiers.isEmpty() ->
                                             "Legacy local model • " + (OrezModelManager.LEGACY_MODEL_BYTES / 1_000_000L) +
                                                 " MB • upgrade recommended"
@@ -595,11 +708,14 @@ fun OrezAiScreen(
                                 when {
                                     modelState.verifying -> "Verifying"
                                     modelState.downloading -> "Installing"
-                                    modelState.selectedInstalled -> modelState.selectedTier.displayName
-                                    modelState.legacyInstalled -> "Legacy pack"
+                                    currentLoaded?.kind == OrezLoadedModelKind.VERIFIED_PIN -> "Local model loaded"
+                                    currentLoaded?.kind == OrezLoadedModelKind.UNMAPPED -> "Loaded identity unavailable"
+                                    currentLoaded?.kind == OrezLoadedModelKind.IDLE -> "Local model idle"
+                                    modelState.selectedInstalled -> "Installed"
+                                    modelState.legacyInstalled -> "Legacy installed"
                                     else -> "App + web logic"
                                 },
-                                positive = modelState.selectedInstalled
+                                positive = currentLoaded?.kind == OrezLoadedModelKind.VERIFIED_PIN
                             )
                         }
 
@@ -613,7 +729,18 @@ fun OrezAiScreen(
                             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         }
 
-                        Text("Local intelligence", style = MaterialTheme.typography.labelLarge)
+                        Text(when (currentLoaded?.kind) {
+                            OrezLoadedModelKind.VERIFIED_PIN -> currentLoaded.pin?.let { pin ->
+                                "Loaded weights: " + pin.modelId + " • " + pin.bytes / 1_000_000L + " MB"
+                            } ?: "Loaded weight identity unavailable."
+                            OrezLoadedModelKind.IDLE -> "No local model is currently loaded."
+                            OrezLoadedModelKind.UNMAPPED -> "The runtime holds a model, but its verified weight identity is unavailable."
+                            null -> "Checking the shared local runtime…"
+                        }, style = MaterialTheme.typography.bodySmall)
+                        currentLoaded?.pin?.let { pin ->
+                            Text("Weights SHA-256: " + pin.sha256, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("Local model selection", style = MaterialTheme.typography.labelLarge)
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -628,11 +755,11 @@ fun OrezAiScreen(
                                 )
                             }
                         }
-                        Text(
-                            "Lite stays fast on modest phones. Core installs separately for stronger local reasoning and falls back to Lite when available memory is too low.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        OrezModelGovernancePanel(
+                            modelState.selectedDescriptor?.let { OrezModelPin(it.id, it.sha256, it.bytes) }
                         )
+
+                        OrezResourceRoutingPanel(resourceModeState, vm::selectResourceMode)
 
                         Text("Engine mode", style = MaterialTheme.typography.labelLarge)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -651,7 +778,7 @@ fun OrezAiScreen(
                         }
 
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            NeonStatusPill("Warm start", positive = modelState.installed)
+                            NeonStatusPill("Warm on demand", positive = currentLoaded?.kind == OrezLoadedModelKind.VERIFIED_PIN)
                             NeonStatusPill("Fast fallback", positive = true)
                             NeonStatusPill("Story context", positive = true)
                         }
@@ -727,6 +854,11 @@ fun OrezAiScreen(
                             val answerBody = message.text
                                 .substringBefore("\n\nSources:")
                                 .substringBefore(OrezVideoResultCodec.MARKER)
+                                .substringBefore(com.mangalens.orez.OrezVideoSearchActionCodec.MARKER)
+                            if (message.role != "YOU" && voiceControls.outputEnabled && answerBody.isNotBlank()) {
+                                TextButton(enabled = voiceControls.outputState?.ready == true,
+                                    onClick = { voiceControls.speak(answerBody) }) { Text("Speak reply offline") }
+                            }
                             val expanded = expandedMessages[message.id] == true
                             Text(if (expanded || answerBody.length <= 1800) answerBody else answerBody.take(1800).trimEnd() + "…")
                             if (answerBody.length > 1800) {
@@ -735,6 +867,11 @@ fun OrezAiScreen(
                                 }
                             }
 
+                            if (message.role == "OREZ") com.mangalens.orez.OrezVideoSearchActionCodec.fromMessage(message.text)?.let { query ->
+                                TextButton(onClick = { onRoute(com.mangalens.orez.OrezPublicVideoDiscovery.browserSearch(query), OrezRoute.WEB_VIEW) }) {
+                                    Text("Open YouTube search")
+                                }
+                            }
                             OrezVideoResultCodec.fromMessage(message.text).forEach { video ->
                                 video.thumbnail?.let {
                                     coil.compose.AsyncImage(
@@ -788,13 +925,15 @@ fun OrezAiScreen(
             }
         }
 
+        com.mangalens.ui.ai.voice.OrezOfflineVoicePanel(voiceControls, onOpenSpeechModels)
+
         Row(
             Modifier.fillMaxWidth().padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
-                input, { input = it }, Modifier.weight(1f), maxLines = 4,
+                input, ::changeDraft, Modifier.weight(1f), maxLines = 4,
                 placeholder = { Text("Ask Orez anything…") },
                 leadingIcon = { Icon(Icons.Outlined.AutoAwesome, null) },
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
@@ -806,15 +945,20 @@ fun OrezAiScreen(
             } else {
                 Button(
                     onClick = {
+                        voiceControls.cancelInput()
                         val query = input
+                        val image = imageAttachment.captureAnswer()
+                        if (imageState.hasSelection && image == null) return@Button
+                        draftRevision++
                         input = ""
                         vm.sendMessage(query, libraryContext, chapterText, hasActiveChapter, activeUrl, onTargetLanguage, onRoute,
-                            activeChapterId = activeChapterId, selectedMedia = selectedMedia, subtitleOptions = subtitleOptions)
+                            activeChapterId = activeChapterId, selectedMedia = selectedMedia, subtitleOptions = subtitleOptions,
+                            imageAttachment = image?.attachment, imageSourceOwner = image?.owner)
                     },
-                    enabled = input.isNotBlank(),
+                    enabled = input.isNotBlank() && (!imageState.hasSelection || imageState.attachment != null) && !imageState.busy,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
-                ) { Icon(Icons.Outlined.Send, "Send") }
+                ) { if (imageState.attachment != null) Text("Ask about image text") else Icon(Icons.Outlined.Send, "Send") }
             }
         }
     }

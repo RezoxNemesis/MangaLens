@@ -92,9 +92,6 @@ fun LiveAudioSubtitleSettings(
     var showLatest by remember { mutableStateOf(prefs.getBoolean("show_latest", true)) }
     var offset by remember { mutableFloatStateOf(prefs.getInt("offset_ms", 0).toFloat()) }
     var exportStatus by remember { mutableStateOf<String?>(null) }
-    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch { engine.importModel(uri) }
-    }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
         if (uri != null) scope.launch {
             exportStatus = runCatching { withContext(Dispatchers.IO) {
@@ -134,12 +131,7 @@ fun LiveAudioSubtitleSettings(
             }
         }
         if (state.inferenceMs > 0) Text("Last audio processing: ${state.inferenceMs} ms", style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(enabled = !state.busy, onClick = { scope.launch { engine.installTiny() } }) {
-                Text(if (state.ready) "Replace with tiny (74 MiB)" else "Download model (74 MiB)")
-            }
-            TextButton(enabled = !state.busy, onClick = { import.launch(arrayOf("application/octet-stream", "*/*")) }) { Text("Import model") }
-        }
+        SpeechModelInstallControls(engine)
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Text("Import multilingual GGML tiny/base/small models for offline use. Larger models improve quality but take longer.", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -452,4 +444,22 @@ internal fun rememberSubtitleExportActions(state: FullSubtitleState, source: Sub
 private fun previewTime(ms: Long): String {
     val t = ms.coerceAtLeast(0L)
     return "%02d:%02d:%02d".format(t / 3_600_000, t / 60_000 % 60, t / 1_000 % 60)
+}
+
+/** Shared explicit model actions. Opening controls never installs, imports or records audio. */
+@Composable
+internal fun SpeechModelInstallControls(engine: VideoSpeechEngine,
+    ownedScope: kotlinx.coroutines.CoroutineScope? = null) {
+    val uiScope = rememberCoroutineScope()
+    val scope = ownedScope ?: uiScope
+    val state by engine.state.collectAsState()
+    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch { engine.importModel(uri) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(enabled = !state.busy, onClick = { scope.launch { engine.installTiny() } }) {
+            Text(if (state.ready) "Replace with tiny (74 MiB)" else "Download model (74 MiB)")
+        }
+        TextButton(enabled = !state.busy, onClick = { import.launch(arrayOf("application/octet-stream", "*/*")) }) { Text("Import model") }
+    }
 }

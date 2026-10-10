@@ -18,6 +18,16 @@ internal class BrowserWorkspaceSession(io: BrowserWorkspaceIo, scope: CoroutineS
     val state: StateFlow<BrowserWorkspaceSnapshot?> = mutableState.asStateFlow()
     val error: StateFlow<String?> = mutableError.asStateFlow()
 
+    /** Foreground ownership only: background/durable workers cannot recreate a DOM host. */
+    @Volatile var domTools: com.mangalens.orez.agent.OrezBrowserTools? = null
+        private set
+    fun bindDomTools(tools: com.mangalens.orez.agent.OrezBrowserTools) { domTools = tools }
+    fun unbindDomTools(tools: com.mangalens.orez.agent.OrezBrowserTools) {
+        tools.retire()
+        if (domTools === tools) domTools = null
+    }
+
+
     init {
         // The application owns this scope. Accepted commands outlive an individual UI waiter.
         scope.launch {

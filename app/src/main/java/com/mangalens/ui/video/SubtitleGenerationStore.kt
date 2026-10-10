@@ -15,6 +15,7 @@ import java.util.UUID
 internal interface SubtitleJournalIo {
     fun read(file: File): ByteArray
     fun write(file: File, bytes: ByteArray)
+    fun stage(file: File, bytes: ByteArray): SubtitleStagedJournal = prepareSubtitleJournal(file, bytes)
 }
 private object AndroidSubtitleJournalIo : SubtitleJournalIo {
     override fun read(file: File): ByteArray = AtomicFile(file).openRead().use {
@@ -31,6 +32,7 @@ private object AndroidSubtitleJournalIo : SubtitleJournalIo {
 
 class SubtitleGenerationStore internal constructor(private val directory: File,
     private val io: SubtitleJournalIo = AndroidSubtitleJournalIo) {
+    internal val browserCaptionAuthority = BrowserCaptionAuthority()
     private val tasks = LinkedHashMap<String, SubtitleGenerationTask>()
     private val mutable = MutableStateFlow<List<SubtitleGenerationTask>>(emptyList())
     val states: StateFlow<List<SubtitleGenerationTask>> = mutable
@@ -58,23 +60,47 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
             else if (!canTrustSubtitleSource(checked.source, source) && checked.windows.isNotEmpty())
                 checked.copy(validationPending = true, pcmValidationRequired = true) else checked
         }?.also { checked -> if (checked != tasks[checked.id]) save(checked) }
+    /** Restore a unique ownerless captured request when the caller never carried a profile version.
+     * Exact historical identity takes precedence; no ambient version or newest-task choice is made. */
+    @Synchronized internal fun findSavedCapturedRequest(source: SubtitleSourceIdentity,
+        requestedConfig: SubtitleGenerationConfig): SubtitleGenerationTask? {
+        val config = requestedConfig.normalized()
+        find(source, config)?.let { return it }
+        if (!config.localRefinement || config.refinementInputProfileRevision != null || tasks.size > 32) return null
+        val candidates = tasks.values.filter { candidate ->
+            candidate.ownerRequestId == null && candidate.source == source &&
+                candidate.config.copy(refinementInputProfileRevision = null) == config
+        }
+        // All registered history is bounded; never truncate enumeration and miss a competing match.
+        if (candidates.size != 1) return null
+        return find(source, candidates.single().config)
+    }
+
     /** A generation precondition is checked before any verification or journal mutation. */
     @Synchronized fun refresh(id: String, generation: String? = null): SubtitleGenerationTask? = tasks[id]?.takeIf {
         generation == null || it.generation == generation
     }?.let(::validateExports)?.also { if (it != tasks[id]) save(it) }
     @Synchronized fun exportVerified(id: String, generation: String): SubtitleGenerationTask? = refresh(id, generation)?.takeIf {
         it.status == SubtitleGenerationStatus.COMPLETED && !it.validationPending && !it.pcmValidationRequired &&
-            hasSubtitlePlaybackProof(it) && it.srtPath != null && it.vttPath != null
+            hasSubtitlePlaybackProof(it) && it.srtPath != null && it.vttPath != null &&
+            (!it.source.source.captionDocumentOnly || browserCaptionAuthority.permits(browserCaptionBinding(it)))
     }
     fun start(source: SubtitleSourceIdentity, config: SubtitleGenerationConfig, force: Boolean = false,
         ownerRequestId: String? = null, allowOwnerReplacement: Boolean = true): SubtitleGenerationTask =
         startResult(source, config, force, ownerRequestId, allowOwnerReplacement).task
 
+    internal fun startBrowser(source: SubtitleSourceIdentity, config: SubtitleGenerationConfig, operation: BrowserCaptionOperation): SubtitleGenerationTask =
+        startResult(source, config, force = true, allowOwnerReplacement = false, browserOperation = operation).task
+
     @Synchronized internal fun startResult(requestedSource: SubtitleSourceIdentity, requestedConfig: SubtitleGenerationConfig,
-        force: Boolean = false, ownerRequestId: String? = null, allowOwnerReplacement: Boolean = true): SubtitleStartResult {
+        force: Boolean = false, ownerRequestId: String? = null, allowOwnerReplacement: Boolean = true,
+        browserOperation: BrowserCaptionOperation? = null): SubtitleStartResult {
         val source = requestedSource.copy(source = requestedSource.source.captureSnapshot())
         val config = requestedConfig.normalized()
-        validateSource(source); validateConfig(config)
+        validateSource(source); validateConfig(config); validateCaptionMode(source, config)
+        require(!source.source.captionDocumentOnly || force && browserOperation != null && ownerRequestId == null) {
+            "Browser source captions need an explicit start for the current accepted video."
+        }
         validateOwner(ownerRequestId)
         val id = identity(source, config)
         val existing = tasks[id]
@@ -116,6 +142,11 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
             pcmValidationRequired = !force && old?.providerCaptionReceipt == null && old?.windows?.isNotEmpty() == true && (!trusted || old.pcmValidationRequired),
             error = if (modelRequired) "Install or import a multilingual Whisper model first." else null, ownerRequestId = ownerRequestId,
             providerCaptionReceipt = if (force) null else old?.providerCaptionReceipt)
+        if (source.source.captionDocumentOnly) {
+            val operation = requireNotNull(browserOperation)
+            if (operation.key != browserCaptionBinding(task).key ||
+                !browserCaptionAuthority.bind(operation, task.id, task.generation)) throw BrowserCaptionAuthorityRetired()
+        }
         save(task); cleanGeneratedExports(task.id); return SubtitleStartResult(task, existing)
     }
     @Synchronized internal fun running(id: String, generation: String): SubtitleGenerationTask? = active(id, generation)
@@ -123,7 +154,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     @Synchronized internal fun checkpoint(id: String, generation: String, window: SubtitleWindow, durationMs: Long,
         detectedLanguage: String? = null): Boolean {
         val task = active(id, generation) ?: return false
-        require(task.providerCaptionReceipt == null && window.providerCueSha256 == null) { "Provider captions need their own timing checkpoint." }
+        require(!task.source.source.captionDocumentOnly && task.providerCaptionReceipt == null && window.providerCueSha256 == null) { "Provider captions need their own timing checkpoint." }
         val savedWindow = window.copy(cues = window.cues.toList(), sourceCues = window.sourceCues.toList(), translations = window.translations.toList())
         validateWindow(savedWindow, task.config, task.copy(windows = task.windows + savedWindow))
         require(window.index == task.windows.size && window.index < 4000) { "Speech windows must be checkpointed once in order." }
@@ -136,7 +167,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     @Synchronized internal fun checkpointTarget(id: String, generation: String, windowIndex: Int, pcmSha256: String,
         target: SubtitleTranslatedCue): Boolean {
         val task = active(id, generation) ?: return false
-        require(task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && task.providerCaptionReceipt == null && pcmSha256.matches(HASH))
+        require(!task.source.source.captionDocumentOnly && task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && task.providerCaptionReceipt == null && pcmSha256.matches(HASH))
         val window = task.windows.getOrNull(windowIndex) ?: error("Original speech has not been checkpointed.")
         require(window.pcmSha256 == pcmSha256) { "Source audio changed before target checkpoint." }
         require(acceptsSubtitleTarget(task, window, target)) { "Subtitle translation failed language, quality or refinement proof checks." }
@@ -149,7 +180,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         save(task.copy(windows = windows.toList(), updatedAt = System.currentTimeMillis())); return true
     }
     @Synchronized internal fun completeAudio(id: String, generation: String, decodedWindows: Int): SubtitleGenerationTask? = active(id, generation)?.let { task ->
-        require(task.providerCaptionReceipt == null && task.windows.none { it.providerCueSha256 != null }) { "Caption timings cannot complete decoded audio." }
+        require(!task.source.source.captionDocumentOnly && task.providerCaptionReceipt == null && task.windows.none { it.providerCueSha256 != null }) { "Caption timings cannot complete decoded audio." }
         require(decodedWindows == task.windows.size && task.windows.isNotEmpty()) { "Not all source windows reached their checkpoint." }
         check(task.durationMs == 0L || task.processedMs + 1500 >= task.durationMs) { "Audio has not reached the end." }
         task.copy(audioComplete = true, updatedAt = System.currentTimeMillis()).also(::save)
@@ -162,7 +193,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     @Synchronized internal fun confirmProviderDocument(id: String, generation: String, receipt: ProviderCaptionReceipt,
         windows: List<SubtitleWindow>): SubtitleGenerationTask? = tasks[id]?.takeIf {
         it.generation == generation && it.status != SubtitleGenerationStatus.CANCELLED
-    }?.let { providerCandidate(it, receipt, windows).also(::save) }
+    }?.let { providerCandidate(it, receipt, windows).also { candidate -> save(candidate, browserProof = true) } }
     private fun providerCandidate(task: SubtitleGenerationTask, receipt: ProviderCaptionReceipt,
         windows: List<SubtitleWindow>): SubtitleGenerationTask {
         require(task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && !task.audioComplete &&
@@ -201,21 +232,39 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         updatedAt = System.currentTimeMillis()).also(::save) }
     @Synchronized internal fun pause(id: String, generation: String): SubtitleGenerationTask? = active(id, generation)
         ?.copy(status = SubtitleGenerationStatus.PAUSED, updatedAt = System.currentTimeMillis())?.also(::save)
-    @Synchronized internal fun resume(id: String, generation: String): SubtitleGenerationTask? = tasks[id]?.takeIf {
+    @Synchronized internal fun resume(id: String, generation: String,
+        browserOperation: BrowserCaptionOperation? = null): SubtitleGenerationTask? = tasks[id]?.takeIf {
         it.generation == generation && it.status in setOf(SubtitleGenerationStatus.PAUSED, SubtitleGenerationStatus.PARTIAL, SubtitleGenerationStatus.FAILED)
-    }?.let { task -> task.copy(generation = token(), status = SubtitleGenerationStatus.QUEUED, error = null,
-        validationPending = task.validationPending || task.providerCaptionReceipt != null, updatedAt = System.currentTimeMillis()) }?.also {
+    }?.let { task ->
+        val resumed = task.copy(generation = token(), status = SubtitleGenerationStatus.QUEUED, error = null,
+            validationPending = task.validationPending || task.providerCaptionReceipt != null, updatedAt = System.currentTimeMillis())
+        if (task.source.source.captionDocumentOnly) {
+            val operation = browserOperation ?: throw BrowserCaptionAuthorityRetired()
+            if (operation.key != browserCaptionBinding(resumed).key ||
+                !browserCaptionAuthority.bind(operation, resumed.id, resumed.generation)) throw BrowserCaptionAuthorityRetired()
+        }
+        resumed
+    }?.also {
         save(it); cleanGeneratedExports(it.id)
     }
     @Synchronized internal fun cancel(id: String, generation: String): SubtitleGenerationTask? = tasks[id]?.takeIf {
         it.generation == generation && it.status != SubtitleGenerationStatus.CANCELLED
     }?.copy(status = SubtitleGenerationStatus.CANCELLED, error = null, updatedAt = System.currentTimeMillis())?.also(::save)
-    @Synchronized internal fun current(id: String, generation: String): Boolean = active(id, generation) != null
+    /** A late retired worker must not rewrite an acknowledged user pause or accepted history. */
+    @Synchronized internal fun retireBrowserGeneration(id: String, generation: String): SubtitleGenerationTask? =
+        tasks[id]?.takeIf { it.generation == generation && it.source.source.captionDocumentOnly }?.let { task ->
+            if (task.status in setOf(SubtitleGenerationStatus.PAUSED, SubtitleGenerationStatus.COMPLETED,
+                    SubtitleGenerationStatus.CANCELLED)) task else cancel(id, generation)
+        }
+
+    @Synchronized internal fun current(id: String, generation: String): Boolean = active(id, generation)?.let {
+        !it.source.source.captionDocumentOnly || browserCaptionAuthority.permits(browserCaptionBinding(it))
+    } == true
     @Synchronized internal fun commandSnapshot(captured: SubtitleGenerationTask): SubtitleGenerationTask =
         tasks[captured.id]?.takeIf { it.generation == captured.generation } ?: captured
     @Synchronized internal fun confirmValidated(id: String, generation: String, pcmVerified: Boolean = false): SubtitleGenerationTask? =
         tasks[id]?.takeIf { it.generation == generation }?.let { task ->
-            if (task.providerCaptionReceipt != null || task.pcmValidationRequired && !pcmVerified) task
+            if (task.source.source.captionDocumentOnly || task.providerCaptionReceipt != null || task.pcmValidationRequired && !pcmVerified) task
             else task.copy(validationPending = false, pcmValidationRequired = false).also(::save)
         }
     @Synchronized internal fun fail(id: String, generation: String, message: String, invalidate: Boolean = false,
@@ -298,6 +347,8 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     }
     private fun validateSource(source: SubtitleSourceIdentity) {
         source.source.providerCaptions?.validate()
+        require(!source.source.captionDocumentOnly || source.source.headers.isEmpty() &&
+            source.source.uri == source.source.providerCaptions?.sourcePageUrl) { "Browser source captions require the captured page inventory." }
         require(source.source.sourceResolutionId == null || source.source.sourceResolutionId.matches(ID))
         require(source.source.providerCaptions == null || source.source.sourceResolutionId != null)
         require(source.fingerprint.matches(HASH) && source.source.uri.length in 1..16000 && source.source.cacheKey.length in 1..16000)
@@ -310,11 +361,16 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         require(source.networkUrl == null || source.networkUrl.length in 1..16000 &&
             source.networkUrl.substringBefore(':').lowercase(java.util.Locale.ROOT) in setOf("http", "https"))
     }
+    private fun validateCaptionMode(source: SubtitleSourceIdentity, config: SubtitleGenerationConfig) {
+        require(!source.source.captionDocumentOnly || config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && config.modelSha256 == null) {
+            "Browser source captions cannot recognise audio."
+        }
+    }
     private fun validateConfig(config: SubtitleGenerationConfig) {
         if (config.pipeline == SubtitlePipeline.WHISPER_ENGLISH) {
             require(config.targetLanguage == "en" && config.style == "whisper-english" && config.outputMode == SubtitleOutputMode.TRANSLATED &&
                 config.customStyle.isEmpty() && !config.localRefinement && config.translationPolicy == "whisper-english-v1" &&
-                config.capturedStyle == null && config.refinementPin == null && config.sceneContext.isEmpty()) { "Legacy Whisper jobs produce translated English only." }
+                config.capturedStyle == null && config.refinementPin == null && config.sceneContext.isEmpty() && config.refinementInputProfileRevision == null) { "Legacy Whisper jobs produce translated English only." }
         } else {
             require(config.targetLanguage in setOf("en", "hi", "hi-latn") && config.translationPolicy == "mlkit-dialogue-v1") { "Unsupported subtitle target or provider policy." }
             require(config.style in setOf("natural", "faithful", "casual", "formal", "webtoon", "custom")) { "Unsupported subtitle style." }
@@ -326,6 +382,10 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
             require(config.style == "custom" || config.customStyle.isEmpty())
             config.refinementPin?.let { require(it.modelId.length in 1..100 && it.sha256.matches(HASH) && it.bytes in 1_000_000..4_000_000_000L) }
             require(config.localRefinement || config.refinementPin == null) { "A disabled refiner cannot own a model pin." }
+            require(config.refinementInputProfileRevision == null || config.refinementInputProfileRevision.matches(Regex("[a-z0-9][a-z0-9._-]{0,63}"))) {
+                "The captured localization input version is invalid."
+            }
+            require(config.localRefinement || config.refinementInputProfileRevision == null) { "A disabled refiner cannot own an input version." }
         }
         require(config.sourceLanguage.matches(Regex("auto|[a-z]{2,3}")) && (config.modelSha256 == null || config.modelSha256.matches(HASH)))
         require(config.windowSeconds == 8 && config.overlapSeconds == 1 && config.threads in 1..4)
@@ -362,12 +422,25 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
             require(window.translations.all { target -> task != null && acceptsSubtitleTarget(task, window, target) })
         }
     }
-    private fun save(task: SubtitleGenerationTask) {
+    private fun save(task: SubtitleGenerationTask) = save(task, browserProof = false)
+    private fun save(task: SubtitleGenerationTask, browserProof: Boolean) {
         val bytes = encode(task).toString().toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_BYTES) { "Subtitle journal limit reached. Previous windows have been kept." }
         require(journalFiles().filter { it.name != task.id + ".json" }.sumOf { it.length() } + bytes.size <= 64_000_000) { "Subtitle history storage is full." }
-        io.write(File(directory, task.id + ".json"), bytes)
-        tasks[task.id] = task; publish()
+        val requiresBrowserAuthority = task.source.source.captionDocumentOnly && (browserProof ||
+            task.status in setOf(SubtitleGenerationStatus.QUEUED, SubtitleGenerationStatus.RUNNING, SubtitleGenerationStatus.COMPLETED))
+        if (requiresBrowserAuthority) {
+            // IO preparation/fsync occurs off Main without the authority lock. Main can revoke
+            // even while this Store monitor is held. Only final rename + state publication is gated.
+            io.stage(File(directory, task.id + ".json"), bytes).use { staged ->
+                browserCaptionAuthority.commit(browserCaptionBinding(task)) {
+                    staged.commit(); tasks[task.id] = task; publish()
+                }
+            }
+        } else {
+            io.write(File(directory, task.id + ".json"), bytes)
+            tasks[task.id] = task; publish()
+        }
     }
     private fun journalFiles() = directory.listFiles().orEmpty().mapNotNull {
         val name = it.name.removeSuffix(".bak")
@@ -376,7 +449,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     private fun encode(task: SubtitleGenerationTask): JSONObject = JSONObject().put("version", 2).put("id", task.id).put("generation", task.generation)
         .put("uri", task.source.source.uri).put("headers", JSONObject(task.source.source.headers)).put("cacheKey", task.source.source.cacheKey)
         .put("label", task.source.source.label).put("providerCaptions", task.source.source.providerCaptions?.let(ProviderCaptionJournal::inventory))
-        .put("sourceResolutionId", task.source.source.sourceResolutionId)
+        .put("sourceResolutionId", task.source.source.sourceResolutionId).put("captionDocumentOnly", task.source.source.captionDocumentOnly)
         .put("fingerprint", task.source.fingerprint).put("verifiable", task.source.verifiable)
         .put("strongEtag", task.source.strongEtag).put("networkSize", task.source.networkSize)
         .put("networkUrl", task.source.networkUrl)
@@ -385,6 +458,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
             .put("overlapSeconds", task.config.overlapSeconds).put("threads", task.config.threads)
             .put("outputMode", task.config.outputMode.name).put("pipeline", task.config.pipeline.name)
             .put("customStyle", task.config.customStyle).put("sceneContext", task.config.sceneContext).put("localRefinement", task.config.localRefinement)
+            .apply { task.config.refinementInputProfileRevision?.let { put("refinementInputProfileRevision", it) } }
             .put("translationPolicy", task.config.translationPolicy).put("capturedStyle", task.config.capturedStyle?.let { style ->
                 JSONObject().put("id", style.id).put("name", style.name).put("instruction", style.instruction)
                     .put("preserveHonorifics", style.preserveHonorifics).put("preserveNames", style.preserveNames).put("naturalDialogue", style.naturalDialogue)
@@ -406,7 +480,8 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
                 .put("refinementCandidate", target.refinementCandidate).put("refinementHindiDraft", target.refinementHindiDraft)
                 .put("refinement", target.refinement?.let { evidence -> JSONObject().put("modelId", evidence.model.modelId)
                     .put("sha256", evidence.model.sha256).put("bytes", evidence.model.bytes).put("promptSha256", evidence.promptSha256)
-                    .put("outputSha256", evidence.outputSha256) })) } })) } })
+                    .put("outputSha256", evidence.outputSha256)
+                    .put("completion", evidence.completion?.let(SubtitleRefinementCompletionCodec::encode)) })) } })) } })
     private fun encodeCues(cues: List<SpeechCue>): JSONArray = JSONArray().apply { cues.forEach { cue ->
         put(JSONObject().put("startMs", cue.startMs).put("endMs", cue.endMs).put("text", cue.text)) } }
     private fun decodeCues(cues: JSONArray): List<SpeechCue> {
@@ -421,7 +496,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         val headers = json.getJSONObject("headers"); require(headers.length() <= 32)
         val source = SubtitleSourceIdentity(SubtitleMediaSource(json.getString("uri"), headers.keys().asSequence().associateWith { headers.getString(it) },
             json.getString("cacheKey"), json.getString("label"), json.optJSONObject("providerCaptions")?.let(ProviderCaptionJournal::inventory),
-            json.optional("sourceResolutionId")), json.getString("fingerprint"), json.getBoolean("verifiable"),
+            json.optional("sourceResolutionId"), json.optBoolean("captionDocumentOnly", false)), json.getString("fingerprint"), json.getBoolean("verifiable"),
             json.optional("strongEtag"), if (!json.has("networkSize") || json.isNull("networkSize")) null else json.getLong("networkSize"), json.optional("networkUrl"))
         validateSource(source)
         val c = json.getJSONObject("config")
@@ -433,7 +508,9 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
             translationPolicy = c.optString("translationPolicy", "whisper-english-v1"),
             capturedStyle = c.optJSONObject("capturedStyle")?.let { style -> TranslationStyleProfile(style.getString("id"), style.getString("name"),
                 style.getString("instruction"), style.getBoolean("preserveHonorifics"), style.getBoolean("preserveNames"), style.getBoolean("naturalDialogue")) },
-            refinementPin = c.optJSONObject("refinementPin")?.let { pin -> SubtitleRefinementPin(pin.getString("modelId"), pin.getString("sha256"), pin.getLong("bytes")) }, sceneContext = c.optString("sceneContext", "")); validateConfig(config)
+            refinementPin = c.optJSONObject("refinementPin")?.let { pin -> SubtitleRefinementPin(pin.getString("modelId"), pin.getString("sha256"), pin.getLong("bytes")) }, sceneContext = c.optString("sceneContext", ""), refinementInputProfileRevision =
+                if (!c.has("refinementInputProfileRevision") || c.isNull("refinementInputProfileRevision")) null else c.getString("refinementInputProfileRevision")); validateConfig(config)
+        validateCaptionMode(source, config)
         require(id == identity(source, config))
         val rows = json.getJSONArray("windows"); require(rows.length() <= 4000)
         val windows = (0 until rows.length()).map { index ->
@@ -443,7 +520,8 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
                 row.optional("detectedLanguage"), (0 until targets.length()).map { n -> val target = targets.getJSONObject(n)
                     SubtitleTranslatedCue(target.getInt("sourceIndex"), target.getString("text"), target.optional("hindiDraft"),
                         target.optJSONObject("refinement")?.let { evidence -> SubtitleSavedRefinement(SubtitleRefinementPin(evidence.getString("modelId"),
-                            evidence.getString("sha256"), evidence.getLong("bytes")), evidence.getString("promptSha256"), evidence.getString("outputSha256")) },
+                            evidence.getString("sha256"), evidence.getLong("bytes")), evidence.getString("promptSha256"), evidence.getString("outputSha256"),
+                            evidence.optJSONObject("completion")?.let(SubtitleRefinementCompletionCodec::decode)) },
                         target.optional("refinementDraft"), target.optional("refinementCandidate"), target.optional("refinementHindiDraft"))
                 }, providerCueSha256 = row.optional("providerCueSha256")).also { require(it.index == index) }
         }

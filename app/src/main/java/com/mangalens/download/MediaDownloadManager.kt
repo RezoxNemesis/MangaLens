@@ -21,13 +21,16 @@ internal interface AdaptiveDownloadCommands {
     fun remove(id: String)
 }
 
-class MediaDownloadManager internal constructor(private val context: Context, private val adaptive: AdaptiveDownloadCommands) {
-    constructor(context: Context) : this(context, object : AdaptiveDownloadCommands {
-        override fun add(id: String, url: String, mime: String) = MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(url), mime)
-        override fun pause(id: String) = MangaLensDownloadService.pauseAdaptive(context, id)
-        override fun resume(id: String) = MangaLensDownloadService.resumeAdaptive(context, id)
-        override fun remove(id: String) = MangaLensDownloadService.remove(context, id)
-    })
+private class AndroidAdaptiveDownloadCommands(private val context: Context) : AdaptiveDownloadCommands {
+    override fun add(id: String, url: String, mime: String) = MangaLensDownloadService.addAdaptive(context, id, android.net.Uri.parse(url), mime)
+    override fun pause(id: String) = MangaLensDownloadService.pauseAdaptive(context, id)
+    override fun resume(id: String) = MangaLensDownloadService.resumeAdaptive(context, id)
+    override fun remove(id: String) = MangaLensDownloadService.remove(context, id)
+}
+
+class MediaDownloadManager internal constructor(context: Context, private val adaptive: AdaptiveDownloadCommands) {
+    private val context = context.applicationContext
+    constructor(context: Context) : this(context.applicationContext, AndroidAdaptiveDownloadCommands(context.applicationContext))
     private val resolver = MediaLinkResolver(siteExtractor = YtDlpSiteMediaExtractor(context, allowSeparateStreams = true))
     private val contexts = DownloadRequestContextStore(context)
     private val dao = DownloadDatabase.get(context).downloads()
@@ -44,11 +47,15 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
     ): String = withContext(Dispatchers.IO) {
         require(requestId == null || requestId.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid download request ID" }
         // Durable Orez retries reuse the same request rather than creating another transfer.
-        if (requestId != null) dao.get(requestId)?.let { existing ->
-            if (existing.state == DownloadState.QUEUED) {
-                start(existing.id, existing.sourceUrl, existing.title, existing.mimeType, ExistingWorkPolicy.KEEP)
+        if (requestId != null) {
+            val existing = DownloadIdMutationFences.withId(requestId) {
+                dao.get(requestId)?.also { item ->
+                    if (item.state == DownloadState.QUEUED && !DownloadPrivateFileOwners.hasOwners(privateOwner(item.id))) {
+                        start(item.id, item.sourceUrl, item.title, item.mimeType, ExistingWorkPolicy.KEEP)
+                    }
+                }
             }
-            return@withContext requestId
+            if (existing != null) return@withContext requestId
         }
         val clean = url.trim()
         require(clean.startsWith("http://") || clean.startsWith("https://")) {
@@ -67,25 +74,31 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
             else -> mediaUrl.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
         }
         val mime = mimeType ?: resolved.mimeType ?: "application/octet-stream"
-        contexts.write(id, resolved.copy(
-            sourcePageUrl = sourcePageUrl ?: resolved.sourcePageUrl,
-            headers = resolvedDownloadHeaders(clean, resolved.url, resolved.headers, headers)
-        ))
-        val pageUrl = sourcePageUrl ?: resolved.sourcePageUrl ?: clean
-        dao.upsert(
-            DownloadEntity(
-                id = id,
-                sourceUrl = mediaUrl,
-                title = finalTitle,
-                mimeType = mime,
-                state = DownloadState.QUEUED,
-                provider = resolved.provider,
-                sourcePageUrl = pageUrl,
-                requestedHeight = quality.height
+        DownloadIdMutationFences.withId(id) {
+            // Resolution is outside the mutation fence. A late resolved request cannot replace
+            // a concurrently created, canceled or cleaned request with the same durable ID.
+            dao.get(id)?.let { return@withId id }
+            requireReleased(id)
+            contexts.write(id, resolved.copy(
+                sourcePageUrl = sourcePageUrl ?: resolved.sourcePageUrl,
+                headers = resolvedDownloadHeaders(clean, resolved.url, resolved.headers, headers)
+            ))
+            val pageUrl = sourcePageUrl ?: resolved.sourcePageUrl ?: clean
+            dao.upsert(
+                DownloadEntity(
+                    id = id,
+                    sourceUrl = mediaUrl,
+                    title = finalTitle,
+                    mimeType = mime,
+                    state = DownloadState.QUEUED,
+                    provider = resolved.provider,
+                    sourcePageUrl = pageUrl,
+                    requestedHeight = quality.height
+                )
             )
-        )
-        start(id, mediaUrl, finalTitle, mime)
-        id
+            start(id, mediaUrl, finalTitle, mime)
+            id
+        }
     }
 
     /**
@@ -124,99 +137,130 @@ class MediaDownloadManager internal constructor(private val context: Context, pr
         val id = UUID.randomUUID().toString()
         val finalTitle = title?.takeIf(String::isNotBlank)
             ?: clean.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
-        contexts.write(id, resolved)
-        dao.upsert(
-            DownloadEntity(
-                id = id,
-                sourceUrl = clean,
-                title = finalTitle,
-                mimeType = mimeType,
-                state = DownloadState.QUEUED,
-                provider = provider,
-                sourcePageUrl = page ?: clean,
-                requestedHeight = quality.height
+        DownloadIdMutationFences.withId(id) {
+            requireReleased(id)
+            contexts.write(id, resolved)
+            dao.upsert(
+                DownloadEntity(
+                    id = id,
+                    sourceUrl = clean,
+                    title = finalTitle,
+                    mimeType = mimeType,
+                    state = DownloadState.QUEUED,
+                    provider = provider,
+                    sourcePageUrl = page ?: clean,
+                    requestedHeight = quality.height
+                )
             )
-        )
-        start(id, clean, finalTitle, mimeType)
-        id
+            start(id, clean, finalTitle, mimeType)
+            id
+        }
     }
 
     suspend fun pause(id: String) = withContext(Dispatchers.IO) {
-        val item = dao.get(id) ?: return@withContext
-        if (dao.stopIfActive(id, DownloadState.PAUSED, null) == 0) return@withContext
-        if (item.isAdaptive) {
-            adaptive.pause(id)
-        } else {
-            WorkManager.getInstance(context).cancelUniqueWork(workName(id))
+        DownloadIdMutationFences.withId(id) {
+            val item = dao.get(id) ?: return@withId
+            if (dao.stopIfActive(id, DownloadState.PAUSED, null) == 0) return@withId
+            if (item.isAdaptive) adaptive.pause(id)
+            else WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         }
     }
 
     suspend fun resume(id: String) = withContext(Dispatchers.IO) {
-        var item = dao.get(id) ?: return@withContext
-        if (item.state != DownloadState.PAUSED && item.state != DownloadState.FAILED) return@withContext
-        if (item.state == DownloadState.FAILED) {
-            // Signed CDN URLs expire. Re-extract the original page rather than retrying an obsolete token.
+        val captured = dao.get(id) ?: return@withContext
+        if (captured.state != DownloadState.PAUSED && captured.state != DownloadState.FAILED) return@withContext
+        var refreshed: ResolvedMediaLink? = null
+        if (captured.state == DownloadState.FAILED) {
             val saved = contexts.readMedia(id)
             val page = saved?.sourcePageUrl
-            if (!page.isNullOrBlank() && page != item.sourceUrl) {
-                val quality = DownloadQuality.selectable.firstOrNull { it.height == saved?.requestedHeight }
-                    ?: DownloadQuality.BEST
-                resolver.resolveCancellable(page, quality)?.let { refreshed ->
-                    val mime = refreshed.mimeType ?: item.mimeType
-                    val refreshedTitle = refreshed.title?.takeIf(String::isNotBlank) ?: item.title
-                    if (dao.refreshSource(
-                            id,
-                            refreshed.url,
-                            mime,
-                            refreshedTitle,
-                            refreshed.provider,
-                            refreshed.sourcePageUrl ?: page,
-                            refreshed.requestedHeight ?: quality.height,
-                            "Refreshed expired source"
-                        ) > 0) {
-                        contexts.write(id, refreshed.copy(requestedHeight = refreshed.requestedHeight ?: quality.height))
-                        item = item.copy(
-                            sourceUrl = refreshed.url,
-                            mimeType = mime,
-                            title = refreshedTitle,
-                            provider = refreshed.provider,
-                            sourcePageUrl = refreshed.sourcePageUrl ?: page,
-                            requestedHeight = refreshed.requestedHeight ?: quality.height
-                        )
-                        // A partial file/validator belongs to the previous signed representation.
-                        java.io.File(context.filesDir, "downloads/$id.part").delete()
-                        java.io.File(context.filesDir, "downloads/$id.validator").delete()
-                        java.io.File(context.filesDir, "downloads/$id.audio.part").delete()
-                        java.io.File(context.filesDir, "downloads/$id.audio.validator").delete()
-                    }
+            if (!page.isNullOrBlank() && page != captured.sourceUrl) {
+                val quality = DownloadQuality.selectable.firstOrNull { it.height == saved?.requestedHeight } ?: DownloadQuality.BEST
+                refreshed = resolver.resolveCancellable(page, quality)?.let {
+                    it.copy(sourcePageUrl = it.sourcePageUrl ?: page, requestedHeight = it.requestedHeight ?: quality.height)
                 }
             }
         }
-        if (item.isAdaptive) {
-            if (dao.resumeIfStopped(id, DownloadState.DOWNLOADING) == 0) return@withContext
-            if (item.state == DownloadState.FAILED) {
-                // Setting a stop reason alone does not enqueue a failed Media3 download again.
-                adaptive.add(id, item.sourceUrl, item.mimeType)
-            } else {
-                adaptive.resume(id)
+        DownloadIdMutationFences.withId(id) {
+            if (dao.get(id) != captured) return@withId
+            if (!captured.isAdaptive) requireReleased(id)
+            var item = captured
+            refreshed?.let { fresh ->
+                val mime = fresh.mimeType ?: item.mimeType
+                val title = fresh.title?.takeIf(String::isNotBlank) ?: item.title
+                if (dao.refreshSource(id, fresh.url, mime, title, fresh.provider, fresh.sourcePageUrl,
+                        fresh.requestedHeight, "Refreshed expired source") == 0) return@withId
+                contexts.write(id, fresh)
+                item = item.copy(sourceUrl = fresh.url, mimeType = mime, title = title, provider = fresh.provider,
+                    sourcePageUrl = fresh.sourcePageUrl, requestedHeight = fresh.requestedHeight)
+                // No earlier process or native task can still own this ID's input files.
+                FailedDownloadPartialFiles.plan(privateOwner(id).root, id).forEach { file ->
+                    check(file.delete()) { "Previous partial files are still in use. Try again after the transfer stops." }
+                }
             }
-        } else {
-            if (dao.resumeIfStopped(id, DownloadState.QUEUED) == 0) return@withContext
-            start(id, item.sourceUrl, item.title, item.mimeType)
+            if (item.isAdaptive) {
+                if (dao.resumeIfStopped(id, DownloadState.DOWNLOADING) == 0) return@withId
+                if (captured.state == DownloadState.FAILED) adaptive.add(id, item.sourceUrl, item.mimeType)
+                else adaptive.resume(id)
+            } else {
+                if (dao.resumeIfStopped(id, DownloadState.QUEUED) == 0) return@withId
+                start(id, item.sourceUrl, item.title, item.mimeType)
+            }
         }
     }
 
     suspend fun cancel(id: String) = withContext(Dispatchers.IO) {
         com.mangalens.orez.agent.OrezDownloadTaskLink.cancelOwningTask(context, id)
+        DownloadIdMutationFences.withId(id) { cancelTransfer(id) }
+    }
+
+    suspend fun remove(id: String) = withContext(Dispatchers.IO) {
+        com.mangalens.orez.agent.OrezDownloadTaskLink.cancelOwningTask(context, id)
+        DownloadIdMutationFences.withId(id) {
+            cancelTransfer(id); dao.delete(id); contexts.remove(id)
+        }
+    }
+
+    private suspend fun cancelTransfer(id: String) {
         dao.stopIfActive(id, DownloadState.CANCELLED, "Cancelled by user")
         WorkManager.getInstance(context).cancelUniqueWork(workName(id))
         adaptive.remove(id)
     }
 
-    suspend fun remove(id: String) = withContext(Dispatchers.IO) {
-        cancel(id)
-        dao.delete(id)
-        contexts.remove(id)
+    /** Explicit row confirmation stops the failed request; it never sweeps an entire cache. */
+    suspend fun clearFailedPartials(requested: DownloadEntity): FailedDownloadPartialResult = withContext(Dispatchers.IO) {
+        val id = requested.id
+        val rows = object : FailedDownloadPartialRows {
+            override suspend fun get(id: String) = dao.get(id)
+            override suspend fun claim(captured: DownloadEntity) = dao.claimFailedPartials(captured.id, captured.sourceUrl,
+                captured.createdAt, captured.bytesDownloaded, captured.totalBytes, captured.mimeType, captured.title,
+                captured.stage, captured.error, captured.provider, captured.sourcePageUrl, captured.requestedHeight) == 1
+            override suspend fun complete(captured: DownloadEntity) = dao.finishFailedPartials(captured.id, captured.sourceUrl,
+                captured.createdAt, captured.bytesDownloaded, captured.totalBytes) == 1
+        }
+        FailedDownloadPartialCleaner(privateOwner(id).root, rows, allWorkFinished = { exactId ->
+            val infos = try { WorkManager.getInstance(context).getWorkInfosForUniqueWork(workName(exactId)).get(2, java.util.concurrent.TimeUnit.SECONDS) }
+            catch (_: java.util.concurrent.TimeoutException) { throw DownloadFilesBusyException() }
+            check(infos.size <= 64) { "This transfer has too many saved generations to inspect safely. Files were retained." }
+            infos.all { it.state.isFinished }
+        }, protectedContent = { captured, files ->
+            val history = com.mangalens.ui.video.RecentVideoStore.shared(context).state.value
+            check(!history.loading && history.error == null) { "Video history is not readable yet. Partial files were retained." }
+            val fileUris = files.flatMap { file -> listOf(file.toURI().toString(), android.net.Uri.fromFile(file).toString(),
+                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.downloads", file).toString()) }.toSet()
+            // Keep every history-referenced source, which also protects favourites without racing
+            // a favourite toggle on an existing record. No saved history metadata is removed here.
+            history.entries.any { entry -> entry.source.uri in fileUris ||
+                entry.source.uri == captured.sourcePageUrl || entry.source.uri == captured.sourceUrl }
+        }, stopClaimedRequest = { exactId ->
+            com.mangalens.orez.agent.OrezDownloadTaskLink.cancelOwningTask(context, exactId)
+            WorkManager.getInstance(context).cancelUniqueWork(workName(exactId))
+        }).clean(requested)
+    }
+
+    private fun privateOwner(id: String) = DownloadPrivateFileOwner(java.io.File(context.filesDir, "downloads"), id)
+    private fun requireReleased(id: String) {
+        val owner = privateOwner(id)
+        if (DownloadPrivateFileOwners.hasOwners(owner)) throw DownloadPrivateFileOwners.ownershipFailure(owner)
     }
 
     private fun start(id: String, url: String, title: String, mime: String, policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE) {

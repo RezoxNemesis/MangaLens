@@ -39,12 +39,16 @@ internal data class PlaybackStreamIdentity(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val audioUrl: String? = null,
-    val audioHeaders: Map<String, String> = emptyMap()
+    val audioHeaders: Map<String, String> = emptyMap(),
+    val videoMimeType: String? = null,
+    val audioMimeType: String? = null
 ) {
     fun equivalentTo(other: PlaybackStreamIdentity): Boolean =
         url == other.url && audioUrl == other.audioUrl &&
             canonicalHeaders(headers) == canonicalHeaders(other.headers) &&
-            canonicalHeaders(audioHeaders) == canonicalHeaders(other.audioHeaders)
+            canonicalHeaders(audioHeaders) == canonicalHeaders(other.audioHeaders) &&
+            com.mangalens.download.MediaTransportMime.capture(videoMimeType) == com.mangalens.download.MediaTransportMime.capture(other.videoMimeType) &&
+            com.mangalens.download.MediaTransportMime.capture(audioMimeType) == com.mangalens.download.MediaTransportMime.capture(other.audioMimeType)
 
     private fun canonicalHeaders(values: Map<String, String>): List<Pair<String, String>> =
         values.entries.sortedBy { it.key.lowercase() }.map { it.key.lowercase() to it.value }

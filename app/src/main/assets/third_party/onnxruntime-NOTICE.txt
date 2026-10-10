@@ -1,0 +1,10 @@
+ONNX Runtime Android 1.20.0
+Publisher: Microsoft; https://github.com/microsoft/onnxruntime/tree/v1.20.0
+Maven: com.microsoft.onnxruntime:onnxruntime-android:1.20.0
+License: MIT; exact upstream LICENSE is bundled alongside this notice.
+AAR SHA256: 07a8f71ef890afed8c6087a56220e6d558a492804276ee2dd7cb7f6262242027
+Java bindings include Oracle/Arm copyright notices retained in the corresponding upstream source artifact.
+This distribution includes the actual CPU native runtime for its selected Android ABI.
+
+The complete upstream ThirdPartyNotices.txt from v1.20.0 is bundled as onnxruntime-ThirdPartyNotices.txt.
+SHA-256: cf7342f7ba482ef715ae58f5f497a8d3564fa255164175aea324cd293c5701a0

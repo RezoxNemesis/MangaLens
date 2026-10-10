@@ -32,13 +32,37 @@ internal class PlaybackSession(private val app: Application) {
     private val captionPublication = CaptionPublication()
     var currentCaptionTrack: PlayerCaptionTrack? by mutableStateOf(null)
         private set
+    private val recentVideos = RecentVideoStore.shared(app)
+    private var recentSource: RecentVideoSource? = null
+    private var recentRecordedKey: String? = null
+    private var recentRecordedPosition = -1L
     private val positions = app.getSharedPreferences("mangalens_video_positions", 0)
     private fun positionKey(value: Uri) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toString().toByteArray()).joinToString("") { "%02x".format(it) }
     private fun savePosition() {
         uri?.let { if (player.currentPosition > 0) positions.edit().putLong(positionKey(it), player.currentPosition).apply() }
+        val source = recentSource ?: return
+        if (policy.closed || player.playerError != null ||
+            player.currentMediaItem?.localConfiguration?.uri?.toString() != capturedSource?.uri ||
+            player.playbackState !in setOf(androidx.media3.common.Player.STATE_READY, androidx.media3.common.Player.STATE_ENDED)) return
+        val seekable = player.isCurrentMediaItemSeekable && !player.isCurrentMediaItemLive && !player.isCurrentMediaItemDynamic
+        val duration = player.duration.takeIf { it > 0 } ?: 0L
+        if (seekable && duration > 0) {
+            val position = player.currentPosition.coerceIn(0, duration)
+            val resume = if (position >= duration - duration / 20) 0L else position
+            positions.edit().putLong(positionKey(Uri.parse(source.uri)), resume).apply()
+        }
+        val recordedPosition = if (seekable && duration > 0) player.currentPosition.coerceIn(0, duration) else 0L
+        if (recentRecordedKey != source.key || recentRecordedPosition != recordedPosition) {
+            recentRecordedKey = source.key
+            recentRecordedPosition = recordedPosition
+            recentVideos.record(source, recordedPosition, duration, seekable)
+        }
     }
     val speech = VideoSpeechEngine(app, scope)
     private val speechListener = object : androidx.media3.common.Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state == androidx.media3.common.Player.STATE_READY || state == androidx.media3.common.Player.STATE_ENDED) savePosition()
+        }
         override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
             speech.positionMs = newPosition.positionMs
             speech.invalidate()
@@ -99,6 +123,8 @@ internal class PlaybackSession(private val app: Application) {
         if (httpRequestKey == null && uri == value && player.mediaItemCount > 0) return true
         savePosition()
         uri = value
+        recentSource = RecentVideoSource.local(value.toString())
+        recentRecordedKey = null
         httpRequestKey = null
         check(policy.acceptSource(epoch))
         val source = PlaybackSessionSource(value.toString())
@@ -126,13 +152,16 @@ internal class PlaybackSession(private val app: Application) {
         audioHeaders: Map<String, String> = emptyMap(),
         refreshFromRevision: Long? = null,
         sourceResolutionId: String? = null,
-        providerCaptions: ProviderCaptionInventory? = null
+        providerCaptions: ProviderCaptionInventory? = null,
+        videoMimeType: String? = null, audioMimeType: String? = null
     ): Boolean {
         checkMain()
         if (!policy.ownsPresentation(epoch)) return false
         if (refreshFromRevision != null && refreshFromRevision != sourceRevision) return false
         val videoHeaders = headers.toMap()
         val soundHeaders = audioHeaders.toMap()
+        val capturedVideoMime = com.mangalens.download.MediaTransportMime.capture(videoMimeType)
+        val capturedAudioMime = audioMimeType.takeIf { !audioUrl.isNullOrBlank() }?.let(com.mangalens.download.MediaTransportMime::capture)
         val captionInventory = providerCaptions?.captureSnapshot()
         if (captionInventory != null && (sourceResolutionId?.matches(Regex("[a-f0-9]{32}")) != true ||
             !runCatching { captionInventory.validate(); true }.getOrDefault(false))) return false
@@ -147,6 +176,7 @@ internal class PlaybackSession(private val app: Application) {
             soundHeaders.entries.sortedBy { it.key.lowercase() }.forEach { (name, headerValue) ->
                 append("audio-").append(name.lowercase()).append('=').append(headerValue).append('\n')
             }
+            append(com.mangalens.download.MediaTransportMime.identitySuffix(capturedVideoMime, capturedAudioMime))
             if (captionInventory != null) append("provider-resolution=").append(captionResolution).append('\n')
                 .append("provider-inventory=").append(captionInventory.fingerprint()).append('\n')
         }
@@ -158,12 +188,12 @@ internal class PlaybackSession(private val app: Application) {
         val videoFactory = sourceFactory(
             MediaPlaybackDataSource.factory(MediaRequestContext(value, referer, videoHeaders))
         )
-        val videoSource = videoFactory.createMediaSource(MediaItem.fromUri(value))
+        val videoSource = videoFactory.createMediaSource(playbackHttpMediaItem(value, capturedVideoMime))
         val source = if (!audioUrl.isNullOrBlank()) {
             val audioFactory = sourceFactory(
                 MediaPlaybackDataSource.factory(MediaRequestContext(audioUrl, referer, soundHeaders))
             )
-            val audioSource = audioFactory.createMediaSource(MediaItem.fromUri(audioUrl))
+            val audioSource = audioFactory.createMediaSource(playbackHttpMediaItem(audioUrl, capturedAudioMime))
             MergingMediaSource(videoSource, audioSource)
         } else {
             videoSource
@@ -172,7 +202,9 @@ internal class PlaybackSession(private val app: Application) {
         // snapshot could already be stale because playback or a user seek continued.
         if (refreshFromRevision != null && refreshFromRevision != sourceRevision) return false
         savePosition()
-        val savedPosition = positions.getLong(positionKey(Uri.parse(value)), 0L)
+        val nextRecentSource = RecentVideoSource.online(referer ?: value)
+        val savedPosition = positions.getLong(positionKey(Uri.parse(nextRecentSource?.uri ?: value)),
+            positions.getLong(positionKey(Uri.parse(value)), 0L))
         val capturedPlayWhenReady = player.playWhenReady
         val start = playbackReplacementStart(
             sourceRevision, refreshFromRevision,
@@ -181,9 +213,11 @@ internal class PlaybackSession(private val app: Application) {
         )
         if (start == PlaybackReplacementStart.Superseded) return false
         uri = Uri.parse(value)
+        recentSource = nextRecentSource
+        recentRecordedKey = null
         httpRequestKey = requestKey
         check(policy.acceptSource(epoch))
-        val nextSource = PlaybackSessionSource(value, referer, videoHeaders, audioUrl, soundHeaders, captionResolution, captionInventory)
+        val nextSource = PlaybackSessionSource(value, referer, videoHeaders, audioUrl, soundHeaders, captionResolution, captionInventory, capturedVideoMime, capturedAudioMime)
         capturedSource = nextSource
         val revision = sourceRevision
         captionPublication.invalidate(); currentCaptionTrack = null
@@ -256,11 +290,11 @@ internal class PlaybackSession(private val app: Application) {
 
     private fun sourceWithItem(source: PlaybackSessionSource, item: MediaItem): MediaSource {
         val video = sourceFactory(MediaPlaybackDataSource.factory(MediaRequestContext(source.uri, source.referer, source.headers)))
-            .createMediaSource(item)
+            .createMediaSource(item.buildUpon().setMimeType(source.videoMimeType).build())
         val audioUrl = source.audioUrl
         return if (!audioUrl.isNullOrBlank()) {
             val audio = sourceFactory(MediaPlaybackDataSource.factory(MediaRequestContext(audioUrl, source.referer, source.audioHeaders)))
-                .createMediaSource(MediaItem.fromUri(audioUrl))
+                .createMediaSource(playbackHttpMediaItem(audioUrl, source.audioMimeType))
             MergingMediaSource(video, audio)
         } else video
     }
@@ -425,7 +459,9 @@ internal data class PlaybackSessionSource(
     val audioUrl: String? = null,
     val audioHeaders: Map<String, String> = emptyMap(),
     val sourceResolutionId: String? = null,
-    val providerCaptions: ProviderCaptionInventory? = null
+    val providerCaptions: ProviderCaptionInventory? = null,
+    val videoMimeType: String? = null,
+    val audioMimeType: String? = null
 ) {
     fun captured() = copy(headers = headers.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
     val online get() = uri.startsWith("https://", true) || uri.startsWith("http://", true)

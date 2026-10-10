@@ -65,4 +65,25 @@ class ReaderPromoPolicyTest {
             "Chapter 74\nANNOUNCEMENT! Join our Discord to read without ads. Upgrade to premium."
         ))
     }
+    @Test fun commercialChatAndGameCardsRequireServiceAndCallToAction() {
+        assertTrue(ReaderPromoPolicy.isLikelyPromo("GirlfriendGPT\nMia Online Now\nAre you free tonight? Let's talk\nSTART CHATTING"))
+        assertTrue(ReaderPromoPolicy.isLikelyPromo("PLAY AT VEYRAGAME.COM\nPlay now"))
+        assertFalse(ReaderPromoPolicy.isLikelyPromo("Are you free tonight? Let's talk and walk back to the castle."))
+        assertFalse(ReaderPromoPolicy.isLikelyPromo("The villagers asked everyone to please consider donating."))
+    }
+    @Test fun commercialFooterDoesNotHideSubstantialStory() {
+        assertFalse(ReaderPromoPolicy.isLikelyPromo("I remember the promise we made at the old gate.\n" +
+            "Please protect the children while I lead the others across the river.\n" +
+            "GirlfriendGPT START CHATTING"))
+    }
+    @Test fun scanGroupDonationRequiresServiceEvidenceAndKeepsDialogueGuard() {
+        assertTrue(ReaderPromoPolicy.isLikelyPromo("Demonicscans.org\nIf you like our work please consider donating."))
+        assertFalse(ReaderPromoPolicy.isLikelyPromo("MangaDemon"))
+        assertFalse(ReaderPromoPolicy.isLikelyPromo("I won't leave anyone behind when the army arrives.\n" +
+            "You must take the children to the village and wait until dawn.\nDemonicscans.org support our work"))
+    }
+    @Test fun brandFirstNarrativeKeepsItsSubstantialSuffixDialogue() {
+        assertFalse(ReaderPromoPolicy.isLikelyPromo("GirlfriendGPT was the name we gave our old boat. " +
+            "Start chatting with the gatekeeper and then lead all the children back to the castle."))
+    }
 }

@@ -1,0 +1,5 @@
+<resources>
+    <string name="widget_reading_description">Continue the current saved chapter. Reading titles appear on your home screen.</string>
+    <string name="widget_watching_description">Continue a saved video. Video titles appear on your home screen.</string>
+    <string name="widget_download_description">View actual saved transfer status and bytes. Transfer titles appear on your home screen.</string>
+</resources>
