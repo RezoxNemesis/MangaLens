@@ -9,10 +9,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -52,7 +52,8 @@ private sealed interface ModelLicenseContent {
 @Composable
 private fun ModelLicenseDialog(record: OrezModelGovernanceRecord, onDismiss: () -> Unit) {
     val context = LocalContext.current.applicationContext
-    val content by produceState<ModelLicenseContent>(ModelLicenseContent.Loading, record.pin, context) {
+    var content by remember(record.pin, context) { mutableStateOf<ModelLicenseContent>(ModelLicenseContent.Loading) }
+    LaunchedEffect(record.pin, context) {
         val loaded: ModelLicenseContent = try {
             withContext(Dispatchers.IO) {
                 suspend fun load(path: String, digest: String): String {
@@ -78,7 +79,7 @@ private fun ModelLicenseDialog(record: OrezModelGovernanceRecord, onDismiss: () 
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: IOException) { ModelLicenseContent.Unavailable }
         catch (_: SecurityException) { ModelLicenseContent.Unavailable }
-        value = loaded
+        content = loaded
     }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Model licenses") }, text = {
         Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
