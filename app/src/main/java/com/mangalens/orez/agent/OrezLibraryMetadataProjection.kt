@@ -17,7 +17,7 @@ internal class OrezLibraryMetadataProjection(private val entry: OrezLibraryMetad
     companion object {
         suspend fun read(context: Context,id: String): OrezLibraryMetadataProjection {
             require(id.matches(Regex("[a-f0-9]{32}")))
-            val files = context.applicationContext.filesDir
+            val files = context.applicationContext.filesDir.canonicalFile
             return OrezLibraryOwnedIo.project(files) { access ->
                 val read = ChapterLibrary.readNativeMetadata { access.readLibrary(File(files,"chapter_library/$id.json"),2_000_000) }
                 val entry = OrezLibraryMetadata.decode(id,read.bytes)

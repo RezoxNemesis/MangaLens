@@ -18,7 +18,7 @@ internal object OrezLibraryReaderCheckpoint {
     }
     private suspend fun checkpoint(context: Context,incoming: SavedChapter,persist: Boolean,
         successors: List<ChapterAcquisitionBudgetPage> = emptyList()): SavedChapter {
-        val files = context.applicationContext.filesDir
+        val files = context.applicationContext.filesDir.canonicalFile
         require(incoming.id.matches(Regex("[a-f0-9]{32}")))
         return OrezLibraryOwnedIo.readerCheckpoint(files) { access ->
             ChapterLibrary.readNativeMetadata {

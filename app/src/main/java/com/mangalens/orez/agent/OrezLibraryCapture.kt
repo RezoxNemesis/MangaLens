@@ -13,7 +13,7 @@ internal object OrezLibraryCapture {
         if (request.operation.selected) require(selectedId?.matches(Regex("[a-f0-9]{32}")) == true) {
             "Open one saved chapter before requesting its metadata, bookmark or linked series glossary."
         }
-        val files = context.applicationContext.filesDir
+        val files = context.applicationContext.filesDir.canonicalFile
         return OrezLibraryOwnedIo.run(files) { access ->
             val directory = File(files,"chapter_library")
             val found = if (request.operation.selected) listOf(requireNotNull(selectedId)) to false else access.inventory(directory)

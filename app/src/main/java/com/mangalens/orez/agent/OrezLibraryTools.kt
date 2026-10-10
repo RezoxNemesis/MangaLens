@@ -11,7 +11,7 @@ import java.io.File
 
 /** Native saved metadata only. Nothing here opens a page, contacts a source or invokes a model. */
 internal class OrezLibraryTools(context: Context, private val store: OrezTaskStore, private val plan: OrezTaskPlan) {
-    private val files = context.applicationContext.filesDir
+    private val files = context.applicationContext.filesDir.canonicalFile
     private val scope = requireNotNull(plan.authorization?.libraryScope).validate()
     suspend fun execute(step: OrezPlanStep, requestId: String): OrezToolResult {
         return try {
