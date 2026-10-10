@@ -278,7 +278,11 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch { repository.pages.collect { pages ->
             if (_state.value.pages.map { Triple(it.index, it.localPath, it.contentRevision) } != pages.map { Triple(it.index, it.localPath, it.contentRevision) }) readerMemory.retire()
         _state.value = _state.value.copy(pages = pages)
-            if (pages.isNotEmpty()) persistCurrentChapter()
+            if (pages.isNotEmpty()) {
+                try { persistCurrentChapter() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) { _state.update { it.copy(error = failure.message ?: "Reading history could not be saved. Please retry.") } }
+            }
         } }
         viewModelScope.launch { statsStore.stats.collect { stats -> _state.value = _state.value.copy(adBlockStats = stats) } }
         viewModelScope.launch {
