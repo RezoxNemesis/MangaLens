@@ -6,6 +6,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.security.MessageDigest
 import java.text.Normalizer
 import java.util.Locale
@@ -139,7 +141,7 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
         require(validId.matches(id))
         val normalized = metadata.normalized()
         val existing = read(File(directory, "$id.json")) ?: throw IllegalStateException("This chapter is no longer saved. Reopen the Library.")
-        val updated = existing.withMetadata(normalized).copy(updatedAt = editedAt.coerceAtLeast(existing.updatedAt))
+        val updated = existing.withMetadata(normalized).copy(updatedAt = maxOf(editedAt, Math.addExact(existing.updatedAt, 1L)))
         saveLocked(updated)
         updated
     }
@@ -163,7 +165,18 @@ class ChapterLibrary internal constructor(filesRoot: File, private val io: Chapt
         encodeManifest(chapter, successors).size
 
     private fun saveLocked(chapter: SavedChapter) {
-        io.write(File(directory, chapter.id + ".json"), encodeManifest(chapter))
+        val file = File(directory, chapter.id + ".json")
+        val previous = read(file, PromotionVerificationBudget(0))
+        check(previous != null || (!Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+            !Files.exists(File(file.path + ".bak").toPath(), LinkOption.NOFOLLOW_LINKS))) {
+            "Saved chapter metadata could not be read safely. Repair its record before replacing it."
+        }
+        // A later save must never recreate an earlier request's captured bytes, even
+        // when the user restores the old value or the wall clock moves backwards.
+        val persisted = previous?.let {
+            chapter.copy(updatedAt = maxOf(chapter.updatedAt, Math.addExact(it.updatedAt, 1L)))
+        } ?: chapter
+        io.write(file, encodeManifest(persisted))
     }
 
     private fun encodeManifest(chapter: SavedChapter, successors: List<ChapterAcquisitionBudgetPage> = emptyList()): ByteArray {

@@ -42,6 +42,30 @@ class ChapterLibraryTest {
         ChapterLibrary(root, FileJournal()).save(expected)
         assertEquals(expected, ChapterLibrary(root, FileJournal()).list().single())
     }
+    @Test fun returningToAnOldBookmarkValueCannotRecreateItsCapturedJournal() = withRoot { root ->
+        val library = ChapterLibrary(root, FileJournal())
+        val original = chapter(root).copy(bookmarked = false)
+        library.save(original)
+        val journal = File(root, "chapter_library/${original.id}.json")
+        val captured = journal.readBytes()
+        library.save(original.copy(bookmarked = true))
+        val changedAt = library.findMetadata(original.id)!!.updatedAt
+        library.save(original.copy(updatedAt = 1L))
+        val returned = library.findMetadata(original.id)!!
+        assertFalse(returned.bookmarked)
+        assertTrue(returned.updatedAt > changedAt)
+        assertFalse(captured.contentEquals(journal.readBytes()))
+    }
+    @Test fun anUnreadableExistingJournalCannotBeTreatedAsANewSave() = withRoot { root ->
+        val library = ChapterLibrary(root, FileJournal())
+        val original = chapter(root)
+        library.save(original)
+        val journal = File(root, "chapter_library/${original.id}.json")
+        journal.writeText("unreadable saved metadata")
+        val before = journal.readBytes()
+        assertThrows(IllegalStateException::class.java) { library.save(original) }
+        assertArrayEquals(before, journal.readBytes())
+    }
     @Test fun legacyJournalsHaveUnknownHistoryAndEmptyUserMetadata() = withRoot { root ->
         val library = ChapterLibrary(root, FileJournal())
         val expected = chapter(root)
