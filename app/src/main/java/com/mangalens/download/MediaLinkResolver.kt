@@ -34,7 +34,9 @@ data class ResolvedMediaLink(
     val providerCaptions: ProviderCaptionInventory? = null,
     val audioMimeType: String? = null,
     val videoFragments: OriginalFragmentPlan? = null,
-    val audioFragments: OriginalFragmentPlan? = null
+    val audioFragments: OriginalFragmentPlan? = null,
+    val videoHlsSource: CapturedHlsTrackSource? = null,
+    val audioHlsSource: CapturedHlsTrackSource? = null
 )
 
 class MediaLinkResolver(
@@ -81,7 +83,7 @@ class MediaLinkResolver(
             try { extract(clean, quality, session)?.let { return it } }
             catch (failure: Exception) {
                 session.checkActive()
-                if (failure is InterruptedException) throw failure
+                if (failure is InterruptedException || failure is java.util.concurrent.CancellationException || failure is OriginalHlsSelectedSourceException) throw failure
                 extractorFailure = failure
             }
         }

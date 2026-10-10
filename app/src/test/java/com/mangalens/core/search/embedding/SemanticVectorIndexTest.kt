@@ -55,7 +55,7 @@ class SemanticVectorIndexTest {
         assertEquals(entry(3).key, store.read().entries.single().key)
         assertFalse(File(root, "semantic_models/library-vectors-v1.bin.pending").exists())
     }
-    @Test fun callerCancellationIsNeverConvertedToCorruptCacheStatus() = runBlocking {
+    @Test fun callerCancellationIsNeverConvertedToCorruptCacheStatus() = runBlocking<Unit> {
         val root = folder.newFolder(); val store = SemanticVectorIndex(root); store.replace(listOf(entry())) {}
         assertThrows(CancellationException::class.java) { store.read { throw CancellationException() } }
     }

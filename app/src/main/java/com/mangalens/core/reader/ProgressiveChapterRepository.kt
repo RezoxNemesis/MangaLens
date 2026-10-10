@@ -35,62 +35,123 @@ class ProgressiveChapterRepository(
             val builder = request.newBuilder().removeHeader("Cookie")
             CookieManager.getInstance().getCookie(request.url.toString())?.takeIf { it.isNotBlank() }?.let { builder.header("Cookie", it) }
             chain.proceed(builder.build())
-        }.build()
+        }.build(),
+    /** Stable native owner isolates originals/partial files from ordinary Reader acquisitions. */
+    private val acquisitionNamespace: String? = null,
+    private val acquisitionPrivateFiles: ChapterAcquisitionPrivateFiles? = null
 ) {
+    init { require(acquisitionNamespace == null || acquisitionNamespace.matches(Regex("[a-f0-9]{16}"))) }
+    private fun remoteName(index: Int, url: String) = (acquisitionNamespace?.let { "owned_${it}_" }.orEmpty()) + index + "_" + sha256(url) + ".img"
     private val chapterDir = File(context.filesDir, "chapters").apply {
         check(isDirectory || mkdirs()) { "Unable to create persistent chapter storage." }
     }
+    private val chapterLibrary = ChapterLibrary(context)
     private val transferMutex = Mutex()
     private val pagePublicationLock = Any()
+    private var chapterGeneration = 0L
+    private fun currentGeneration(): Long = synchronized(pagePublicationLock) { chapterGeneration }
+    private fun requireGeneration(expected: Long) {
+        if (chapterGeneration != expected) throw CancellationException("The chapter acquisition selection changed.")
+    }
     private val _pages = MutableStateFlow<List<ChapterPage>>(emptyList())
     val pages: StateFlow<List<ChapterPage>> = _pages
 
     suspend fun persistPage(index: Int, sourceUrl: String, referrer: String? = null,
-        promotion: com.mangalens.core.acquisition.ChapterImagePromotion? = null): ChapterPage = withContext(Dispatchers.IO) { transferMutex.withLock {
+        promotion: com.mangalens.core.acquisition.ChapterImagePromotion? = null): ChapterPage =
+        persistPageOwned(index, sourceUrl, referrer, promotion, currentGeneration())
+
+    private suspend fun persistPageOwned(index: Int, sourceUrl: String, referrer: String?,
+        promotion: com.mangalens.core.acquisition.ChapterImagePromotion?, generation: Long): ChapterPage = withContext(Dispatchers.IO) { transferMutex.withLock {
         val jobContext = currentCoroutineContext()
         jobContext.ensureActive()
-        val file = File(chapterDir, index.toString() + "_" + sha256(sourceUrl) + ".img")
-        val revision = persistVerified(file, jobContext) { temp ->
+        synchronized(pagePublicationLock) { requireGeneration(generation) }
+        val file = File(chapterDir, remoteName(index, sourceUrl))
+        val revision = persistVerified(file, jobContext, beforePromotion = { requireGeneration(generation) }) { temp ->
             acquireRemote(sourceUrl, referrer, temp)
         }
         val page = ChapterPage(index, sourceUrl, file.absolutePath, contentRevision = revision,
             promotionHint = promotion?.let { ChapterPromotionHint(it, revision.substringBefore(':')) })
         synchronized(pagePublicationLock) {
-            jobContext.ensureActive()
+            jobContext.ensureActive(); requireGeneration(generation)
             _pages.value = (_pages.value.filterNot { it.index == index } + page).sortedBy { it.index }
         }
         page
     } }
 
-    suspend fun persistDiscoveredPages(urls: List<String>, referrer: String? = null): List<ChapterPage> {
-        val result = mutableListOf<ChapterPage>()
-        urls.distinct().forEachIndexed { index, url ->
-            result += persistPage(index + 1, url, referrer)
-        }
-        return result
-    }
+    suspend fun persistDiscoveredPages(urls: List<String>, referrer: String? = null): List<ChapterPage> =
+        persistDiscoveredCandidates(urls.map { com.mangalens.core.acquisition.ChapterImageCandidate(it) }, referrer)
 
-    suspend fun persistDiscoveredCandidates(candidates: List<com.mangalens.core.acquisition.ChapterImageCandidate>, referrer: String? = null): List<ChapterPage> {
+    suspend fun persistDiscoveredCandidates(candidates: List<com.mangalens.core.acquisition.ChapterImageCandidate>, referrer: String? = null,
+        beforeCatalog: suspend (List<ChapterPage>, List<ChapterAcquisitionBudgetPage>) -> Unit = { _, _ -> }): List<ChapterPage> {
         val selected = candidates.distinctBy { it.url }.take(com.mangalens.core.acquisition.ChapterImageCandidates.MAX_IMAGES)
+        if (selected.isEmpty()) return emptyList()
+        // A cheap retained-input bound precedes the actual encoded UTF-8 journal checks below.
+        require(selected.all { it.url.length <= com.mangalens.core.acquisition.ChapterImageCandidates.MAX_URL_CHARS } &&
+            selected.sumOf { it.url.length.toLong() } <= 1_200_000L) { "Chapter catalog metadata exceeds the safe acquisition limit. No originals were changed." }
+        val generation = currentGeneration()
+        val jobContext = currentCoroutineContext()
+        val planned = synchronized(pagePublicationLock) {
+            jobContext.ensureActive(); requireGeneration(generation)
+            selected.mapIndexed { offset, candidate ->
+                _pages.value.firstOrNull { it.index == offset + 1 && it.sourceUrl == candidate.url }
+                    ?: ChapterPage(offset + 1, candidate.url, error = ChapterPageAcquisitionPolicy.PENDING)
+            }
+        }
+        val successors = selected.mapIndexed { offset, candidate ->
+            ChapterAcquisitionBudgetPage(offset + 1, candidate.url, remoteName(offset + 1, candidate.url), candidate.promotion)
+        }
+        withContext(Dispatchers.IO) {
+            val source = referrer ?: selected.first().url
+            chapterLibrary.checkMetadataBudget(
+                SavedChapter(ChapterLibrary.id(source), "Chapter", source, planned), successors)
+        }
+        // Reader supplies its actual chapter and freshly read committed metadata to the same encoder.
+        beforeCatalog(planned, successors)
+        synchronized(pagePublicationLock) {
+            jobContext.ensureActive(); requireGeneration(generation)
+            // Keep every actual catalog ordinal visible, including unfinished work after cancellation.
+            _pages.value = planned
+        }
         val result = mutableListOf<ChapterPage>()
         selected.forEachIndexed { index, candidate ->
-            result += persistPage(index + 1, candidate.url, referrer, candidate.promotion)
+            val page = try { persistPageOwned(index + 1, candidate.url, referrer, candidate.promotion, generation) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                jobContext.ensureActive()
+                // An unacknowledged native close is fatal; retaining its owner takes precedence over continuation.
+                if (acquisitionPrivateFiles?.privateReleaseProven() == false) throw failure
+                synchronized(pagePublicationLock) {
+                    requireGeneration(generation)
+                    ChapterPageAcquisitionPolicy.failure(index + 1, candidate.url).also { failed ->
+                        _pages.value = _pages.value.map { if (it.index == failed.index && it.sourceUrl == failed.sourceUrl) failed else it }
+                    }
+                }
+            }
+            result += page
         }
         return result
     }
 
     suspend fun persistLocalImages(uris: List<Uri>, context: Context,
-        documentSources: List<ChapterDocumentSource?> = emptyList()): List<ChapterPage> = withContext(Dispatchers.IO) { transferMutex.withLock {
+        documentSources: List<ChapterDocumentSource?> = emptyList()): List<ChapterPage> =
+        persistLocalImagesOwned(uris, context, documentSources, currentGeneration())
+
+    private suspend fun persistLocalImagesOwned(uris: List<Uri>, context: Context,
+        documentSources: List<ChapterDocumentSource?>, generation: Long): List<ChapterPage> = withContext(Dispatchers.IO) { transferMutex.withLock {
         require(uris.isNotEmpty()) { "Select at least one image." }
         require(documentSources.isEmpty() || documentSources.size == uris.size) { "Original document pages must match the prepared images." }
         val jobContext = currentCoroutineContext()
+        jobContext.ensureActive()
+        synchronized(pagePublicationLock) { requireGeneration(generation) }
         val imported = mutableListOf<ChapterPage>()
         uris.forEachIndexed { index, uri ->
+            jobContext.ensureActive()
+            synchronized(pagePublicationLock) { requireGeneration(generation) }
             val document = documentSources.getOrNull(index)?.validate()
             val key = sha256(document?.let { it.uri + "|" + it.documentSha256 + "|" + it.kind + "|" + it.pageIndex + "|" + it.archiveEntryName }
                 ?: (uri.toString() + "|" + index))
             val file = File(chapterDir, "local_" + key + ".img")
-            val revision = persistVerified(file, jobContext) { temp ->
+            val revision = persistVerified(file, jobContext, beforePromotion = { requireGeneration(generation) }) { temp ->
                 val input = context.contentResolver.openInputStream(uri)
                     ?: throw java.io.IOException("Unable to open selected image " + (index + 1))
                 input.use { copySynced(it, temp, jobContext) }
@@ -100,7 +161,7 @@ class ProgressiveChapterRepository(
                 contentRevision = revision, documentSource = document)
         }
         synchronized(pagePublicationLock) {
-            jobContext.ensureActive()
+            jobContext.ensureActive(); requireGeneration(generation)
             _pages.value = imported
         }
         imported
@@ -108,17 +169,21 @@ class ProgressiveChapterRepository(
 
     /** Reacquire one damaged source without resetting its chapter or touching neighbouring pages. */
     suspend fun repairPage(page: ChapterPage, context: Context, referrer: String? = null): ChapterPage =
+        repairPageOwned(page, context, referrer, currentGeneration())
+
+    private suspend fun repairPageOwned(page: ChapterPage, context: Context, referrer: String?, generation: Long): ChapterPage =
         withContext(Dispatchers.IO) { transferMutex.withLock {
             val jobContext = currentCoroutineContext()
             jobContext.ensureActive()
+            synchronized(pagePublicationLock) { check(chapterGeneration == generation) { "The selected chapter page has changed. Reopen it before retrying." } }
             check(_pages.value.any { it == page }) { "The selected chapter page has changed. Reopen it before retrying." }
-            val file = page.localPath?.let(::File) ?: File(chapterDir,
-                page.index.toString() + "_" + sha256(page.sourceUrl) + ".img")
+            val file = page.localPath?.let(::File) ?: File(chapterDir, remoteName(page.index, page.sourceUrl))
             check(file.canonicalFile.parentFile == chapterDir.canonicalFile && file.name.endsWith(".img")) {
                 "The page is not in managed chapter storage. Import the original again from Files."
             }
             val uri = Uri.parse(page.sourceUrl)
             val revision = persistVerified(file, jobContext, forceAcquire = true, beforePromotion = {
+                check(chapterGeneration == generation) { "The selected chapter page has changed. Reopen it before retrying." }
                 check(_pages.value.any { it == page }) { "The selected chapter page has changed. Reopen it before retrying." }
             }) { temp ->
                 if (page.documentSource != null) {
@@ -135,7 +200,7 @@ class ProgressiveChapterRepository(
             val repaired = page.copy(localPath = file.absolutePath, error = null, contentRevision = revision,
                 promotionHint = page.promotionHint?.takeIf { it.sourceSha256 == revision.substringBefore(':') })
             synchronized(pagePublicationLock) {
-                jobContext.ensureActive()
+                jobContext.ensureActive(); check(chapterGeneration == generation) { "The selected chapter page has changed. Reopen it before retrying." }
                 check(_pages.value.any { it == page }) { "The selected chapter page has changed. Reopen it before retrying." }
                 _pages.value = _pages.value.map { if (it == page) repaired else it }
             }
@@ -149,15 +214,16 @@ class ProgressiveChapterRepository(
         val cachedRevision = try {
             if (!forceAcquire && file.isFile) validatedRevision(file, jobContext) else null
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { null }
+        catch (failure: Exception) { if (acquisitionPrivateFiles?.privateReleaseProven() == false) throw failure else null }
         if (cachedRevision != null) return _pages.value.firstOrNull { page ->
             page.localPath == file.absolutePath && page.contentRevision?.substringBefore(':') == cachedRevision
         }?.contentRevision ?: cachedRevision
         val temp = File(chapterDir, file.name + ".part")
+        check(acquisitionPrivateFiles?.privateReleaseProven() != false) { "Native private cleanup is unproven. Restart before another acquisition." }
         check(!temp.exists() || temp.delete()) { "Unable to clear an incomplete page download." }
         try {
             acquire(temp)
-            FileOutputStream(temp, true).use { it.fd.sync() }
+            useAcquisitionResource(acquisitionOutput(temp, true)) { it.fd.sync() }
             val revision = validatedRevision(temp, jobContext)
             // POSIX rename atomically replaces only after validation and fsync. Never copy
             // over the old image: an interrupted copy would destroy the recoverable source.
@@ -170,8 +236,16 @@ class ProgressiveChapterRepository(
             // incarnation: remembered failed decodes must be allowed to run again.
             return revision + ":" + UUID.randomUUID()
         } finally {
-            temp.delete()
+            if (acquisitionPrivateFiles?.privateReleaseProven() != false) temp.delete()
         }
+    }
+
+    private fun acquisitionOutput(file: File, append: Boolean = false): FileOutputStream =
+        acquisitionPrivateFiles?.openOutput(file, append) ?: FileOutputStream(file, append)
+
+    private fun <T : java.io.Closeable, R> useAcquisitionResource(value: T, action: (T) -> R): R {
+        val owner = acquisitionPrivateFiles
+        return if (owner != null) owner.usePrivate(value, action) else value.use(action)
     }
 
     /** Cancel this exact request while headers or body IO are blocked, then join its cleanup. */
@@ -186,14 +260,23 @@ class ProgressiveChapterRepository(
             try { awaitCancellation() } finally { call.cancel() }
         }
         try {
-            call.execute().use { response ->
+
+            val response = call.execute()
+            if (acquisitionPrivateFiles != null) {
+                val body = response.body ?: error("Empty image response")
+                // One real close through the ledger; Response.close must not retry a failed close.
+                useAcquisitionResource(body.source()) { source ->
+                    jobContext.ensureActive()
+                    check(response.isSuccessful) { "Page download failed: HTTP " + response.code }
+                    check(body.contentLength() <= MAX_PAGE_BYTES) { "Chapter page exceeds the safe per-page limit of " + formatLimit(MAX_PAGE_BYTES) + "." }
+                    copySynced(source.inputStream(), temp, jobContext)
+                }
+            } else response.use {
                 jobContext.ensureActive()
                 check(response.isSuccessful) { "Page download failed: HTTP " + response.code }
                 val body = response.body ?: error("Empty image response")
-                check(body.contentLength() <= MAX_PAGE_BYTES) {
-                    "Chapter page exceeds the safe per-page limit of " + formatLimit(MAX_PAGE_BYTES) + "."
-                }
-                body.byteStream().use { copySynced(it, temp, jobContext) }
+                check(body.contentLength() <= MAX_PAGE_BYTES) { "Chapter page exceeds the safe per-page limit of " + formatLimit(MAX_PAGE_BYTES) + "." }
+                body.byteStream().use { input -> copySynced(input, temp, jobContext) }
             }
         } catch (failure: Exception) {
             // OkHttp reports canceled socket IO as IOException. Retain coroutine
@@ -206,6 +289,13 @@ class ProgressiveChapterRepository(
     }
 
     private fun copySynced(input: InputStream, temp: File, jobContext: CoroutineContext) {
+        if (acquisitionPrivateFiles != null) {
+            useAcquisitionResource(acquisitionOutput(temp)) { output ->
+                BoundedTransfer.copy(input, output, MAX_PAGE_BYTES, checkActive = { jobContext.ensureActive() })
+                output.flush(); output.fd.sync()
+            }
+            return
+        }
         FileOutputStream(temp).use { stream ->
             stream.buffered().use { output ->
                 BoundedTransfer.copy(input, output, MAX_PAGE_BYTES, checkActive = { jobContext.ensureActive() })
@@ -217,6 +307,7 @@ class ProgressiveChapterRepository(
 
     private fun validatedRevision(file: File, jobContext: CoroutineContext): String {
         check(file.length() in 1..MAX_PAGE_BYTES) { "Chapter page is empty or exceeds the safe per-page limit of " + formatLimit(MAX_PAGE_BYTES) + "." }
+        acquisitionPrivateFiles?.let { return it.verifiedRevision(file) { jobContext.ensureActive() } }
         validateImage(file, jobContext)
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
@@ -232,8 +323,8 @@ class ProgressiveChapterRepository(
     }
 
     /** Changing the active chapter must never delete durable offline pages. */
-    fun clearChapterCache() { synchronized(pagePublicationLock) { _pages.value = emptyList() } }
-    fun restorePages(pages: List<ChapterPage>) { synchronized(pagePublicationLock) { _pages.value = pages } }
+    fun clearChapterCache() { synchronized(pagePublicationLock) { chapterGeneration++; _pages.value = emptyList() } }
+    fun restorePages(pages: List<ChapterPage>) { synchronized(pagePublicationLock) { chapterGeneration++; _pages.value = pages } }
 
     private fun validateImage(file: File, jobContext: CoroutineContext) {
         jobContext.ensureActive()

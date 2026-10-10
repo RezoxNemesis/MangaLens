@@ -50,6 +50,9 @@ internal object DownloadPrivateFileOwners {
     private val memoryLock = Any()
     private val reservations = mutableMapOf<String, DownloadPrivateFileOwner>()
     private val activeReceipts = mutableSetOf<String>()
+    // Existing retained durable receipts bound admissions to 64 owners. Each failed transfer
+    // keeps its actual response/call, independently of the retired Worker or UI, until restart.
+    private val unreleasedTransports = mutableMapOf<String, MutableList<Any>>()
     private val suffix = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\\.receipt")
 
     /** Registration is nonblocking memory work; private filesystem IO stays on the bounded producer. */
@@ -140,6 +143,13 @@ internal object DownloadPrivateFileOwners {
         private val unsafe = AtomicBoolean(false)
         /** Called on unproven/failed resource cleanup; never disguise an orphan as safely released. */
         fun retain() { unsafe.set(true) }
+        fun retain(resource: Any) {
+            unsafe.set(true)
+            synchronized(memoryLock) {
+                val held = unreleasedTransports.getOrPut(receipt.absolutePath) { mutableListOf() }
+                if (held.none { it === resource }) held.add(resource)
+            }
+        }
         val isUnproven: Boolean get() = unsafe.get()
         override fun close() {
             if (!finished.compareAndSet(false, true)) return

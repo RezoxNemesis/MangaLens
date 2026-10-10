@@ -249,6 +249,7 @@ fun MangaLensNavGraph(
                     onWatch = { navController.navigate("local_video") })
             }
             composable("library") { libraryEntry ->
+                LaunchedEffect(libraryEntry) { com.mangalens.orez.agent.NativeLibraryMetadataHints.requestRefresh() }
                 LibraryScreen(state = state, onOpenSemanticSearch = { query ->
                     if (navController.currentBackStackEntry === libraryEntry && libraryEntry.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED)
                         navController.navigate("semantic_library?query=" + android.net.Uri.encode(query.take(160)))
@@ -384,6 +385,10 @@ fun MangaLensNavGraph(
                 val readerPreferences = com.mangalens.core.translation.SavedTextReaderNavigationPolicy.preferences(state.savedTextSelection,
                     com.mangalens.core.translation.SavedTextReaderPreferences(state.targetLanguage, state.translationStyle, state.customTranslationStyle))
                 key(state.activeChapter?.id, savedTextRequest) {
+                val sfxGateway = remember(readerMemory, capturedBubblePresentation) {
+                    if (readerMemory == null || capturedBubblePresentation == null) null else readerMemory.sfxRestorationGateway(capturedBubblePresentation)
+                }
+                androidx.compose.runtime.CompositionLocalProvider(com.mangalens.ui.reader.LocalReaderSfxRestoration provides sfxGateway) {
                 MangaContinuousReader(
                     title = state.activeChapter?.title ?: "Chapter", chapterId = state.activeChapter?.id ?: "",
                     initialPosition = state.activeChapter?.position ?: 0, initialOffset = state.activeChapter?.scrollOffset ?: 0,
@@ -404,11 +409,13 @@ fun MangaLensNavGraph(
                     onVisiblePages = { indices -> readerMemory?.onVisiblePages(indices) },
                     readerPresentationEpoch = capturedBubblePresentation?.epoch, ocrDiagnostics = state.ocrDiagnostics,
                     onCorrectPage = readerMemory?.let { controller -> { index -> memoryScope.launch { controller.openPage(index) }; Unit } },
+                    onManuallyHiddenPages = { indices -> readerMemory?.onManuallyHiddenPages(indices) },
                     personalOverlays = memoryState?.personalOverlays.orEmpty(),
                     onSavedBubble = onSavedBubble,
                     onOpenWeb = { navController.navigate("web") }, onLongPressPage = onTranslatePage,
                     modifier = Modifier.fillMaxSize()
                 )
+                }
                 }
             }
             composable("video") {
@@ -437,6 +444,7 @@ fun MangaLensNavGraph(
                         resolutionId = state.videoResolutionId,
                         providerCaptions = state.videoProviderCaptions,
                         videoMimeType = state.videoMimeType, audioMimeType = state.videoAudioMimeType,
+                        videoFragments = state.videoFragments, audioFragments = state.videoAudioFragments,
                         onSourceRefreshed = onVideoRefreshed,
                         onReadySource = onVideoReady
                     )

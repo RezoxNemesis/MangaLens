@@ -10,7 +10,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-internal class BrowserWorkspaceSession(io: BrowserWorkspaceIo, scope: CoroutineScope) {
+internal class BrowserWorkspaceSession(io: BrowserWorkspaceIo, scope: CoroutineScope,
+    val profileKey: String = "normal", private val ephemeral: Boolean = false) {
+    @Volatile private var retired = false
+    private var actor: kotlinx.coroutines.Job? = null
+    fun retireEphemeral() {
+        check(ephemeral); retired = true; domTools?.retire(); domTools = null
+        commands.close(); actor?.cancel(); mutableState.value = null
+    }
+    suspend fun awaitRetired() { actor?.join() }
+
     private data class Command(val action: (BrowserWorkspaceStore) -> BrowserWorkspaceSnapshot, val result: CompletableDeferred<BrowserWorkspaceSnapshot>)
     private val commands = Channel<Command>(64)
     private val mutableState = MutableStateFlow<BrowserWorkspaceSnapshot?>(null)
@@ -21,7 +30,7 @@ internal class BrowserWorkspaceSession(io: BrowserWorkspaceIo, scope: CoroutineS
     /** Foreground ownership only: background/durable workers cannot recreate a DOM host. */
     @Volatile var domTools: com.mangalens.orez.agent.OrezBrowserTools? = null
         private set
-    fun bindDomTools(tools: com.mangalens.orez.agent.OrezBrowserTools) { domTools = tools }
+    fun bindDomTools(tools: com.mangalens.orez.agent.OrezBrowserTools) { if (retired) tools.retire() else domTools = tools }
     fun unbindDomTools(tools: com.mangalens.orez.agent.OrezBrowserTools) {
         tools.retire()
         if (domTools === tools) domTools = null
@@ -30,19 +39,21 @@ internal class BrowserWorkspaceSession(io: BrowserWorkspaceIo, scope: CoroutineS
 
     init {
         // The application owns this scope. Accepted commands outlive an individual UI waiter.
-        scope.launch {
+        actor = scope.launch {
             var store: BrowserWorkspaceStore? = null
             fun load(): BrowserWorkspaceStore = store ?: BrowserWorkspaceStore(io).also {
-                store = it; mutableState.value = it.snapshot()
+                store = it; if (!retired) mutableState.value = it.snapshot()
             }
             try { load() }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { mutableError.value = "Browser session could not be opened. Retry to restore it." }
             for (command in commands) {
+                if (retired) { command.result.cancel(); continue }
                 try {
                     val current = load()
                     command.action(current)
                     val saved = current.snapshot()
+                    if (retired) { command.result.cancel(); continue }
                     mutableState.value = saved
                     mutableError.value = null
                     command.result.complete(saved)
@@ -56,11 +67,19 @@ internal class BrowserWorkspaceSession(io: BrowserWorkspaceIo, scope: CoroutineS
                     command.result.completeExceptionally(failure)
                 }
             }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (ephemeral) {
+                    mutableState.value = null
+                    while (true) { val pending = commands.tryReceive().getOrNull() ?: break; pending.result.cancel() }
+                }
+            }
         }
     }
 
     fun submit(action: (BrowserWorkspaceStore) -> BrowserWorkspaceSnapshot): Deferred<BrowserWorkspaceSnapshot> {
         val result = CompletableDeferred<BrowserWorkspaceSnapshot>()
+        if (retired) { result.cancel(); return result }
         if (commands.trySend(Command(action, result)).isFailure) {
             val failure = IllegalStateException("Browser is busy saving changes. Please retry.")
             mutableError.value = failure.message

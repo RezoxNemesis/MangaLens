@@ -19,8 +19,12 @@ object MediaPlaybackDataSource {
         context: MediaRequestContext,
         baseClient: OkHttpClient = client,
         cookiesForUrl: (String) -> String? = { url -> CookieManager.getInstance().getCookie(url) }
-    ): OkHttpDataSource.Factory {
-        val scopedClient = baseClient.newBuilder().addNetworkInterceptor { chain ->
+    ): OkHttpDataSource.Factory = OkHttpDataSource.Factory(scopedClient(context, baseClient, cookiesForUrl))
+
+    internal fun scopedClient(context: MediaRequestContext, baseClient: OkHttpClient = client,
+        cookiesForUrl: (String) -> String? = { url -> CookieManager.getInstance().getCookie(url) }
+    ): OkHttpClient {
+        return baseClient.newBuilder().addNetworkInterceptor { chain ->
             val request = chain.request()
             val url = request.url.toString()
             val cookie = runCatching { cookiesForUrl(url) }.getOrNull()
@@ -31,6 +35,5 @@ object MediaPlaybackDataSource {
             context.headersFor(url, cookie).forEach { (name, value) -> builder.header(name, value) }
             chain.proceed(builder.build())
         }.build()
-        return OkHttpDataSource.Factory(scopedClient)
     }
 }

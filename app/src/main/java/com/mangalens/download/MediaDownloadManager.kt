@@ -51,7 +51,7 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
             val existing = DownloadIdMutationFences.withId(requestId) {
                 dao.get(requestId)?.also { item ->
                     if (item.state == DownloadState.QUEUED && !DownloadPrivateFileOwners.hasOwners(privateOwner(item.id))) {
-                        start(item.id, item.sourceUrl, item.title, item.mimeType, ExistingWorkPolicy.KEEP)
+                        start(item.id, item.sourceUrl, item.title, item.mimeType, ExistingWorkPolicy.KEEP, item.selectedTransport)
                     }
                 }
             }
@@ -63,6 +63,7 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
         }
         val resolved = resolver.resolveCancellable(clean, quality)
             ?: throw IllegalArgumentException("The page did not expose an accessible media source.")
+        SelectedDownloadTransportPolicy.requireSupported(resolved)
         val mediaUrl = resolved.url
         val id = requestId ?: UUID.randomUUID().toString()
         val explicitTitle = title?.takeIf(String::isNotBlank)
@@ -93,10 +94,10 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
                     state = DownloadState.QUEUED,
                     provider = resolved.provider,
                     sourcePageUrl = pageUrl,
-                    requestedHeight = quality.height
+                    requestedHeight = quality.height, selectedTransport = OriginalFragmentTransport.downloadKind(resolved)
                 )
             )
-            start(id, mediaUrl, finalTitle, mime)
+            start(id, mediaUrl, finalTitle, mime, selectedTransport = OriginalFragmentTransport.downloadKind(resolved))
             id
         }
     }
@@ -113,7 +114,8 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
         quality: DownloadQuality = DownloadQuality.BEST,
         sourcePageUrl: String? = null,
         headers: Map<String, String> = emptyMap(),
-        provider: String = "web-sniff"
+        provider: String = "web-sniff",
+        capturedMedia: ResolvedMediaLink? = null
     ): String = withContext(Dispatchers.IO) {
         val clean = url.trim()
         require(clean.startsWith("http://") || clean.startsWith("https://")) {
@@ -125,7 +127,14 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
                 value.length <= 16_384 &&
                 value.none { it == '\r' || it == '\n' || it == '\u0000' }
         }
-        val resolved = ResolvedMediaLink(
+        capturedMedia?.let {
+            require(it.url == clean && MediaTransportMime.capture(it.mimeType) == MediaTransportMime.capture(mimeType)) {
+                "Detected download no longer matches its complete captured source."
+            }
+            requireBoundMediaSource(clean, it)
+        }
+        val resolved = capturedMedia?.copy(sourcePageUrl = page ?: capturedMedia.sourcePageUrl,
+            headers = safeHeaders.toMap(), audioHeaders = capturedMedia.audioHeaders.toMap()) ?: ResolvedMediaLink(
             url = clean,
             mimeType = mimeType,
             provider = provider,
@@ -134,6 +143,7 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
             headers = safeHeaders,
             requestedHeight = quality.height
         )
+        SelectedDownloadTransportPolicy.requireSupported(resolved)
         val id = UUID.randomUUID().toString()
         val finalTitle = title?.takeIf(String::isNotBlank)
             ?: clean.substringAfterLast('/').substringBefore('?').ifBlank { "MangaLens media" }
@@ -149,10 +159,10 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
                     state = DownloadState.QUEUED,
                     provider = provider,
                     sourcePageUrl = page ?: clean,
-                    requestedHeight = quality.height
+                    requestedHeight = quality.height, selectedTransport = OriginalFragmentTransport.downloadKind(resolved)
                 )
             )
-            start(id, clean, finalTitle, mimeType)
+            start(id, clean, finalTitle, mimeType, selectedTransport = OriginalFragmentTransport.downloadKind(resolved))
             id
         }
     }
@@ -185,25 +195,28 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
             if (!captured.isAdaptive) requireReleased(id)
             var item = captured
             refreshed?.let { fresh ->
+                SelectedDownloadTransportPolicy.requireSupported(fresh)
                 val mime = fresh.mimeType ?: item.mimeType
                 val title = fresh.title?.takeIf(String::isNotBlank) ?: item.title
                 if (dao.refreshSource(id, fresh.url, mime, title, fresh.provider, fresh.sourcePageUrl,
-                        fresh.requestedHeight, "Refreshed expired source") == 0) return@withId
+                        fresh.requestedHeight, "Refreshed expired source", OriginalFragmentTransport.downloadKind(fresh)) == 0) return@withId
                 contexts.write(id, fresh)
                 item = item.copy(sourceUrl = fresh.url, mimeType = mime, title = title, provider = fresh.provider,
-                    sourcePageUrl = fresh.sourcePageUrl, requestedHeight = fresh.requestedHeight)
+                    sourcePageUrl = fresh.sourcePageUrl, requestedHeight = fresh.requestedHeight, selectedTransport = OriginalFragmentTransport.downloadKind(fresh))
                 // No earlier process or native task can still own this ID's input files.
                 FailedDownloadPartialFiles.plan(privateOwner(id).root, id).forEach { file ->
                     check(file.delete()) { "Previous partial files are still in use. Try again after the transfer stops." }
                 }
             }
+            SelectedDownloadTransportPolicy.requireSupported(contexts.readMedia(id))
+            OriginalFragmentTransport.requireDownloadBinding(item.selectedTransport, contexts.readMedia(id))
             if (item.isAdaptive) {
                 if (dao.resumeIfStopped(id, DownloadState.DOWNLOADING) == 0) return@withId
                 if (captured.state == DownloadState.FAILED) adaptive.add(id, item.sourceUrl, item.mimeType)
                 else adaptive.resume(id)
             } else {
                 if (dao.resumeIfStopped(id, DownloadState.QUEUED) == 0) return@withId
-                start(id, item.sourceUrl, item.title, item.mimeType)
+                start(id, item.sourceUrl, item.title, item.mimeType, selectedTransport = item.selectedTransport)
             }
         }
     }
@@ -233,7 +246,7 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
             override suspend fun get(id: String) = dao.get(id)
             override suspend fun claim(captured: DownloadEntity) = dao.claimFailedPartials(captured.id, captured.sourceUrl,
                 captured.createdAt, captured.bytesDownloaded, captured.totalBytes, captured.mimeType, captured.title,
-                captured.stage, captured.error, captured.provider, captured.sourcePageUrl, captured.requestedHeight) == 1
+                captured.stage, captured.error, captured.provider, captured.sourcePageUrl, captured.requestedHeight, captured.selectedTransport) == 1
             override suspend fun complete(captured: DownloadEntity) = dao.finishFailedPartials(captured.id, captured.sourceUrl,
                 captured.createdAt, captured.bytesDownloaded, captured.totalBytes) == 1
         }
@@ -263,8 +276,11 @@ class MediaDownloadManager internal constructor(context: Context, private val ad
         if (DownloadPrivateFileOwners.hasOwners(owner)) throw DownloadPrivateFileOwners.ownershipFailure(owner)
     }
 
-    private fun start(id: String, url: String, title: String, mime: String, policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE) {
-        if (isAdaptiveMediaSource(url, mime)) {
+    private fun start(id: String, url: String, title: String, mime: String, policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE, selectedTransport: String? = null) {
+        val media = contexts.readMedia(id)
+        SelectedDownloadTransportPolicy.requireSupported(media)
+        OriginalFragmentTransport.requireDownloadBinding(selectedTransport, media)
+        if (selectedTransport == null && isAdaptiveMediaSource(url, mime)) {
             adaptive.add(id, url, mime)
             return
         }

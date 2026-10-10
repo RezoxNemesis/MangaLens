@@ -21,7 +21,8 @@ data class TranslationOverlay(
     val imageWidthPx: Int = 0,
     val imageHeightPx: Int = 0,
     val patch: MangaLettering.Patch? = null,
-    val lettering: SavedMangaLettering? = null
+    val lettering: SavedMangaLettering? = null,
+    val personalRegion: com.mangalens.core.translation.PersonalReaderRegion? = null
 )
 
 /** Cached typesetting metadata contains no page or patch Bitmap. */
@@ -52,7 +53,8 @@ fun MangaTranslationOverlay(
             MangaLettering.layout(it.text, it.style, it.bounds.width(), it.bounds.height(), textScale)
         } }
     }
-    Canvas(modifier) {
+    ReaderSfxPresentationLayer(overlays, modifier) { canvasModifier, originalPatches ->
+    Canvas(canvasModifier) {
         overlays.forEachIndexed { index, overlay ->
             val description = descriptions[index] ?: return@forEachIndexed
             val scale = size.width / overlay.imageWidthPx.coerceAtLeast(1)
@@ -60,6 +62,14 @@ fun MangaTranslationOverlay(
                 val checkpoint = save()
                 try {
                     scale(scale, scale)
+                    val original = overlay.personalRegion?.let { originalPatches[it] }
+                    if (original != null && drawOriginalSfxPatch(this, original)) {
+                        if (overlay.personalRegion?.personal?.regionPresentation?.sfx == com.mangalens.core.translation.memory.MemorySfxPresentation.ANNOTATE) {
+                            val marker = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; style = android.graphics.Paint.Style.STROKE; strokeWidth = 1.5f / scale }
+                            drawRect(original.nativeBounds, marker)
+                        }
+                        return@apply
+                    }
                     if (description.saved) {
                         MangaLettering.drawText(this, description.bounds, description.style, description.text, textScale, layouts[index])
                     } else overlay.patch?.let { patch ->
@@ -68,5 +78,6 @@ fun MangaTranslationOverlay(
                 } finally { restoreToCount(checkpoint) }
             }
         }
+    }
     }
 }

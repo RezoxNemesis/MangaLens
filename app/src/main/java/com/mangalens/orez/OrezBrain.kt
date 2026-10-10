@@ -46,7 +46,7 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
     }
 
     suspend fun planAction(input: String, appState: com.mangalens.orez.agent.OrezAgentContext): com.mangalens.orez.agent.OrezTaskPlan? {
-        if (OrezAppInspection.parseExplicit(input) != null) return null
+        if (OrezAppInspection.parseExplicit(input) != null || OrezAppKnowledge.isHelpRequest(input)) return null
         if (!com.mangalens.orez.agent.OrezModelPlanDecoder.isActionRequest(input)) return null
         val resources = OrezResourceModePreferences.get(context).capture(OrezModelTask.TOOL_PLANNING)
         val prompt = """
@@ -88,6 +88,9 @@ class OrezBrain(private val database:OrezRoomDatabase, private val context: andr
             )
             return@withContext OrezBrainResponse(OrezAppInspectionFormatter.describe(request, snapshot),
                 OrezIntent.TROUBLESHOOTING, usedLocalKnowledge = true)
+        }
+        OrezAppKnowledge.answer(clean)?.let { help ->
+            return@withContext OrezBrainResponse(help, OrezIntent.TROUBLESHOOTING, usedLocalKnowledge = true)
         }
         val intent=classify(clean)
         val localTask = if (intent in setOf(OrezIntent.REASONING, OrezIntent.PLANNING, OrezIntent.TROUBLESHOOTING))

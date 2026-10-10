@@ -9,6 +9,10 @@ class OrezAgentRuntime(
             (context.selectedMedia == null || !OrezSubtitleRequest.matchesSelection(input, context.selectedMedia))) {
             return OrezAgentDecision(message = "Select the requested playable video in MangaLens before generating subtitles.")
         }
+        if ((OrezNextChapterRequest.isRequested(input) || OrezNextChapterRequest.directUrl(input) != null) && context.chapterAcquisition == null)
+            return OrezAgentDecision(message = "Capture one explicit public chapter source before acquisition. For the next chapter, open its saved predecessor first.")
+        if (OrezLibraryRequest.parseExplicit(input) != null && context.libraryScope == null)
+            return OrezAgentDecision(message="Capture the current saved Library metadata before this explicit request. Open a saved chapter for selected-chapter operations.")
         val plan = planner.plan(input, context) ?: return if (OrezSubtitleRequest.isRequested(input))
             OrezAgentDecision(message = "Choose one explicit playable source or download one source before generating subtitles.")
             else OrezAgentDecision(continueToBrain = true)
@@ -17,15 +21,18 @@ class OrezAgentRuntime(
 
     fun decidePlan(plan: OrezTaskPlan, context: OrezAgentContext): OrezAgentDecision {
         // Discard proposed authority. A model-suggested plan has no right to widen app scope.
+        val libraryRequest = plan.steps.any { it.call.name in OrezLibraryRequest.tools }
         val captured = plan.copy(authorization = OrezTaskAuthorization(
+            chapterAcquisition = if (libraryRequest) null else context.chapterAcquisition?.validated(),
+            libraryScope = context.libraryScope?.takeIf { libraryRequest },
             origin = context.origin,
             explicitUserRequest = context.explicitUserRequest,
-            chapterIds = setOfNotNull(context.activeChapterId),
-            urls = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE).findAll(plan.objective)
+            chapterIds = if (libraryRequest) setOfNotNull(context.libraryScope?.selectedChapterId) else setOfNotNull(context.activeChapterId),
+            urls = if (libraryRequest) emptySet() else Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE).findAll(plan.objective)
                 .map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }.toSet() + listOfNotNull(context.activeUrl),
             translation = context.translationOptions.copy(targetLanguage = plan.steps.firstOrNull {
                 it.call.name != "generate_subtitles" && it.call.capability == OrezCapability.TRANSLATION
-            }?.call?.arguments?.get("targetLanguage") ?: context.translationOptions.targetLanguage).normalized(),
+            }?.call?.arguments?.get("targetLanguage") ?: context.translationOptions.targetLanguage).normalized().takeUnless { libraryRequest },
             selectedMedia = context.selectedMedia?.captured()?.takeIf { plan.steps.any { it.call.name == "inspect_selected_media" } },
             subtitle = OrezSubtitleRequest.options(plan.objective, context.subtitleOptions.let { options ->
                 if (context.selectedMedia?.hasProviderCaptionCandidate() == true && OrezSubtitleContract.isLegacy(options.normalized()))

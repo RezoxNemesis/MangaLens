@@ -7,7 +7,7 @@ import android.webkit.WebView
 /** Applies the same untrusted-page policy to browsing, verification and acquisition. */
 object SafeWebView {
     @Suppress("DEPRECATION")
-    fun configure(view: WebView) {
+    fun configure(view: WebView, cookies: CookieManager = CookieManager.getInstance()) {
         view.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -21,6 +21,6 @@ object SafeWebView {
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
         }
-        CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
+        cookies.setAcceptThirdPartyCookies(view, false)
     }
 }

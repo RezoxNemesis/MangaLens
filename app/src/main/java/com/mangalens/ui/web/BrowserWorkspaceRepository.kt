@@ -9,6 +9,7 @@ import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 internal object BrowserWorkspaceRepository {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -18,6 +19,35 @@ internal object BrowserWorkspaceRepository {
         shared ?: BrowserWorkspaceSession(AtomicBrowserWorkspaceIo(File(context.applicationContext.filesDir, "browser_workspace/session.json")),
             applicationScope).also { shared = it }
     }
+    private val profiles = mutableMapOf<String, BrowserWorkspaceSession>()
+    private val privateIo = mutableMapOf<String, PrivateBrowserWorkspaceIo>()
+    fun profileSession(context: Context, choice: BrowserProfileChoice): BrowserWorkspaceSession {
+        choice.validate()
+        if (choice.kind == BrowserProfileKind.NORMAL) return session(context)
+        val app = context.applicationContext
+        return synchronized(this) {
+            profiles[choice.key] ?: run {
+                check(profiles.size < BrowserProfilePolicy.MAX_CUSTOM + 2) { "Profile session capacity reached." }
+                val io = if (choice.ephemeral) PrivateBrowserWorkspaceIo().also { privateIo[choice.key] = it }
+                    else BrowserProfileJournal(File(app.filesDir, BrowserProfilePolicy.workspaceDirectory(choice) + "/session.json"))
+                BrowserWorkspaceSession(io, applicationScope, choice.key, choice.ephemeral).also { profiles[choice.key] = it }
+            }
+        }
+    }
+    fun retirePrivate(choice: BrowserProfileChoice) {
+        if (!choice.ephemeral) return
+        val protectionRetired = BrowserProtectionRepository.retirePrivate(choice)
+        val retired = synchronized(this) { profiles.remove(choice.key) to privateIo.remove(choice.key) }
+        if (retired.first == null && retired.second == null && protectionRetired == null) return
+        BrowserProfileRuntime.memoryClosing(choice)
+        retired.first?.retireEphemeral()
+        // Private IO is memory-only. Clear after the actual accepted actor returns, entirely on IO.
+        applicationScope.launch {
+            retired.first?.awaitRetired(); protectionRetired?.awaitRetired(); retired.second?.retire()
+            BrowserProfileRuntime.memoryClosed(choice)
+        }
+    }
+
 }
 
 internal class AtomicBrowserWorkspaceIo(private val file: File) : BrowserWorkspaceIo {

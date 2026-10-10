@@ -26,7 +26,13 @@ object ReaderPromoPolicy {
     private val preserveSuffixMarkers = setOf("girlfriendgpt", "girlfriend gpt", "veyragame", "start chatting", "chat now", "play at",
         "asurascans", "asura scans", "demonicscans", "mangademon", "manga demon")
 
+    const val MAX_TEXT_CHARS = 32_768
+    private val commercialStatusLabel = Regex("^(?:[\\p{L}\\p{N}]{1,24}\\s+)?online\\s*now[.!]?$", RegexOption.IGNORE_CASE)
+    private val announcementLabel = Regex("^announcement[!: ]*$", RegexOption.IGNORE_CASE)
+
     fun isLikelyPromo(text: String): Boolean {
+        // Never classify a truncated prefix of a longer story as a whole promotional page.
+        if (text.length > MAX_TEXT_CHARS) return false
         val value = text.lowercase(Locale.ROOT)
             .replace(Regex("""\s+"""), " ")
             .trim()
@@ -51,7 +57,11 @@ object ReaderPromoPolicy {
 
         // OCR often combines the last story panel and a scan-group footer in one image.
         // Decide using the remaining dialogue, not the mere presence of a footer phrase.
-        val storyLetters = text.lowercase(Locale.ROOT)
+        val storyText = if (commercialService) text.lineSequence().filterNot { line ->
+            val label = line.trim()
+            commercialStatusLabel.matches(label) || announcementLabel.matches(label)
+        }.joinToString("\n") else text
+        val storyLetters = storyText.lowercase(Locale.ROOT)
             .split(Regex("""[\r\n!?。！？]+|\.(?:\s+|$)"""))
             .sumOf { part ->
                 val marker = promoMarkers.map { it to part.indexOf(it) }.filter { it.second >= 0 }.minByOrNull { it.second }
@@ -62,5 +72,18 @@ object ReaderPromoPolicy {
             }
         val totalLetters = value.count(Char::isLetter)
         return !(storyLetters >= 48 && storyLetters >= totalLetters * .30)
+    }
+}
+
+/** Display hint from already accepted Native source lettering; never a source/read credential. */
+internal object ReaderSavedPromoPolicy {
+    fun classify(sourceTexts: List<String>, acceptedPageComplete: Boolean): Boolean {
+        if (!acceptedPageComplete || sourceTexts.isEmpty() || sourceTexts.size > 512) return false
+        var size = sourceTexts.size - 1
+        for (text in sourceTexts) {
+            if (text.length > ReaderPromoPolicy.MAX_TEXT_CHARS - size) return false
+            size += text.length
+        }
+        return ReaderPromoPolicy.isLikelyPromo(sourceTexts.joinToString("\n"))
     }
 }

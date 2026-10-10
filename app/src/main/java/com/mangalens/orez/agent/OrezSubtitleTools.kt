@@ -25,7 +25,8 @@ data class OrezSubtitleReceipt(
     val configFingerprint: String = options.nativeConfig(media.speechModelSha256).fingerprint(),
     val audioComplete: Boolean = options.pipeline == SubtitlePipeline.WHISPER_ENGLISH,
     val sourceCueCount: Int = 0, val pendingTargetCues: Int = 0,
-    val providerCaptionReceipt: ProviderCaptionReceipt? = null
+    val providerCaptionReceipt: ProviderCaptionReceipt? = null,
+    val fragmentContentSha256: String? = null, val fragmentSize: Long? = null
 )
 
 /** Exact native source/config/owner boundary; navigation never produces these receipts. */
@@ -184,6 +185,8 @@ class OrezSubtitleTools(
                 exports.srtBytes in 1..20_000_000 && exports.vttBytes in 1..20_000_000) { "Native subtitle track or saved SRT/VTT is incomplete or unverified." }
             if (receipt.providerCaptionReceipt != null) verifyProviderCompleted(receipt)
             else {
+                if (receipt.media.descriptor.hasFragmentSourceCandidate()) require(receipt.fragmentContentSha256?.matches(HASH) == true &&
+                    receipt.fragmentSize?.let { it in 1..4L * 1024 * 1024 * 1024 } == true) { "Completed fragment subtitles need actual original audio byte proof." }
                 require(receipt.options.pipeline == SubtitlePipeline.WHISPER_ENGLISH || receipt.audioComplete &&
                     receipt.sourceCueCount in 1..30_000 && receipt.pendingTargetCues == 0) { "Original speech or requested target cues are incomplete." }
                 require(receipt.media.speechModelSha256.matches(HASH)) { "The captured speech model is missing." }
@@ -218,6 +221,7 @@ class OrezSubtitleTools(
             "configFingerprint" to configFingerprint, "pipeline" to options.pipeline.name, "outputMode" to options.outputMode.name,
             "translationPolicy" to options.translationPolicy, "audioComplete" to audioComplete.toString(),
             "sourceCueCount" to sourceCueCount.toString(), "pendingTargetCues" to pendingTargetCues.toString()) +
+            (fragmentContentSha256?.let { mapOf("fragmentContentSha256" to it, "fragmentSize" to fragmentSize.toString()) } ?: emptyMap()) +
             (providerCaptionReceipt?.let { mapOf("providerTrackSha256" to it.trackUrlSha256, "providerPayloadSha256" to it.payloadSha256,
                 "providerCuesSha256" to it.cuesSha256, "providerLanguage" to it.language,
                 "providerKind" to it.kind.name, "providerFormat" to it.format.name) } ?: emptyMap())

@@ -79,6 +79,18 @@ internal object OriginalMediaProbe {
         }
     }
 
+    /** Nonzero fMP4 decode timestamps must not conceal a missing declared VOD span. */
+    fun verifyObservedSpan(media: VerifiedOriginalMedia, track: OriginalMediaTrack, observedDurationUs: Long?) {
+        if (observedDurationUs == null) return
+        require(observedDurationUs in 1..OriginalFragmentPlan.MAX_DURATION_US)
+        val samples = media.packets.getValue(track.index)
+        val tolerance = (samples.maximumSampleDurationUs.coerceIn(0L, 248_000L) + 2_000L).coerceAtLeast(25_000L)
+        val span = java.math.BigInteger.valueOf(samples.lastSampleEndUs).subtract(java.math.BigInteger.valueOf(samples.firstSampleUs))
+        check(span.signum() > 0 && span.subtract(java.math.BigInteger.valueOf(observedDurationUs)).abs() <= java.math.BigInteger.valueOf(tolerance)) {
+            "Original HLS samples differ from the observed playlist span. No partial file was published."
+        }
+    }
+
     fun sameOriginalTrack(source: VerifiedOriginalMedia, sourceTrack: OriginalMediaTrack,
                           output: VerifiedOriginalMedia, outputTrack: OriginalMediaTrack): Boolean =
         sourceTrack.mime == outputTrack.mime && sourceTrack.codec == outputTrack.codec &&

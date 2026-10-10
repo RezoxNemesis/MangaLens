@@ -80,6 +80,19 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     @Synchronized fun refresh(id: String, generation: String? = null): SubtitleGenerationTask? = tasks[id]?.takeIf {
         generation == null || it.generation == generation
     }?.let(::validateExports)?.also { if (it != tasks[id]) save(it) }
+    /** Add actual encoded-source proof to the same captured request; never replace an older proof. */
+    @Synchronized internal fun bindFragmentSource(id: String, generation: String, fresh: SubtitleSourceIdentity): SubtitleGenerationTask? {
+        val task = active(id, generation) ?: return null
+        validateSource(fresh)
+        require(task.source.source.fragmentPlan != null && task.source.source == fresh.source &&
+            task.source.fingerprint == fresh.fingerprint && hasSubtitleSourceProof(fresh)) { "The selected audio proof belongs to another request." }
+        if (task.source.fragmentContentSha256 != null &&
+            (task.source.fragmentContentSha256 != fresh.fragmentContentSha256 || task.source.fragmentSize != fresh.fragmentSize))
+            throw SubtitleNetworkChanged("Selected original audio changed. Generate a new subtitle task.")
+        return task.copy(source = fresh, validationPending = task.validationPending,
+            pcmValidationRequired = task.pcmValidationRequired || task.source.fragmentContentSha256 == null && task.windows.isNotEmpty())
+            .also(::save)
+    }
     @Synchronized fun exportVerified(id: String, generation: String): SubtitleGenerationTask? = refresh(id, generation)?.takeIf {
         it.status == SubtitleGenerationStatus.COMPLETED && !it.validationPending && !it.pcmValidationRequired &&
             hasSubtitlePlaybackProof(it) && it.srtPath != null && it.vttPath != null &&
@@ -347,6 +360,14 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
     }
     private fun validateSource(source: SubtitleSourceIdentity) {
         source.source.providerCaptions?.validate()
+        source.source.fragmentPlan?.let { plan ->
+            plan.validate()
+            require(!source.source.captionDocumentOnly && plan.sourceUrl == source.source.uri && source.source.sourceResolutionId != null)
+            require(source.strongEtag == null && source.networkSize == null && source.networkUrl == null)
+        }
+        require((source.fragmentContentSha256 == null) == (source.fragmentSize == null))
+        require(source.fragmentContentSha256 == null || source.source.fragmentPlan != null &&
+            source.fragmentContentSha256.matches(HASH) && source.fragmentSize!! in 1..4L * 1024 * 1024 * 1024)
         require(!source.source.captionDocumentOnly || source.source.headers.isEmpty() &&
             source.source.uri == source.source.providerCaptions?.sourcePageUrl) { "Browser source captions require the captured page inventory." }
         require(source.source.sourceResolutionId == null || source.source.sourceResolutionId.matches(ID))
@@ -373,7 +394,7 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
                 config.capturedStyle == null && config.refinementPin == null && config.sceneContext.isEmpty() && config.refinementInputProfileRevision == null) { "Legacy Whisper jobs produce translated English only." }
         } else {
             require(config.targetLanguage in setOf("en", "hi", "hi-latn") && config.translationPolicy == "mlkit-dialogue-v1") { "Unsupported subtitle target or provider policy." }
-            require(config.style in setOf("natural", "faithful", "casual", "formal", "webtoon", "custom")) { "Unsupported subtitle style." }
+            require(config.style in setOf("natural", "faithful", "casual", "formal", "manga", "webtoon", "literal", "custom")) { "Unsupported subtitle style." }
             require(config.customStyle.length <= TranslationStyleProfile.MAX_CUSTOM_INSTRUCTION_CHARS && config.sceneContext.length <= 1200 &&
                 config.sceneContext.none { it == '\u0000' || it == '\r' })
             val captured = requireNotNull(config.capturedStyle) { "Capture the subtitle style before scheduling." }
@@ -453,6 +474,10 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         .put("fingerprint", task.source.fingerprint).put("verifiable", task.source.verifiable)
         .put("strongEtag", task.source.strongEtag).put("networkSize", task.source.networkSize)
         .put("networkUrl", task.source.networkUrl)
+        .apply {
+            task.source.source.fragmentPlan?.let { put("fragmentPlan", it.toJson()) }
+            task.source.fragmentContentSha256?.let { put("fragmentContentSha256", it); put("fragmentSize", task.source.fragmentSize) }
+        }
         .put("config", JSONObject().put("sourceLanguage", task.config.sourceLanguage).put("targetLanguage", task.config.targetLanguage)
             .put("style", task.config.style).put("modelSha256", task.config.modelSha256).put("windowSeconds", task.config.windowSeconds)
             .put("overlapSeconds", task.config.overlapSeconds).put("threads", task.config.threads)
@@ -496,8 +521,11 @@ class SubtitleGenerationStore internal constructor(private val directory: File,
         val headers = json.getJSONObject("headers"); require(headers.length() <= 32)
         val source = SubtitleSourceIdentity(SubtitleMediaSource(json.getString("uri"), headers.keys().asSequence().associateWith { headers.getString(it) },
             json.getString("cacheKey"), json.getString("label"), json.optJSONObject("providerCaptions")?.let(ProviderCaptionJournal::inventory),
-            json.optional("sourceResolutionId"), json.optBoolean("captionDocumentOnly", false)), json.getString("fingerprint"), json.getBoolean("verifiable"),
-            json.optional("strongEtag"), if (!json.has("networkSize") || json.isNull("networkSize")) null else json.getLong("networkSize"), json.optional("networkUrl"))
+            json.optional("sourceResolutionId"), json.optBoolean("captionDocumentOnly", false),
+            if (json.has("fragmentPlan")) com.mangalens.download.OriginalFragmentPlan.fromJson(json.getJSONObject("fragmentPlan")) else null),
+            json.getString("fingerprint"), json.getBoolean("verifiable"),
+            json.optional("strongEtag"), if (!json.has("networkSize") || json.isNull("networkSize")) null else json.getLong("networkSize"), json.optional("networkUrl"),
+            json.optional("fragmentContentSha256"), if (json.has("fragmentSize")) json.getLong("fragmentSize") else null)
         validateSource(source)
         val c = json.getJSONObject("config")
         val config = SubtitleGenerationConfig(c.getString("sourceLanguage"), c.getString("targetLanguage"), c.getString("style"), c.optional("modelSha256"),

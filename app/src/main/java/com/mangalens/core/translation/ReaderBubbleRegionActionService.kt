@@ -79,29 +79,43 @@ internal class ReaderBubbleRegionActionService(private val context: Context) {
         val draft = try { translator.translateDraftRetainingNative(sourceText, draftTarget, sourceHint(sourceText)) }
             finally { translator.close() }
         owner.validate(true)
-        val chosen = TranslationQualityPolicy.chooseDraft(sourceText, draft, "", draftTarget, style)
+        val chosen = try { TranslationQualityPolicy.chooseDraft(sourceText, draft, "", draftTarget, style) }
+            catch (_: TranslationQualityException) { null }
         fun rendered(value: TranslationDraft) = if (draftTarget != config.targetLanguage)
             HinglishTranslationOutput.fromHindiDraft(sourceText, value.text, style) else value
-        val output = mutableListOf(ReaderBubbleRegionAlternative("on-device-draft", ReaderBubbleAlternativeKind.ON_DEVICE_DRAFT,
-            sourceText, rendered(chosen)))
+        val output = mutableListOf<ReaderBubbleRegionAlternative>()
+        chosen?.let { output += ReaderBubbleRegionAlternative("on-device-draft", ReaderBubbleAlternativeKind.ON_DEVICE_DRAFT,
+            sourceText, rendered(it)) }
         val request = config.refinementRequest
-        var message = "On-device draft is unsaved. Review it before saving a personal correction."
+        var message = if (chosen != null) "On-device draft is unsaved. Review it before saving a personal correction."
+            else "The on-device draft did not pass source, script or grammar checks. Saved text remains unchanged."
         if (config.localRefinement && request != null) {
-            val inputs = ReaderBubbleRegionRefinementInputs.prepare(inspection, sourceText, chosen.text, draftTarget, request)
+            // A rejected draft remains untrusted input to the same one explicitly captured
+            // localizer. It is never displayed or saved merely because the model saw it.
+            val modelDraft = chosen?.text ?: draft.text
+            val inputs = ReaderBubbleRegionRefinementInputs.prepare(inspection, sourceText, modelDraft, draftTarget, request)
             owner.validate(true)
             val refiner = TranslationOrezRefiner(context)
-            val result = try { refiner.refineCaptured(sourceText, chosen.text, draftTarget, request,
+            val result = try { refiner.refineCaptured(sourceText, modelDraft, draftTarget, request,
                 inputs.chapterContext, inputs.glossary) } finally { refiner.close() }
             owner.validate(true)
-            if (TranslationRefinementPolicy.matches(result, sourceText, chosen.text, draftTarget, request,
-                    inputs.chapterContext, inputs.glossary) &&
+            val capturedCompletion = TranslationRefinementPolicy.matches(result, sourceText, modelDraft, draftTarget, request,
+                    inputs.chapterContext, inputs.glossary)
+            if (capturedCompletion &&
                 TranslationQualityPolicy.isUsable(sourceText, result.text, draftTarget)) {
-                val selected = TranslationQualityPolicy.chooseDraft(sourceText, chosen, result.text, draftTarget, style)
-                if (selected.text != chosen.text) output += ReaderBubbleRegionAlternative(
+                val comparison = TranslationCandidateComparisonPolicy.assess(sourceText, chosen?.text.orEmpty(), result.text, draftTarget, inputs.glossary)
+                val selected = try { TranslationQualityPolicy.chooseDraft(sourceText, chosen ?: draft, result.text, draftTarget, style, inputs.glossary) }
+                    catch (_: TranslationQualityException) { null }
+                if (selected != null && selected.text != chosen?.text) output += ReaderBubbleRegionAlternative(
                     "pinned-local-refinement", ReaderBubbleAlternativeKind.PINNED_LOCAL_REFINEMENT, sourceText, rendered(selected))
-                message = if (output.size > 1) "Draft and pinned local refinement are separate unsaved alternatives."
-                    else "Pinned localization supplied no distinct usable alternative; the on-device draft is available."
-            } else message = "Pinned local refinement is unavailable for this captured request; the on-device draft is available."
+                message = if (comparison != TranslationCandidateComparison.COMPATIBLE)
+                    "Pinned refinement did not retain the observed numeric or captured glossary constraints; saved text remains unchanged."
+                    else if (output.size > 1) "Draft and pinned local refinement are separate unsaved alternatives."
+                    else if (chosen == null && selected != null) "Pinned localization supplied an independently checked unsaved alternative. Review it against the original before saving."
+                    else "Pinned localization supplied no distinct usable alternative; saved text remains unchanged."
+            } else message = if (capturedCompletion)
+                "The pinned candidate did not pass source, script or grammar checks; saved text remains unchanged."
+                else "Pinned local refinement is unavailable for this captured request; saved text remains unchanged."
             if (inputs.targetProjectionOmitted) message += " Roman glossary wording has no saved Hindi intermediate and was omitted from Hindi refinement."
         }
         owner.validate(true)

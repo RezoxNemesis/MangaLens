@@ -24,7 +24,10 @@ internal fun BrowserWorkspaceScreen(
     onOpenVideo: (SniffedMedia, String) -> Unit = { _, _ -> },
     onClose: (() -> Unit)? = null,
     onPageChanged: (String) -> Unit = {},
-    onResearchQuestion: ((String) -> Unit)? = null
+    onResearchQuestion: ((String) -> Unit)? = null,
+    profileOwner: BrowserProfileOwner? = null,
+    onProfiles: (() -> Unit)? = null,
+    onClosePrivate: (() -> Unit)? = null
 ) {
     val snapshot by session.state.collectAsState()
     val storeError by session.error.collectAsState()
@@ -67,6 +70,8 @@ internal fun BrowserWorkspaceScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (storeError == null) CircularProgressIndicator()
                 Text(storeError ?: "Restoring browser workspace…")
+                onProfiles?.let { open -> TextButton(onClick = open) { Text("Browser profiles") } }
+                if (profileOwner?.choice?.ephemeral == true) onClosePrivate?.let { close -> TextButton(onClick = close) { Text("Close Private") } }
                 if (storeError != null) TextButton(onClick = { session.submit { it.snapshot() } }) { Text("Retry") }
             }
         }
@@ -81,7 +86,8 @@ internal fun BrowserWorkspaceScreen(
             workspaceError = incomingError ?: storeError ?: ready.notice,
             translationEnabled = translationEnabled, adBlockEnabled = adBlockEnabled, modifier = modifier,
             targetLanguage = targetLanguage, onOpenManga = onOpenManga, onOpenVideo = onOpenVideo,
-            onClose = onClose, onPageChanged = onPageChanged, onResearchQuestion = onResearchQuestion
+            onClose = onClose, onPageChanged = onPageChanged, onResearchQuestion = onResearchQuestion,
+            profileOwner = profileOwner, onProfiles = onProfiles, onClosePrivate = onClosePrivate
         )
     }
 }

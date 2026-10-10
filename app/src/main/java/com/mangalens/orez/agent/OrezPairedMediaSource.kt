@@ -20,6 +20,16 @@ internal fun OrezMediaSelection.validateCapturedSource() {
         require(resolutionId?.matches(Regex("[a-f0-9]{32}")) == true) { "Provider captions require one accepted video resolution." }
         it.validate()
     }
+    videoFragments?.let { plan ->
+        plan.validate()
+        require(plan.sourceUrl == this.uri && resolutionId?.matches(Regex("[a-f0-9]{32}")) == true && expectedDurationUs != null &&
+            kotlin.math.abs(plan.durationUs - expectedDurationUs) <= 1_500_000L) { "Video fragments must belong to the captured ready selection." }
+    }
+    audioFragments?.let { plan ->
+        plan.validate()
+        require(audio != null && plan.sourceUrl == audio.uri && resolutionId?.matches(Regex("[a-f0-9]{32}")) == true && expectedDurationUs != null &&
+            kotlin.math.abs(plan.durationUs - expectedDurationUs) <= 1_500_000L) { "Audio fragments must belong to the captured selected audio track." }
+    }
     audio?.let { track ->
         require(resolutionId != null && track.resolutionId == resolutionId && uri(track.uri) && headers(track.headers)) {
             "The audio track must belong to the same captured playable resolution."
@@ -31,8 +41,8 @@ internal fun OrezMediaSelection.validateCapturedSource() {
 internal fun OrezMediaSelection.nativeSubtitleSource(): SubtitleMediaSource {
     validateCapturedSource()
     val track = audio
-    return if (track == null) SubtitleMediaSource(uri, headers.toMap(), cacheKey, label, providerCaptions?.captureSnapshot(), resolutionId.takeIf { providerCaptions != null })
-    else SubtitleMediaSource(track.uri, track.headers.toMap(), "orez-audio-pair:$sourceId", label, providerCaptions?.captureSnapshot(), resolutionId.takeIf { providerCaptions != null })
+    return if (track == null) SubtitleMediaSource(uri, headers.toMap(), cacheKey, label, providerCaptions?.captureSnapshot(), resolutionId.takeIf { providerCaptions != null || videoFragments != null }, fragmentPlan = videoFragments?.captured())
+    else SubtitleMediaSource(track.uri, track.headers.toMap(), "orez-audio-pair:$sourceId", label, providerCaptions?.captureSnapshot(), resolutionId.takeIf { providerCaptions != null || audioFragments != null }, fragmentPlan = audioFragments?.captured())
 }
 
 internal fun OrezMediaSelection.verifySubtitleTail(durationMs: Long, processedMs: Long) {
@@ -42,8 +52,12 @@ internal fun OrezMediaSelection.verifySubtitleTail(durationMs: Long, processedMs
     }
 }
 
-internal fun OrezMediaSelection.hasExtendedScope() = resolutionId != null || audio != null || expectedDurationUs != null || providerCaptions != null
+internal fun OrezMediaSelection.hasExtendedScope() = resolutionId != null || audio != null || expectedDurationUs != null || providerCaptions != null || videoFragments != null || audioFragments != null
 
 /** Captured inventory admission is distinct from a fetched and verified completed caption document. */
 internal fun OrezMediaSelection.hasProviderCaptionCandidate(): Boolean = providerCaptions != null &&
+    runCatching { validateCapturedSource(); true }.getOrDefault(false)
+
+/** Admission for an exact finite descriptor is distinct from completed encoded-byte proof. */
+internal fun OrezMediaSelection.hasFragmentSourceCandidate(): Boolean = (if (audio != null) audioFragments else videoFragments) != null &&
     runCatching { validateCapturedSource(); true }.getOrDefault(false)

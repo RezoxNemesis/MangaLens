@@ -24,7 +24,8 @@ internal fun captureResolvedBrowserMedia(
     title = resolved.title ?: titleFallback,
     provider = resolved.provider,
     providerCaptions = resolved.providerCaptions?.captureSnapshot(),
-    videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType
+    videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType,
+    videoFragments = resolved.videoFragments?.captured(), audioFragments = resolved.audioFragments?.captured()
 )
 
 /** The browser hands the complete tuple to the same accepted-video publication as native ingest. */
@@ -32,4 +33,4 @@ internal fun captureBrowserVideoSelection(media: SniffedMedia, sourcePage: Strin
     VideoPlaybackPublication.capture(media.url, media.headers, sourcePage,
         media.audioUrl, media.audioHeaders, media.providerCaptions,
         videoMimeType = media.videoMimeType ?: com.mangalens.download.MediaTransportMime.fromObservedKind(media.kind),
-        audioMimeType = media.audioMimeType)
+        audioMimeType = media.audioMimeType, videoFragments = media.videoFragments, audioFragments = media.audioFragments)

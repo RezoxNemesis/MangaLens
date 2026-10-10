@@ -31,7 +31,7 @@ internal object OrezSubtitleContract {
             "Unsupported captured subtitle target or translation policy."
         }
         require(options.sceneContext.length <= 1200 && options.sceneContext.none { it == '\u0000' || it == '\r' })
-        require(options.style in setOf("natural", "faithful", "casual", "formal", "webtoon", "custom") &&
+        require(options.style in setOf("natural", "faithful", "casual", "formal", "manga", "webtoon", "literal", "custom") &&
             options.customStyle.length <= TranslationStyleProfile.MAX_CUSTOM_INSTRUCTION_CHARS) { "Unsupported captured subtitle style." }
         val profile = requireNotNull(options.capturedStyle) { "Capture the complete subtitle style before scheduling." }
         require(profile.id == options.style && profile.name.length in 1..100 && profile.instruction.length in 1..1200 &&

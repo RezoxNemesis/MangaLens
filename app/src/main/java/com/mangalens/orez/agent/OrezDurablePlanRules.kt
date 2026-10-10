@@ -10,18 +10,22 @@ object OrezDurablePlanRules {
     const val MAX_STEPS = 8
     private val chapterTools = setOf("search_saved_memory", "inspect_saved_chapter", "translate_saved_chapter")
     private val mediaTools = setOf("inspect_selected_media", "inspect_downloaded_media", "generate_subtitles")
-    private val nativeTools = chapterTools + mediaTools
+    private val acquisitionTools = setOf("save_next_chapter", "save_chapter_url")
+    private val libraryTools = OrezLibraryRequest.tools
+    private val nativeTools = chapterTools + mediaTools + acquisitionTools + libraryTools
     private val supportedTools = nativeTools + setOf("enqueue_download", "research_web")
 
     fun supports(plan: OrezTaskPlan) = plan.steps.isNotEmpty() && plan.steps.all { it.call.name in supportedTools }
-    fun requiresNetwork(plan: OrezTaskPlan) = plan.steps.any { it.call.name in setOf("enqueue_download", "research_web") } ||
+    fun requiresNetwork(plan: OrezTaskPlan) = plan.steps.any { it.call.name in setOf("enqueue_download", "research_web", "save_next_chapter", "save_chapter_url") } ||
         (plan.steps.any { it.call.name in mediaTools } && plan.authorization?.selectedMedia?.let { media ->
             listOfNotNull(media.uri, media.audio?.uri).any { it.startsWith("https://", true) || it.startsWith("http://", true) }
         } == true)
     fun outputKind(tool: String) = when (tool) {
         "enqueue_download" -> OrezOutputKind.DOWNLOAD_RECEIPT
         "research_web" -> OrezOutputKind.RESEARCH_EVIDENCE
+        in libraryTools -> OrezOutputKind.LIBRARY_METADATA
         "search_saved_memory" -> OrezOutputKind.MEMORY_SEARCH
+        "save_next_chapter", "save_chapter_url" -> OrezOutputKind.ACQUIRED_CHAPTER
         "inspect_saved_chapter" -> OrezOutputKind.SAVED_CHAPTER
         "translate_saved_chapter" -> OrezOutputKind.CHAPTER_TRANSLATION
         "inspect_selected_media", "inspect_downloaded_media" -> OrezOutputKind.MEDIA_SOURCE
@@ -53,6 +57,7 @@ object OrezDurablePlanRules {
             validateSubtitleOptions(requireNotNull(scope.subtitle) { "Subtitle settings were not captured." })
             scope.selectedMedia?.let(::validateSelection)
         }
+        if (plan.steps.any { it.call.name in libraryTools }) OrezLibraryRules.validate(plan)
         plan.steps.forEach { step ->
             OrezToolRegistry().validate(step.call)
             require(step.dependsOn.all { it in 0 until step.index }) { "Dependencies must point to earlier steps; cycles are not executable." }
@@ -62,6 +67,16 @@ object OrezDurablePlanRules {
                 require(outputKind(plan.steps[reference.stepIndex].call.name) in referenceKinds(reference.field)) { "This reference has another native output type." }
             }
             when (step.call.name) {
+                "save_next_chapter", "save_chapter_url" -> {
+                    require(plan.steps.size == 1 && step.index == 0 && step.dependsOn.isEmpty() && step.references.isEmpty()) { "Acquisition authorizes one bounded chapter only." }
+                    val scope = requireNotNull(authorization?.chapterAcquisition) { "The public chapter acquisition scope was not captured." }.validated()
+                    if (step.call.name == "save_next_chapter") {
+                        val next = requireNotNull(scope.next)
+                        require(OrezNextChapterRequest.isRequested(plan.objective) && step.call.arguments.getValue("chapterId") == next.chapterId &&
+                            next.chapterId in authorization!!.chapterIds) { "Next chapter requires the literal user request and its captured saved source." }
+                    } else require(scope.next == null && OrezNextChapterRequest.directUrl(plan.objective) == scope.targetUrl &&
+                        step.call.arguments.getValue("value") == scope.targetUrl) { "The chapter URL differs from the explicit user request." }
+                }
                 "research_web" -> {
                     require(plan.steps.size == 1 && step.index == 0) { "Research does not authorize additional application tools." }
                     require(step.references.isEmpty() && step.dependsOn.isEmpty()) { "Research accepts one explicit user question." }
@@ -130,7 +145,7 @@ object OrezDurablePlanRules {
 
     private fun validateOptions(options: OrezTranslationOptions) {
         require(options.targetLanguage in setOf("hi", "hi-latn", "en", "ja", "ko", "zh", "fr", "es", "de")) { "Unsupported translation target" }
-        require(options.styleId in setOf("natural", "faithful", "casual", "formal", "webtoon", "custom")) { "Unsupported translation style" }
+        require(options.styleId in setOf("natural", "faithful", "casual", "formal", "manga", "webtoon", "literal", "custom")) { "Unsupported translation style" }
         require(options.customStyle.length <= 1200 && options.ocrScript in setOf("AUTO", "LATIN", "DEVANAGARI", "CHINESE", "JAPANESE", "KOREAN")) {
             "Invalid captured translation options"
         }
@@ -158,6 +173,23 @@ object OrezDurablePlanRules {
             return
         }
         require(outputs["requestId"] == id) { "Tool result belongs to another request." }
+        if (resolved.call.name in libraryTools) {
+            OrezLibraryRules.receipt(plan,resolved,outputs,completed)
+            return
+        }
+        if (resolved.call.name in acquisitionTools) {
+            require(completed) { "Acquisition completion requires a saved native receipt." }
+            val scope = requireNotNull(plan.authorization?.chapterAcquisition).validated()
+            require(outputs.keys == setOf("requestId", "ownerRequestId", "chapterId", "title", "sourceFingerprint", "pageCount", "originalBytes", "acquisitionScopeFingerprint", "targetUrlSha256", "status", "destination")) { "Unexpected acquisition receipt fields." }
+            val chapterId = com.mangalens.core.reader.ChapterLibrary.id(scope.targetUrl)
+            require(outputs["ownerRequestId"] == id && outputs["chapterId"] == chapterId && outputs["destination"] == "library:$chapterId" &&
+                outputs["status"] == "COMPLETED" && outputs["acquisitionScopeFingerprint"] == scope.fingerprint &&
+                outputs["targetUrlSha256"] == OrezNextChapterPolicy.sha(scope.targetUrl) && outputs["sourceFingerprint"]?.matches(Regex("[a-f0-9]{64}")) == true &&
+                outputs["pageCount"]?.toIntOrNull()?.let { it in 1..OrezNextChapterPolicy.MAX_PAGES } == true &&
+                outputs["originalBytes"]?.toLongOrNull()?.let { it in 1..OrezNextChapterPolicy.MAX_CHAPTER_BYTES } == true &&
+                outputs["title"]?.length?.let { it <= 250 } == true) { "Acquisition receipt changed its native owner, target or actual saved original proof." }
+            return
+        }
         if (resolved.call.name == "research_web") {
             require(completed) { "Research does not publish an unfinished citation receipt." }
             val request = com.mangalens.orez.research.OrezResearchRequest.captured(plan.objective, resolved.call.arguments)
@@ -280,6 +312,10 @@ object OrezDurablePlanRules {
                     configFingerprint = proof.configFingerprint, audioComplete = outputs["audioComplete"] == "true", sourceCueCount = proof.cueCount,
                     pendingTargetCues = outputs.getValue("pendingTargetCues").toInt(), providerCaptionReceipt = proof))
             } else {
+            if (descriptor?.hasFragmentSourceCandidate() == true) require(outputs["fragmentContentSha256"]?.matches(Regex("[a-f0-9]{64}")) == true &&
+                outputs["fragmentSize"]?.toLongOrNull()?.let { it in 1..4L * 1024 * 1024 * 1024 } == true) {
+                "Fragment subtitle completion omitted the actual original audio byte receipt."
+            }
             require(OrezSubtitleContract.isLegacy(scope) || outputs["audioComplete"] == "true" &&
                 outputs["sourceCueCount"]?.toIntOrNull()?.let { it in 1..30_000 } == true && outputs["pendingTargetCues"] == "0") {
                 "Subtitle completion requires finished original speech and every requested target cue."

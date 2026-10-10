@@ -12,11 +12,12 @@ import java.security.MessageDigest
 import java.util.zip.CRC32
 
 /** Every decoder/parser/copy reads one held, app-managed original descriptor on producer IO. */
-internal class ChapterCbzOriginalSource(private val managedDirectory: File, private val resources: ChapterCbzResources = ChapterCbzResources()) : ChapterCbzOriginals {
+internal class ChapterCbzOriginalSource(private val managedDirectory: File, private val resources: ChapterCbzResources = ChapterCbzResources(),
+    private val openInput: (File) -> FileInputStream = { FileInputStream(it) }) : ChapterCbzOriginals {
     override fun open(page: ChapterCbzPage, check: () -> Unit): ChapterCbzHeldOriginal {
         check()
         val file = managedFile(page.path)
-        val input = resources.ownPrivate(FileInputStream(file))
+        val input = resources.ownPrivate(openInput(file))
         try {
             val identity = identity(input, file)
             val hashes = hashHeld(input, identity.bytes, check)
@@ -28,7 +29,7 @@ internal class ChapterCbzOriginalSource(private val managedDirectory: File, priv
     override fun verify(page: ChapterCbzPage, pin: ChapterCbzPagePin, check: () -> Unit) {
         check()
         val file = managedFile(page.path)
-        resources.usePrivate(FileInputStream(file)) { input ->
+        resources.usePrivate(openInput(file)) { input ->
             requireIdentity(input, file, pin.identity)
             if (hashHeld(input, pin.bytes, check).first != pin.sha256) changed()
             requireIdentity(input, file, pin.identity); check()

@@ -43,17 +43,30 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
 
         return try {
             setForeground(createForegroundInfo(title, 0L, -1L))
-            download(id, url, title, mime, item.requiresBoundMediaReceipt())
+            download(id, url, title, mime, item.requiresBoundMediaReceipt(), item.selectedTransport)
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: IOException) {
-            if (ownership.isUnproven) {
+            if ((e is MediaSourceException || e is OriginalHlsSelectedSourceException) &&
+                MediaSourceFailure.from(e).kind in setOf(MediaSourceFailureKind.UNSUPPORTED_TRANSPORT, MediaSourceFailureKind.TRANSPORT_RESTART_REQUIRED)) {
+                markFailed(id, MediaSourceFailure.from(e).message)
+                Result.failure()
+            } else if (ownership.isUnproven) {
                 markFailed(id, "A private transfer file did not close safely. Partial files were retained.")
                 Result.failure()
             } else {
             val refreshed = if (e !is FragmentCheckpointIOException && runAttemptCount < MAX_RETRIES) {
-                runCatching { refreshSource(id, e.message.orEmpty(), ownership) }.getOrDefault(false)
+                try { refreshSource(id, e.message.orEmpty(), ownership) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: IOException) {
+                    if ((failure is MediaSourceException || failure is OriginalHlsSelectedSourceException) &&
+                        MediaSourceFailure.from(failure).kind in setOf(MediaSourceFailureKind.UNSUPPORTED_TRANSPORT, MediaSourceFailureKind.TRANSPORT_RESTART_REQUIRED)) {
+                        markFailed(id, MediaSourceFailure.from(failure).message)
+                        return Result.failure()
+                    }
+                    false
+                } catch (_: Exception) { false }
             } else false
             if (runAttemptCount < MAX_RETRIES) {
                 dao.stageIfActive(
@@ -78,13 +91,15 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         }
     }
 
-    private suspend fun download(id: String, url: String, title: String, mime: String, receiptRequired: Boolean) {
+    private suspend fun download(id: String, url: String, title: String, mime: String, receiptRequired: Boolean, selectedTransport: String?) {
         check(!requireNotNull(currentOwnership).isUnproven) { "Private file ownership is unproven; transfer stopped." }
         if (dao.get(id)?.state !in setOf(DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.FAILED))
             throw CancellationException("Download was stopped or removed")
         val temp = File(applicationContext.filesDir, "downloads/$id.part").apply { parentFile?.mkdirs() }
 
         val metadata = DownloadRequestContextStore(applicationContext).readForTransfer(id, url, receiptRequired)
+        OriginalFragmentTransport.requireDownloadBinding(selectedTransport, metadata)
+        SelectedDownloadTransportPolicy.requireWorkerCompatible(metadata)
         dao.stageIfActive(id, "Downloading video")
         val validatorFile = File(temp.parentFile, "$id.validator")
         var lastPersistAt = 0L
@@ -107,8 +122,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             }
         }
         if (metadata?.videoFragments != null) {
-            OriginalFragmentTransfer({ _ -> fragmentClient(metadata.url, metadata.sourcePageUrl, metadata.headers) },
-                requireNotNull(currentOwnership)::retain).download(metadata.videoFragments, temp, validatorFile, videoProgress)
+            val selectedClient = fragmentClient(metadata.videoFragments, metadata.url, metadata.sourcePageUrl, metadata.headers)
+            OriginalFragmentTransfer({ _ -> selectedClient },
+                requireNotNull(currentOwnership)::retain,
+                transportCloseFailed = { requireNotNull(currentOwnership).retain(it) }).download(metadata.videoFragments, temp, validatorFile, videoProgress)
         } else ResumableMediaTransfer(client, requireNotNull(currentOwnership)::retain).download(url, temp, validatorFile, mime, videoProgress)
 
         currentCoroutineContext().ensureActive()
@@ -124,8 +141,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 persistProgress(id, temp.length() + done, if (total > 0) temp.length() + total else -1)
             }
             if (metadata.audioFragments != null) {
-                OriginalFragmentTransfer({ _ -> fragmentClient(audioUrl, metadata.sourcePageUrl, metadata.audioHeaders) },
-                    requireNotNull(currentOwnership)::retain).download(metadata.audioFragments, audio, audioValidator, audioProgress)
+                val selectedClient = fragmentClient(metadata.audioFragments, audioUrl, metadata.sourcePageUrl, metadata.audioHeaders)
+                OriginalFragmentTransfer({ _ -> selectedClient },
+                    requireNotNull(currentOwnership)::retain,
+                    transportCloseFailed = { requireNotNull(currentOwnership).retain(it) }).download(metadata.audioFragments, audio, audioValidator, audioProgress)
             } else ResumableMediaTransfer(audioClient, requireNotNull(currentOwnership)::retain).download(audioUrl, audio, audioValidator, "audio/", audioProgress)
             currentCoroutineContext().ensureActive()
         }
@@ -135,7 +154,9 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
             val original = if (mime.startsWith("video/")) OriginalMediaRemuxer.assemble(
                 applicationContext, temp, audio.takeIf { metadata?.audioUrl != null }, mime,
                 remuxAttempt, metadata?.expectedDurationUs, metadata?.detectedHeight, metadata?.originalSelection,
-                requireCombinedAudio = metadata == null
+                requireCombinedAudio = metadata == null,
+                observedVideoSpanUs = metadata?.videoFragments?.hls?.observedDurationUs,
+                observedAudioSpanUs = metadata?.audioFragments?.hls?.observedDurationUs
             ) else null
             currentCoroutineContext().ensureActive()
             val publication = original?.file ?: temp
@@ -174,8 +195,10 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         }
     }
 
-    private fun fragmentClient(trackUrl: String, page: String?, headers: Map<String, String>) =
-        HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(
+    private fun fragmentClient(plan: OriginalFragmentPlan, trackUrl: String, page: String?, headers: Map<String, String>) =
+        if (plan.hls != null) OriginalHlsPublicTransport.client(trackUrl, page, headers) { actual ->
+            android.webkit.CookieManager.getInstance().getCookie(actual)
+        } else HTTP.newBuilder().addNetworkInterceptor(scopedDownloadHeaders(
             com.mangalens.ui.video.MediaRequestContext(trackUrl, page, headers)
         ) { actual -> android.webkit.CookieManager.getInstance().getCookie(actual) }).build()
 
@@ -198,9 +221,13 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
         val mime = refreshed.mimeType ?: item.mimeType
         val title = refreshed.title?.takeIf(String::isNotBlank) ?: item.title
         val normalized = refreshed.copy(
+            mimeType = mime,
+            title = title,
             sourcePageUrl = refreshed.sourcePageUrl ?: page,
             requestedHeight = refreshed.requestedHeight ?: quality.height
         )
+        // Validate before replacing the durable tuple or removing any retained original prefix.
+        SelectedDownloadTransportPolicy.requireWorkerCompatible(normalized)
         return DownloadIdMutationFences.withId(id) {
             if (dao.get(id) != expected || expected.state !in setOf(DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.FAILED)) return@withId false
             val owner = DownloadPrivateFileOwner(File(applicationContext.filesDir, "downloads"), id)
@@ -213,7 +240,8 @@ class MediaDownloadWorker(appContext: Context, params: WorkerParameters) : Corou
                 provider = normalized.provider,
                 pageUrl = normalized.sourcePageUrl,
                 requestedHeight = normalized.requestedHeight,
-                stage = "Resolved fresh " + normalized.provider + " media source"
+                stage = "Resolved fresh " + normalized.provider + " media source",
+                selectedTransport = OriginalFragmentTransport.downloadKind(normalized)
             ) > 0
             if (!updated) return@withId false
             store.write(id, normalized)

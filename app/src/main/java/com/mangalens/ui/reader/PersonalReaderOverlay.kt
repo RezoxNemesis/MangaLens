@@ -7,5 +7,8 @@ internal fun applyPersonalReaderOverlays(native: List<TranslationOverlay>, perso
     native.mapIndexed { index, overlay ->
         val correction = personal[index]
         if (correction == null || overlay.lettering != correction.original) overlay
-        else overlay.copy(translatedText = correction.personal.translated, lettering = correction.personal)
+        else overlay.copy(translatedText = correction.personal.translated, lettering = correction.personal,
+            personalRegion = correction.pageIndex?.takeIf { correction.regionPresentation != null }?.let {
+                com.mangalens.core.translation.PersonalReaderRegion(it, index, correction)
+            })
     }

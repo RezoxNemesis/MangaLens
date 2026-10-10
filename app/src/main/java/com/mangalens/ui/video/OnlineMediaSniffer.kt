@@ -18,7 +18,9 @@ data class SniffedMedia(
     val provider: String? = null,
     val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
     val videoMimeType: String? = null,
-    val audioMimeType: String? = null
+    val audioMimeType: String? = null,
+    val videoFragments: com.mangalens.download.OriginalFragmentPlan? = null,
+    val audioFragments: com.mangalens.download.OriginalFragmentPlan? = null
 )
 
 class OnlineMediaSniffer(private val context: Context) {

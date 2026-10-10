@@ -15,6 +15,7 @@ internal class DownloadRequestContextStore(context: Context) {
 
     fun write(id: String, media: ResolvedMediaLink) {
         require(id.matches(Regex("[a-zA-Z0-9-]+")))
+        requireBoundMediaSource(media.url, media)
         directory.mkdirs()
         val json = JSONObject().put("url", media.url)
             .put("page", media.sourcePageUrl ?: JSONObject.NULL)
@@ -134,6 +135,18 @@ internal fun requireBoundMediaSource(sourceUrl: String, media: ResolvedMediaLink
     check(media != null || !receiptRequired) {
         "Saved media context is missing. Resolve the source again; no file was published."
     }
+    check(media?.videoHlsSource == null && media?.audioHlsSource == null) {
+        "Selected HLS playlists have not been captured as a complete pair. Resolve the source again."
+    }
+    if (media?.videoFragments?.hls != null || media?.audioFragments?.hls != null) {
+        check(media.videoFragments?.hls != null && media.audioFragments?.hls != null && media.originalSelection != null) {
+            "Selected HLS video and audio do not share a complete captured source tuple."
+        }
+        check(media.videoFragments?.formatId == media.originalSelection?.videoFormatId &&
+            media.audioFragments?.formatId == media.originalSelection?.audioFormatId) {
+            "Selected HLS format identity differs from the captured original source."
+        }
+    }
     media?.videoFragments?.let { plan ->
         plan.validate()
         check(plan.sourceUrl == media.url && plan.mediaMime == media.mimeType && plan.durationUs == media.expectedDurationUs) { "Saved fragment video does not match the complete selected source." }
@@ -150,7 +163,7 @@ internal fun requireBoundMediaSource(sourceUrl: String, media: ResolvedMediaLink
 
 /** New queues persist these facts; unmarked migrated rows require a proven whole-source file. */
 internal fun DownloadEntity.requiresBoundMediaReceipt(): Boolean =
-    provider != "generic" || sourcePageUrl != null || requestedHeight != null
+    provider != "generic" || sourcePageUrl != null || requestedHeight != null || selectedTransport != null
 
 /** Applied on every network hop, including redirects: captured cookies stay on the exact URL. */
 internal fun scopedDownloadHeaders(

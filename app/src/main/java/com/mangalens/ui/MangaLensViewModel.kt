@@ -74,6 +74,8 @@ data class MangaLensUiState(
     val videoProviderCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
     val videoMimeType: String? = null,
     val videoAudioMimeType: String? = null,
+    val videoFragments: com.mangalens.download.OriginalFragmentPlan? = null,
+    val videoAudioFragments: com.mangalens.download.OriginalFragmentPlan? = null,
     val loading: Boolean = false,
     val translating: Boolean = false,
     val translationPaused: Boolean = false,
@@ -103,7 +105,7 @@ internal fun MangaLensUiState.capturedVideoSelection(): VideoPlaybackSelection? 
     if (mode != ContentType.VIDEO_STREAM || videoUrl.isNullOrBlank() || videoResolutionId == null ||
         videoAudioUrl != null && videoAudioResolutionId != videoResolutionId) return null
     return VideoPlaybackSelection(videoResolutionId, videoUrl, videoHeaders.toMap(), videoPageUrl,
-        videoAudioUrl, videoAudioHeaders.toMap(), videoExpectedDurationUs, videoProviderCaptions?.captureSnapshot(), videoMimeType, videoAudioMimeType)
+        videoAudioUrl, videoAudioHeaders.toMap(), videoExpectedDurationUs, videoProviderCaptions?.captureSnapshot(), videoMimeType, videoAudioMimeType, videoFragments?.captured(), videoAudioFragments?.captured())
 }
 
 private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelection?): MangaLensUiState = copy(
@@ -112,7 +114,8 @@ private fun MangaLensUiState.withVideoSelection(selection: VideoPlaybackSelectio
     videoAudioHeaders = selection?.audioHeaders.orEmpty(), videoResolutionId = selection?.resolutionId,
     videoAudioResolutionId = selection?.resolutionId?.takeIf { selection.audioUrl != null },
     videoExpectedDurationUs = selection?.durationUs, videoProviderCaptions = selection?.providerCaptions?.captureSnapshot(),
-    videoMimeType = selection?.videoMimeType, videoAudioMimeType = selection?.audioMimeType
+    videoMimeType = selection?.videoMimeType, videoAudioMimeType = selection?.audioMimeType,
+    videoFragments = selection?.videoFragments?.captured(), videoAudioFragments = selection?.audioFragments?.captured()
 )
 
 internal fun MangaLensUiState.withLibraryChapter(chapter: SavedChapter): MangaLensUiState = withVideoSelection(null).copy(
@@ -151,6 +154,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
     private val savedBubbleLocalModel = lazy { com.mangalens.orez.OrezLocalModelService(com.mangalens.orez.OrezModelManager(app)) }
     val readerMemory = com.mangalens.core.translation.ReaderMemoryController(app.filesDir, viewModelScope,
         storeProvider = { withContext(Dispatchers.IO) { ChapterTranslationStore.shared(app) } }).also { controller ->
+        // Service construction is inert; its optional pack manager and native engine remain lazy.
+        controller.configureBubbleArtworkRepair(com.mangalens.core.translation.inpainting.ReaderLaMaArtworkService(app))
         controller.configureBubbleRegionActions { inspection, action, source, owner ->
             withContext(Dispatchers.IO) {
                 owner.validate(true)
@@ -235,6 +240,39 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             if (recent != null && _state.value.activeChapter == null && !_state.value.loading) {
                 _state.value = _state.value.copy(activeChapter = recent)
                 repository.restorePages(recent.pages)
+            }
+            // Register after the cold Library projection exists. Hints carry IDs only; each value
+            // is reread with actual owned IO and a fresh delivery lease, never trusted from the hint.
+            val acknowledgedHints = mutableMapOf<String,Long>()
+            combine(com.mangalens.orez.agent.NativeLibraryMetadataHints.states,
+                com.mangalens.orez.agent.NativeLibraryMetadataHints.refreshes) { hints,_ -> hints }.collect { hints ->
+                acknowledgedHints.keys.retainAll(hints.map { it.chapterId }.toSet())
+                for (hint in hints.filter { it.sequence > (acknowledgedHints[it.chapterId] ?: 0L) }) {
+                    var delivered = false
+                    // A finite retry belongs to this committed hint, never a polling service.
+                    for (attempt in 0 until 4) {
+                        delivered = persistenceMutex.withLock {
+                            val captured = _state.value.library.firstOrNull { it.id == hint.chapterId }
+                            if (captured == null) true else try {
+                                val projected = com.mangalens.orez.agent.OrezLibraryMetadataProjection.read(app,hint.chapterId)
+                                projected.deliver { bookmarked ->
+                                    val current = _state.value
+                                    if (current.library.none { it === captured }) false else _state.compareAndSet(current,current.copy(
+                                        library=current.library.map { if (it === captured) it.copy(bookmarked=bookmarked) else it },
+                                        activeChapter=current.activeChapter?.let { active ->
+                                            if (active.id == captured.id && active.pages === captured.pages && active.sourceUrl == captured.sourceUrl && active.bookmarked == captured.bookmarked)
+                                                active.copy(bookmarked=bookmarked) else active
+                                        }))
+                                }
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { false }
+                        }
+                        if (delivered) break
+                        if (attempt < 3) kotlinx.coroutines.delay(125L)
+                    }
+                    // Busy/stale hints remain pending. Explicit Library entry requests fresh IO again.
+                    if (delivered) acknowledgedHints[hint.chapterId] = hint.sequence
+                }
             }
         }
         viewModelScope.launch { repository.pages.collect { pages ->
@@ -330,7 +368,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
             translationDone = task.processedPages, translationTotal = task.totalPages,
             translationEnabled = overlays.isNotEmpty(), translationError = failed, translationMessage = message,
             overlays = overlays, translatedBackgrounds = pages.mapNotNull { page -> page.cleanedPath?.let { page.index to it } }.toMap(),
-            promoPages = pages.filter { it.status == ChapterTranslationPageStatus.PROMO || it.promotionDetected }.map { it.index }.toSet(),
+            promoPages = pages.filter { it.status == ChapterTranslationPageStatus.PROMO || it.promotionDetected ||
+                com.mangalens.core.reader.ReaderSavedPromoPolicy.classify(it.lettering.map { text -> text.source },
+                    it.status == ChapterTranslationPageStatus.COMPLETED && it.rejectedRegions == 0) }.map { it.index }.toSet(),
             ocrDiagnostics = pages.mapNotNull { page -> page.ocrDiagnostics?.let { page.index to it } }.toMap()) }
     }
 
@@ -502,16 +542,19 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         previousIngestion?.cancel()
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
+            var repairedPage: ChapterPage? = null
             fun stillSelected(): Boolean = _state.value.activeChapter?.id == chapterId &&
-                _state.value.pages.any { it.index == page.index && it.sourceUrl == page.sourceUrl && it.localPath == page.localPath }
+                _state.value.pages.any { it == page || it == repairedPage }
             if (!stillSelected()) return@launch
             _state.update { it.copy(loading = true, error = null,
                 overlays = it.overlays - page.index, translatedBackgrounds = it.translatedBackgrounds - page.index, ocrDiagnostics = it.ocrDiagnostics - page.index) }
             try {
-                repository.repairPage(page, app, chapter.sourceUrl)
+                repairedPage = repository.repairPage(page, app, chapter.sourceUrl)
                 ensureActive()
                 if (stillSelected()) {
-                    _state.update { it.copy(loading = false, error = null) }
+                    _state.update { current -> current.copy(loading = false,
+                        pages = current.pages.map { if (it == page) requireNotNull(repairedPage) else it },
+                        error = com.mangalens.core.reader.ChapterPageAcquisitionPolicy.summary(repository.pages.value)) }
                     persistCurrentChapter()
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -571,7 +614,9 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                 }?.takeIf { com.mangalens.ui.video.isPlayableRefresh(it) }
                             }, rendered = { stageBudget ->
                                 val existingCookie = CookieManager.getInstance().getCookie(target)
-                                val rendered = acquirer.discoverWithCookie(target, stageBudget, existingCookie)
+                                val rendered = acquirer.discoverWithCookie(target, stageBudget, existingCookie) {
+                                    _state.value.url == target && _state.value.mode == selectedMode
+                                }
                                 VideoSourcePolicy.preferredMediaUrl(rendered.videoStreamUrls)?.let { mediaUrl ->
                                     val mediaCookie = CookieManager.getInstance().getCookie(mediaUrl)
                                     com.mangalens.download.ResolvedMediaLink(
@@ -612,7 +657,8 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                                 checkActive()
                                 if (_state.value.url != target || _state.value.mode != selectedMode) return@videoResolution
                                 val selected = VideoPlaybackPublication.capture(resolved.url, playbackHeaders, pageUrl, resolved.audioUrl, audioHeaders,
-                                    providerCaptions = resolved.providerCaptions, videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType)
+                                    providerCaptions = resolved.providerCaptions, videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType,
+                                    videoFragments = resolved.videoFragments, audioFragments = resolved.audioFragments)
                                 _state.value = _state.value.withVideoSelection(selected).copy(
                                     mode = ContentType.VIDEO_STREAM,
                                     loading = false,
@@ -630,26 +676,49 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
                         }
                     }
                     ContentType.IMAGE_CHAPTER -> {
+                        ensureActive()
+                        if (_state.value.url != target || _state.value.mode != selectedMode) return@launch
                         _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
                         repository.clearChapterCache()
                         _state.value = _state.value.copy(pages = emptyList(), overlays = emptyMap(), ocrDiagnostics = emptyMap(), translationEnabled = false)
                         val lightweight = staticAcquirer.discover(target)
                         val chapters = if (!lightweight?.chapters.isNullOrEmpty()) lightweight!!.chapters.map { MangaChapter(it.title, it.url) }
                             else try { chapterCatalog.extract(target).map { MangaChapter(it.title, it.url) } } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { emptyList() }
+                        ensureActive()
+                        if (_state.value.url != target || _state.value.mode != selectedMode) return@launch
                         _state.value = _state.value.copy(chapters = chapters,
                             activeChapter = _state.value.activeChapter?.copy(title = lightweight?.title ?: _state.value.activeChapter!!.title))
-                        val result = if (!lightweight?.pageUrls.isNullOrEmpty()) {
-                            com.mangalens.acquisition.RenderedPageSet(target, lightweight!!.pageUrls, emptyList(), emptyList(), 1, 200, null, lightweight.pageCandidates)
-                        } else acquirer.discoverWithCookie(target, 15_000L, null)
-                        if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredCandidates(result.imageCandidates, result.finalUrl)
+                        // Static images are an initial catalogue, not evidence that a lazy page is complete.
+                        // Observe the actual rendered document even when its HTML exposes an early image.
+                        val result = acquirer.discoverWithCookie(target, 15_000L, null) {
+                            _state.value.url == target && _state.value.mode == selectedMode
+                        }
+                        ensureActive()
+                        if (_state.value.url != target || _state.value.mode != selectedMode) return@launch
+                        var discoveryMessage = result.navigationError.takeIf { result.discoveryLimited }
+                        if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredCandidates(result.imageCandidates, result.finalUrl) { planned, successors ->
+                            val chapter = requireNotNull(_state.value.activeChapter)
+                            check(chapter.id == ChapterLibrary.id(target) && chapter.sourceUrl == target)
+                            com.mangalens.orez.agent.OrezLibraryReaderCheckpoint.preflight(app, chapter.copy(pages = planned), successors)
+                        }
                         if (result.imageUrls.isEmpty()) {
-                            val fallback = chapterScraper.extractCandidates(target)
-                            if (fallback.isNotEmpty()) repository.persistDiscoveredCandidates(fallback, target)
+                            val fallback = chapterScraper.discover(target) {
+                                _state.value.url == target && _state.value.mode == selectedMode
+                            }
+                            ensureActive()
+                            if (_state.value.url != target || _state.value.mode != selectedMode) return@launch
+                            discoveryMessage = fallback.navigationError.takeIf { fallback.discoveryLimited }
+                            if (fallback.imageCandidates.isNotEmpty()) repository.persistDiscoveredCandidates(fallback.imageCandidates, fallback.finalUrl) { planned, successors ->
+                                val chapter = requireNotNull(_state.value.activeChapter)
+                                check(chapter.id == ChapterLibrary.id(target) && chapter.sourceUrl == target)
+                                com.mangalens.orez.agent.OrezLibraryReaderCheckpoint.preflight(app, chapter.copy(pages = planned), successors)
+                            }
                         }
                         val chapterError = if (repository.pages.value.isEmpty()) {
                             result.navigationError
                                 ?: "No chapter pages were detected automatically. Open the source in Web only if the site itself requires sign-in or verification, then retry."
-                        } else null
+                        } else listOfNotNull(com.mangalens.core.reader.ChapterPageAcquisitionPolicy.summary(repository.pages.value),
+                            discoveryMessage).joinToString(" ").takeIf { it.isNotEmpty() }
                         // Empty extraction is not proof of a challenge. Do not force an app-side
                         // verification dialog for ordinary chapters. Real site login/CAPTCHA remains
                         // available in Web mode when the source itself requires it.
@@ -694,15 +763,28 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         previousIngestion?.cancel()
         clearTranslations()
         val target = _state.value.url
+        val selectedMode = _state.value.mode
         ingestionJob = viewModelScope.launch {
             previousIngestion?.join()
+            ensureActive()
+            if (_state.value.url != target || _state.value.mode != selectedMode) return@launch
             _state.value = _state.value.copy(loading = true, error = null)
             try {
                 repository.clearChapterCache()
                 _state.value = _state.value.copy(activeChapter = SavedChapter(ChapterLibrary.id(target), target.substringAfterLast('/').ifBlank { "Chapter" }, target, emptyList()))
-                val result = acquirer.discoverWithCookie(target, 20_000L, cookie)
-                if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredCandidates(result.imageCandidates, result.finalUrl)
-                _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false, error = result.navigationError)
+                val result = acquirer.discoverWithCookie(target, 20_000L, cookie) {
+                    _state.value.url == target && _state.value.mode == selectedMode
+                }
+                ensureActive()
+                if (_state.value.url != target || _state.value.mode != selectedMode) return@launch
+                if (result.imageUrls.isNotEmpty()) repository.persistDiscoveredCandidates(result.imageCandidates, result.finalUrl) { planned, successors ->
+                            val chapter = requireNotNull(_state.value.activeChapter)
+                            check(chapter.id == ChapterLibrary.id(target) && chapter.sourceUrl == target)
+                            com.mangalens.orez.agent.OrezLibraryReaderCheckpoint.preflight(app, chapter.copy(pages = planned), successors)
+                        }
+                _state.value = _state.value.copy(mode = ContentType.IMAGE_CHAPTER, loading = false,
+                    error = listOfNotNull(com.mangalens.core.reader.ChapterPageAcquisitionPolicy.summary(repository.pages.value),
+                        result.navigationError).joinToString(" ").takeIf { it.isNotEmpty() })
                 captchaBridge.completeVerification(cookie, "Android")
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
@@ -914,13 +996,13 @@ class MangaLensViewModel(application: Application) : AndroidViewModel(applicatio
         val chapter = _state.value.activeChapter ?: return@withLock
         val pages = _state.value.pages
         if (pages.isEmpty()) return@withLock
-        val saved = chapter.copy(pages = pages, updatedAt = System.currentTimeMillis())
+        val proposed = chapter.copy(pages = pages, updatedAt = System.currentTimeMillis())
+        val saved = com.mangalens.orez.agent.OrezLibraryReaderCheckpoint.save(app,proposed)
         withContext(Dispatchers.IO) {
-            library.save(saved)
             if (explicitReadingId == saved.id) com.mangalens.widget.WidgetReadingPointerStore.recordAfterVisit(app, saved.id, saved.lastReadAt)
         }
-        if (_state.value.activeChapter?.id == saved.id) {
-            _state.value = _state.value.copy(activeChapter = _state.value.activeChapter?.copy(pages = saved.pages), library = (listOf(saved) + _state.value.library.filterNot { it.id == saved.id }))
+        if (_state.value.activeChapter?.id == saved.id && _state.value.activeChapter?.sourceUrl == saved.sourceUrl && _state.value.pages === pages) {
+            _state.value = _state.value.copy(activeChapter = _state.value.activeChapter?.copy(pages = saved.pages,bookmarked=saved.bookmarked,readingStatus=saved.readingStatus,seriesTitle=saved.seriesTitle,notes=saved.notes,collections=saved.collections), library = (listOf(saved) + _state.value.library.filterNot { it.id == saved.id }))
         }
     }
 

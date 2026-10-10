@@ -14,7 +14,11 @@ data class OriginalMediaFragment(
     val rangeEndExclusive: Long? = null,
     val expectedBytes: Long? = null,
     val durationUs: Long? = null
-)
+) {
+    internal fun toJson() = JSONObject().put("url", url)
+        .put("rangeStart", rangeStart ?: JSONObject.NULL).put("rangeEndExclusive", rangeEndExclusive ?: JSONObject.NULL)
+        .put("expectedBytes", expectedBytes ?: JSONObject.NULL).put("durationUs", durationUs ?: JSONObject.NULL)
+}
 
 /** Ordered initialization/media bytes from the actual extractor, with no synthetic timestamps. */
 data class OriginalFragmentPlan(
@@ -23,10 +27,11 @@ data class OriginalFragmentPlan(
     val mediaMime: String,
     val durationUs: Long,
     val fragments: List<OriginalMediaFragment>,
-    val version: String = VERSION
+    val version: String = VERSION,
+    val hls: OriginalHlsVodReceipt? = null
 ) {
     internal fun validate() {
-        require(version == VERSION && safeUrl(sourceUrl)) { "Selected fragment source is invalid." }
+        require((version == VERSION && hls == null || version == HLS_VERSION && hls != null) && safeUrl(sourceUrl)) { "Selected fragment source is invalid." }
         require(OriginalMediaFormatPolicy.safeFormatId(formatId) == formatId) { "Selected fragment format is invalid." }
         require(mediaMime in setOf("video/mp4", "video/webm", "audio/mp4", "audio/webm")) { "Fragment container is unsupported." }
         require(durationUs in 1..MAX_DURATION_US && fragments.size in 1..MAX_FRAGMENTS) { "A complete finite fragment sequence is required." }
@@ -38,6 +43,7 @@ data class OriginalFragmentPlan(
             require(f.durationUs == null || f.durationUs in 1..MAX_DURATION_US) { "Fragment duration is invalid." }
             if (f.rangeStart != null && f.expectedBytes != null) require(f.expectedBytes == f.rangeEndExclusive!! - f.rangeStart) { "Fragment length differs from its range." }
         }
+        hls?.validate(this)
         require(toJsonUnchecked().toString().toByteArray(Charsets.UTF_8).size <= MAX_JSON_BYTES) { "Selected fragment sequence exceeds its private storage limit." }
     }
 
@@ -50,18 +56,25 @@ data class OriginalFragmentPlan(
             fun optional(value: Long?) { output.writeBoolean(value != null); value?.let(output::writeLong) }
             text(version); text(sourceUrl); text(formatId); text(mediaMime); output.writeLong(durationUs); output.writeInt(fragments.size)
             fragments.forEach { f -> text(f.url); optional(f.rangeStart); optional(f.rangeEndExclusive); optional(f.expectedBytes); optional(f.durationUs) }
+            // Append only for the new version: existing DASHv1 hashes remain byte-for-byte unchanged.
+            hls?.let { receipt ->
+                text(receipt.protocol); text(receipt.playlistFinalUrl); text(receipt.playlistSha256); text(receipt.playlistContentType)
+                output.writeLong(receipt.mediaSequence); output.writeLong(receipt.observedDurationUs)
+                val init = receipt.initialization
+                text(init.url); optional(init.rangeStart); optional(init.rangeEndExclusive); optional(init.expectedBytes); optional(init.durationUs)
+            }
         }
         return MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()).joinToString("") { "%02x".format(it) }
     }
     internal fun toJson(): JSONObject { validate(); return toJsonUnchecked() }
     private fun toJsonUnchecked() = JSONObject().put("version", version).put("sourceUrl", sourceUrl)
         .put("formatId", formatId).put("mediaMime", mediaMime).put("durationUs", durationUs)
-        .put("fragments", JSONArray().also { rows -> fragments.forEach { f -> rows.put(JSONObject().put("url", f.url)
-            .put("rangeStart", f.rangeStart ?: JSONObject.NULL).put("rangeEndExclusive", f.rangeEndExclusive ?: JSONObject.NULL)
-            .put("expectedBytes", f.expectedBytes ?: JSONObject.NULL).put("durationUs", f.durationUs ?: JSONObject.NULL)) } })
+        .put("fragments", JSONArray().also { rows -> fragments.forEach { f -> rows.put(f.toJson()) } })
+        .also { json -> hls?.let { json.put("hls", it.toJson()) } }
 
     companion object {
         const val VERSION = "original-dash-fragment-sequence-v1"
+        const val HLS_VERSION = "original-hls-fmp4-vod-fragment-sequence-v1"
         const val MAX_FRAGMENTS = 4096
         const val MAX_JSON_BYTES = 480 * 1024
         const val MAX_FRAGMENT_BYTES = 1024L * 1024L * 1024L
@@ -111,7 +124,8 @@ data class OriginalFragmentPlan(
                 OriginalMediaFragment(f.getString("url"), optional("rangeStart"), optional("rangeEndExclusive"), optional("expectedBytes"), optional("durationUs"))
             }
             return OriginalFragmentPlan(json.getString("sourceUrl"), json.getString("formatId"), json.getString("mediaMime"),
-                strictLong(json, "durationUs"), fragments, json.getString("version")).also { it.validate() }
+                strictLong(json, "durationUs"), fragments, json.getString("version"),
+                if (json.has("hls") && !json.isNull("hls")) OriginalHlsVodReceipt.fromJson(json.getJSONObject("hls")) else null).captured()
         }
         private fun strictLong(json: JSONObject, key: String): Long {
             require(json.has(key) && !json.isNull(key)) { "Selected fragment numeric field is missing." }
@@ -154,6 +168,21 @@ data class OriginalFragmentPlan(
 
 /** The private plan is part of one exact accepted source tuple, not a reusable URL hint. */
 internal object OriginalFragmentTransport {
+    private const val ROW_PREFIX = "original-fragments-v1:"
+    fun isFragmentRow(value: String?): Boolean = value?.matches(Regex(Regex.escape(ROW_PREFIX) + "[a-f0-9]{64}")) == true
+    fun downloadKind(media: ResolvedMediaLink?): String? {
+        if (media == null || media.videoFragments == null && media.audioFragments == null) return null
+        val video = capture(media.videoFragments, media.url, media.mimeType)
+        val audio = capture(media.audioFragments, media.audioUrl, media.audioMimeType)
+        val digest = MessageDigest.getInstance("SHA-256").digest(identitySuffix(video, audio).toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return ROW_PREFIX + digest
+    }
+    fun requireDownloadBinding(kind: String?, media: ResolvedMediaLink?) {
+        require(kind == null || isFragmentRow(kind)) { "Saved media transport is unsupported. Resolve the source again." }
+        require(kind == downloadKind(media)) { "Saved media transport differs from its complete source receipt. Resolve the source again." }
+    }
+
     fun capture(plan: OriginalFragmentPlan?, url: String?, mime: String?): OriginalFragmentPlan? = plan?.captured()?.also {
         require(url != null && it.sourceUrl == url && MediaTransportMime.capture(mime) == it.mediaMime) {
             "Selected fragment sequence differs from its captured media source."

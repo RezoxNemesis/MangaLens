@@ -4,16 +4,21 @@ package com.mangalens.core.adblock
 internal class AdBlockDocumentStartRegistration {
     private var owner: Any? = null
     private var remove: (() -> Unit)? = null
+    private var scopeKey: Any? = null
     private var closed = false
     val installed: Boolean get() = remove != null
 
-    fun update(view: Any, enabled: Boolean, install: () -> (() -> Unit)?): Boolean {
+    fun update(view: Any, enabled: Boolean, install: () -> (() -> Unit)?): Boolean =
+        updateScoped(view, enabled, null, install)
+
+    fun updateScoped(view: Any, enabled: Boolean, key: Any?, install: () -> (() -> Unit)?): Boolean {
         if (closed) return false
-        if (!enabled || owner !== view) detach()
+        if (!enabled || owner !== view || scopeKey != key) detach()
         if (!enabled) return false
         if (remove != null) return true
         val lease = runCatching(install).getOrNull() ?: return false
         owner = view
+        scopeKey = key
         remove = lease
         return true
     }
@@ -24,6 +29,7 @@ internal class AdBlockDocumentStartRegistration {
         val previous = remove
         remove = null
         owner = null
+        scopeKey = null
         runCatching { previous?.invoke() }
     }
 }

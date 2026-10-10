@@ -70,9 +70,11 @@ fun AdBlockedWebScreen(
     onResearchQuestion: ((String) -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val session = remember(context.applicationContext) { BrowserWorkspaceRepository.session(context) }
-    BrowserWorkspaceScreen(session, url, translationEnabled, adBlockEnabled, modifier, targetLanguage,
-        onOpenManga, onOpenVideo, onClose, onPageChanged, onResearchQuestion)
+    BrowserProfilesHost { profile, session, profiles, closePrivate ->
+        BrowserWorkspaceScreen(session, if (profile.choice.kind == BrowserProfileKind.NORMAL) url else "", translationEnabled,
+            adBlockEnabled, modifier, targetLanguage, onOpenManga, onOpenVideo, onClose, onPageChanged, onResearchQuestion,
+            profileOwner = profile, onProfiles = profiles, onClosePrivate = closePrivate)
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -82,17 +84,24 @@ internal fun GuardedBrowserTabScreen(
     url: String, tab: BrowserTab, workspace: BrowserWorkspaceSnapshot, session: BrowserWorkspaceSession, workspaceError: String?,
     translationEnabled: Boolean, adBlockEnabled: Boolean, modifier: Modifier, targetLanguage: String,
     onOpenManga: (String) -> Unit, onOpenVideo: (SniffedMedia, String) -> Unit,
-    onClose: (() -> Unit)?, onPageChanged: (String) -> Unit, onResearchQuestion: ((String) -> Unit)? = null
+    onClose: (() -> Unit)?, onPageChanged: (String) -> Unit, onResearchQuestion: ((String) -> Unit)? = null,
+    profileOwner: BrowserProfileOwner? = null, onProfiles: (() -> Unit)? = null, onClosePrivate: (() -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val profile = profileOwner ?: remember(session) { BrowserProfileOwner(BrowserProfileChoice.Normal) }
+    var profileLease by remember { mutableStateOf<BrowserProfileRuntime.Lease?>(null) }
+    var profileFailure by remember { mutableStateOf<String?>(null) }
+    fun profileCurrent() = profile.isCurrent() && session.profileKey == profile.choice.key
+    fun sourceHandoffAllowed() = profileCurrent() && profile.choice.allowsNativeSourceHandoff
     var showAddress by remember { mutableStateOf(url.isBlank()) }
     var address by remember { mutableStateOf(url) }
     var addressError by remember { mutableStateOf<String?>(null) }
     val captureGate = remember { BrowserCaptureGate() }
     val captureAuthority = remember { java.util.concurrent.atomic.AtomicReference<BrowserUploadScope?>(null) }
+    val protectionWriteOwner = remember { java.util.concurrent.atomic.AtomicReference<BrowserProtectionWriteOwner?>(null) }
     var capturePending by remember { mutableStateOf(false) }
     var captureConsentStatus by remember { mutableStateOf<String?>(null) }
-    fun captureOwner(): BrowserUploadScope? = captureAuthority.get()?.takeIf { session.state.value?.activeTabId == it.tabId }
+    fun captureOwner(): BrowserUploadScope? = captureAuthority.get()?.takeIf { profileCurrent() && session.state.value?.activeTabId == it.tabId }
     val scope = rememberCoroutineScope()
     val speech = remember { com.mangalens.ui.video.VideoSpeechEngine(context.applicationContext, scope) }
     val speechState by speech.state.collectAsState()
@@ -159,7 +168,13 @@ internal fun GuardedBrowserTabScreen(
         lifecycleOwner.lifecycle.addObserver(listener)
         onDispose { lifecycleOwner.lifecycle.removeObserver(listener) }
     }
-    val engine = remember { AdBlockEngine(com.mangalens.core.adblock.AdBlockStatsStore.shared) }
+    val engine = remember(profile.choice.key) { AdBlockEngine(if (profile.choice.kind == BrowserProfileKind.NORMAL) com.mangalens.core.adblock.AdBlockStatsStore.shared else com.mangalens.core.adblock.AdBlockStatsStore()) }
+    val protection = remember(session, profile) { BrowserProtectionRepository.session(context, profile.choice) }
+    val protectionState by protection.state.collectAsState()
+    val protectionStats by engine.statsStore.stats.collectAsState()
+    var protectionPage by remember { mutableStateOf<Pair<BrowserUploadScope, com.mangalens.core.adblock.AdBlockSite>?>(null) }
+    var protectionSaving by remember { mutableStateOf(false) }
+    var protectionMessage by remember { mutableStateOf<String?>(null) }
     val translator = remember { TranslationService() }
     val mediaResolver = remember {
         MediaLinkResolver(
@@ -186,9 +201,7 @@ internal fun GuardedBrowserTabScreen(
     var translationStatus by remember { mutableStateOf<String?>(null) }
     var detectedMedia by remember { mutableStateOf<SniffedMedia?>(null) }
     var hudVisible by remember { mutableStateOf(true) }
-    var siteAdBlockEnabled by remember { mutableStateOf(adBlockEnabled) }
     val latestAdBlockEnabled by rememberUpdatedState(adBlockEnabled)
-    val latestSiteAdBlockEnabled by rememberUpdatedState(siteAdBlockEnabled)
     val revoked = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
     var commandSerial by remember { mutableLongStateOf(0) }
     var awaitingDispatch by remember { mutableStateOf(false) }
@@ -204,9 +217,9 @@ internal fun GuardedBrowserTabScreen(
     val uploadBridge = rememberBrowserFileUploadBridge(currentScope = {
         val view = webView
         val ticket = pageLoad.navigation
-        if (!revoked.get() && session.state.value?.activeTabId == tab.id && view != null && ticket != null && pageLoad.readyFor(ticket) &&
+        if (profileCurrent() && profileLease?.owns(view) == true && !revoked.get() && session.state.value?.activeTabId == tab.id && view != null && ticket != null && pageLoad.readyFor(ticket) &&
             view.url?.let { WebPageLoadState.sameDocument(it, ticket.url) } == true)
-            BrowserUploadScope(tab.id, ticket.epoch, ticket.url) else null
+            BrowserUploadScope(tab.id, ticket.epoch, ticket.url, profile.choice.key) else null
     }, onStatus = { translationStatus = it })
 
     val sourceCaptions = remember(session, tab.id, context.applicationContext) {
@@ -214,16 +227,16 @@ internal fun GuardedBrowserTabScreen(
             val view = webView
             val ticket = pageLoad.navigation
             val current = session.state.value
-            if (!revoked.get() && current?.activeTabId == tab.id && view != null && ticket != null &&
+            if (sourceHandoffAllowed() && profileLease?.owns(view) == true && !revoked.get() && current?.activeTabId == tab.id && view != null && ticket != null &&
                 pageLoad.readyFor(ticket) && current.activeTab.url == ticket.url && view.url == ticket.url &&
                 captionWebViewToken.matches(Regex("[a-f0-9]{32}")))
-                BrowserCaptionLiveHost(BrowserCaptionPageOwner(tab.id, ticket.epoch, ticket.url, captionWebViewToken), view)
+                BrowserCaptionLiveHost(BrowserCaptionPageOwner(tab.id, ticket.epoch, ticket.url, captionWebViewToken, profile.choice.key), view)
             else null
         })
     }
     val sourceCaptionState by sourceCaptions.state.collectAsState()
 
-    fun owns(view: WebView?): Boolean = !revoked.get() && view != null && view === webView && session.state.value?.activeTabId == tab.id
+    fun owns(view: WebView?): Boolean = profileCurrent() && profileLease?.owns(view) == true && !revoked.get() && view != null && view === webView && session.state.value?.activeTabId == tab.id
     fun clearFind() {
         findSerial++
         findOpen = false; findSearching = false; findCount = -1; findError = null
@@ -234,7 +247,7 @@ internal fun GuardedBrowserTabScreen(
         action: String, view: WebView? = webView, callbackUrl: String? = null,
         targetUrl: String? = null, detail: String = ""
     ) {
-        if (!WebNavigationDiagnostics.enabled) return
+        if (profile.choice.ephemeral || !WebNavigationDiagnostics.enabled) return
         WebNavigationDiagnostics.observe(action, pageLoad, currentUrl, view?.url,
             callbackUrl, targetUrl, detail, view?.let(System::identityHashCode))
     }
@@ -242,11 +255,11 @@ internal fun GuardedBrowserTabScreen(
     fun beginNavigation(target: String, record: Boolean = true, replace: Boolean = false) {
         session.domTools?.retire()
         sourceCaptions.retire()
-        captureGate.revoke(); captureAuthority.set(null); captureConsentStatus = null
+        captureGate.revoke(); protectionWriteOwner.getAndSet(null)?.retire(); captureAuthority.set(null); captureConsentStatus = null
         context.stopService(android.content.Intent(context, WebAudioCaptureService::class.java))
         uploadBridge.cancel()
         clearFind()
-        webView?.let { (it.webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(it) }
+        webView?.let { (it.webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(it, target) }
         if (record) session.recordNavigation(tab.id, target, replace)
         pageLoad = pageLoad.start(target)
         currentUrl = target
@@ -263,7 +276,7 @@ internal fun GuardedBrowserTabScreen(
 
     fun loadPage(target: String, canDispatch: () -> Boolean = { true }, onDispatched: (Boolean) -> Unit = {}) {
         val view = webView
-        if (view == null || !owns(view) || !canDispatch() || runCatching { requireBrowserUrl(target) }.isFailure) {
+        if (view == null || !protectionState.ready || !owns(view) || !canDispatch() || runCatching { requireBrowserUrl(target) }.isFailure) {
             onDispatched(false); return
         }
         val serial = ++commandSerial
@@ -308,7 +321,7 @@ internal fun GuardedBrowserTabScreen(
                 current == null || current.activeTabId != tab.id || current.activeTab.url != ticket.url ||
                 !WebPageLoadState.sameDocument(view.url.orEmpty(), ticket.url) || !BrowserDomPolicy.permittedAddress(ticket.url)) null
             else {
-                val owner = BrowserDomOwner(tab.id, ticket.epoch, ticket.url, captionWebViewToken)
+                val owner = BrowserDomOwner(tab.id, ticket.epoch, ticket.url, captionWebViewToken, profile.choice.key)
                 BrowserDomWebViewHost(owner, view, stillOwned = {
                     owns(view) && pageLoad.readyFor(ticket) && captionWebViewToken == owner.viewToken &&
                         session.state.value?.activeTab?.url == owner.url &&
@@ -328,10 +341,12 @@ internal fun GuardedBrowserTabScreen(
         onDispose { session.unbindDomTools(domTools) }
     }
     if (showDomTools) BrowserDomAgentDialog(domTools) { showDomTools = false }
-    if (showCleanReading) BrowserCleanReadingDialog(domTools, onOpenManga) { showCleanReading = false }
+    if (showCleanReading) BrowserCleanReadingDialog(domTools, { target ->
+        if (sourceHandoffAllowed()) onOpenManga(target) else translationStatus = BrowserProfilePolicy.HANDOFF_MESSAGE
+    }) { showCleanReading = false }
     if (showResearchQuestion && onResearchQuestion != null) BrowserResearchDialog(onReview = { question ->
         showResearchQuestion = false
-        onResearchQuestion(question)
+        if (profileCurrent()) onResearchQuestion(question)
     }, onDismiss = { showResearchQuestion = false })
     fun preparePublicLink(share: Boolean) {
         val owner = domTools.currentOwner()
@@ -360,7 +375,7 @@ internal fun GuardedBrowserTabScreen(
 
     fun reloadPage() {
         val view = webView ?: return
-        if (!owns(view)) return
+        if (!owns(view) || !protectionState.ready) return
         val plan = planWebReload(pageLoad, view.url, currentUrl,
             com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl) ?: return
         observeBrowser("reload_requested", view, targetUrl = plan.url,
@@ -388,6 +403,28 @@ internal fun GuardedBrowserTabScreen(
                 }
             }
         }
+    }
+
+    protectionPage?.let { captured ->
+        val owner = captured.first
+        fun currentProtectionPage() = captureOwner() == owner && profileCurrent()
+        BrowserProtectionDialog(captured.second, profile.choice.label, profile.choice.ephemeral,
+            protection.modeFor(owner.pageUrl), adBlockEnabled, currentProtectionPage(), protectionSaving,
+            protectionStats, protectionMessage ?: protectionState.error, onDismiss = { protectionPage = null }, onSave = { mode ->
+                if (currentProtectionPage() && !protectionSaving) {
+                    protectionSaving = true; protectionMessage = null
+                    val writeOwner = BrowserProtectionWriteOwner(owner, captureAuthority, revoked, profile, session.state)
+                    protectionWriteOwner.getAndSet(writeOwner)?.retire()
+                    scope.launch {
+                        try {
+                            protection.set(captured.second, mode, writeOwner).await()
+                            if (currentProtectionPage()) { protectionPage = null; reloadPage() }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { protectionMessage = "The site choice could not be saved and verified. No reload was dispatched." }
+                        finally { protectionWriteOwner.compareAndSet(writeOwner, null); writeOwner.retire(); protectionSaving = false }
+                    }
+                }
+            })
     }
 
     fun navigateHistory(delta: Int) {
@@ -456,6 +493,7 @@ internal fun GuardedBrowserTabScreen(
     }
 
     fun enrichSniffedMedia(media: SniffedMedia): SniffedMedia {
+        check(sourceHandoffAllowed()) { BrowserProfilePolicy.HANDOFF_MESSAGE }
         val cookie = runCatching {
             android.webkit.CookieManager.getInstance().getCookie(media.url)
         }.getOrNull().orEmpty()
@@ -472,6 +510,7 @@ internal fun GuardedBrowserTabScreen(
     }
 
     fun openCurrentVideo() {
+        if (!sourceHandoffAllowed()) { translationStatus = BrowserProfilePolicy.HANDOFF_MESSAGE; return }
         val view = webView ?: return
         val ticket = callbackTicket(view, currentUrl) ?: return
         if (!pageLoad.readyFor(ticket)) return
@@ -533,9 +572,8 @@ internal fun GuardedBrowserTabScreen(
     }
 
     LaunchedEffect(translationEnabled) { translated = translationEnabled }
-    LaunchedEffect(adBlockEnabled) {
-        siteAdBlockEnabled = adBlockEnabled
-        webView?.let { (it.webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(it) }
+    LaunchedEffect(adBlockEnabled, protectionState.snapshot) {
+        webView?.let { (it.webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(it, currentUrl) }
     }
     LaunchedEffect(autoScroll, speed, webView) {
         while (autoScroll && webView != null) {
@@ -555,15 +593,20 @@ internal fun GuardedBrowserTabScreen(
         BrowserLifecycleDiagnostics.mark(BrowserLifecyclePhase.DISPOSE_BEGIN)
         sourceCaptions.close()
         revoked.set(true)
-        captureGate.revoke(); captureAuthority.set(null)
+        captureGate.revoke(); protectionWriteOwner.getAndSet(null)?.retire(); captureAuthority.set(null)
         uploadBridge.cancel()
         (webView?.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
         observeBrowser("dispose")
-        webView?.apply {
-            stopLoading(); setFindListener(null); webChromeClient = null; webViewClient = android.webkit.WebViewClient()
-            browserLifecycleViewEvent(BrowserLifecyclePhase.WEBVIEW_DESTROY_BEGIN, this)
-            destroy()
-            browserLifecycleViewEvent(BrowserLifecyclePhase.WEBVIEW_DESTROY_END, this)
+        val disposingView = webView
+        if (disposingView != null) {
+            var destroyed = false
+            try {
+                disposingView.stopLoading(); disposingView.setFindListener(null); disposingView.webChromeClient = null; disposingView.webViewClient = android.webkit.WebViewClient()
+                browserLifecycleViewEvent(BrowserLifecyclePhase.WEBVIEW_DESTROY_BEGIN, disposingView)
+                disposingView.destroy(); destroyed = true
+                browserLifecycleViewEvent(BrowserLifecyclePhase.WEBVIEW_DESTROY_END, disposingView)
+            } catch (_: Exception) { /* lease retains a failed native close; do not claim deletion */ }
+            finally { profileLease?.destroyed(destroyed) }
         }
         webView = null
         translator.close()
@@ -571,19 +614,29 @@ internal fun GuardedBrowserTabScreen(
     } }
     BackHandler(canGoBack) { navigateHistory(-1) }
     if (clearSiteDialog) AlertDialog(
-        onDismissRequest = { clearSiteDialog = false }, title = { Text("Clear all website data?") },
-        text = { Text("This signs you out of websites and removes their stored data.") },
+        onDismissRequest = { clearSiteDialog = false }, title = { Text("Clear ${profile.choice.label} website data?") },
+        text = { Text("This signs you out and clears cookies, website storage and location grants only for ${profile.choice.label}. Other profiles, browser history and downloads are retained.") },
         confirmButton = { TextButton(onClick = {
-            android.webkit.CookieManager.getInstance().removeAllCookies(null)
-            android.webkit.CookieManager.getInstance().flush()
-            android.webkit.WebStorage.getInstance().deleteAllData()
-            com.mangalens.core.verification.VerificationSessionStore(context).clearAll()
-            webView?.clearCache(true)
+            val view = webView
             clearSiteDialog = false
-            reloadPage()
+            if (view != null && owns(view)) {
+                translationStatus = "Clearing cookies and website storage for ${profile.choice.label}…"
+                BrowserProfileRuntime.clearWebsiteData(profile, view) { cleared ->
+                    if (owns(view)) {
+                        if (cleared) {
+                            if (profile.choice.kind == BrowserProfileKind.NORMAL) {
+                                com.mangalens.core.verification.VerificationSessionStore(context).clearAll()
+                            }
+                            translationStatus = "Profile cookies and website storage cleared. Browser history and downloaded files remain separate."
+                            reloadPage()
+                        } else translationStatus = "Profile website data could not be cleared. Retry after closing this view."
+                    }
+                }
+            }
         }) { Text("Clear") } }, dismissButton = { TextButton(onClick = { clearSiteDialog = false }) { Text("Cancel") } })
 
-    LaunchedEffect(webView) {
+    LaunchedEffect(webView, protectionState.ready) {
+        if (!protectionState.ready) return@LaunchedEffect
         val view = webView ?: return@LaunchedEffect
         if (url.isBlank()) return@LaunchedEffect
         if (view.url == url) return@LaunchedEffect
@@ -593,6 +646,7 @@ internal fun GuardedBrowserTabScreen(
 
     LaunchedEffect(tab.desktop, webView) {
         val view = webView ?: return@LaunchedEffect
+        if (!owns(view)) return@LaunchedEffect
         val desired = if (tab.desktop) browserDesktopUserAgent(mobileUserAgent) else mobileUserAgent
         if (desired.isNotEmpty() && view.settings.userAgentString != desired) {
             view.settings.userAgentString = desired
@@ -718,13 +772,14 @@ internal fun GuardedBrowserTabScreen(
             Column(Modifier.padding(16.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BrowserSourceCaptionControls(sourceCaptions, sourceCaptionState,
-                    enabled = pageReady && !capturePending && !captureActive,
+                    enabled = sourceHandoffAllowed() && pageReady && !capturePending && !captureActive,
                     initialTargetLanguage = targetLanguage, onStart = { speechSettings = false })
+                if (!profile.choice.allowsNativeSourceHandoff) Text(BrowserProfilePolicy.HANDOFF_MESSAGE, style = MaterialTheme.typography.bodySmall)
                 HorizontalDivider()
                 Button(onClick = {
                     speechSettings = false
                     openCurrentVideo()
-                }, enabled = pageReady && !capturePending && !captureActive) {
+                }, enabled = sourceHandoffAllowed() && pageReady && !capturePending && !captureActive) {
                     Text("Use source captions in Video")
                 }
                 Text("Open the current source in Video, then use Generate Full Subtitles to check its original captions. Captions are fetched and verified before they can be shown. This route does not require web audio capture or a speech model.",
@@ -772,7 +827,10 @@ internal fun GuardedBrowserTabScreen(
             onDismiss = { panel = null }, onPanel = { panel = it },
             onNewTab = { session.submit { it.newTab() }; panel = null },
             onSelectTab = { id -> session.submit { it.selectTab(id) }; panel = null },
-            onCloseTab = { id -> session.submit { it.closeTab(id) } },
+            onCloseTab = { id ->
+                if (profile.choice.ephemeral && workspace.tabs.size == 1 && workspace.tabs.single().id == id) onClosePrivate?.invoke()
+                else session.submit { it.closeTab(id) }
+            },
             onOpenUrl = { target -> panel = null; loadPage(target) },
             onToggleBookmark = {
                 val bookmarkUrl = currentUrl; val bookmarkTitle = pageTitle
@@ -785,7 +843,7 @@ internal fun GuardedBrowserTabScreen(
             onDesktop = { session.submit { it.setDesktop(tab.id, !tab.desktop) }; panel = null },
             onExternal = {
                 panel = null
-                if (com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(currentUrl)) {
+                if (profileCurrent() && com.mangalens.core.router.UrlEngineRouter.isSafeWebUrl(currentUrl)) {
                     try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(currentUrl))) }
                     catch (_: Exception) { translationStatus = "No external browser is available." }
                 }
@@ -804,7 +862,7 @@ internal fun GuardedBrowserTabScreen(
         onNext = { forward -> if (owns(webView) && pageReady && findCount > 0) webView?.findNext(forward) },
         onDismiss = ::clearFind)
 
-    val browserChromeVisible = hudVisible || pageLoad.loading || pageLoad.error != null || workspaceError != null || captureConsentStatus != null
+    val browserChromeVisible = !protectionState.ready || protectionState.error != null || profileFailure != null || hudVisible || pageLoad.loading || pageLoad.error != null || workspaceError != null || captureConsentStatus != null
     val browserTopInset by animateDpAsState(
         targetValue = if (browserChromeVisible) 108.dp else 0.dp,
         animationSpec = tween(220),
@@ -812,12 +870,21 @@ internal fun GuardedBrowserTabScreen(
     )
 
     Box(modifier.fillMaxSize()) {
-        AndroidView(
+        AndroidView<android.view.View>(
             modifier = Modifier.fillMaxSize().padding(top = browserTopInset),
-            factory = { ctx ->
-                createBrowserLifecycleWebView(ctx).apply {
+            factory = factory@{ ctx ->
+                val lease = try { BrowserProfileRuntime.acquire(profile) }
+                    catch (_: Exception) { profile.retire(); profileFailure = "This profile could not create a browser view. Switch profiles or restart the browser."; return@factory android.widget.FrameLayout(ctx) }
+                profileLease = lease
+                val created = try { createBrowserLifecycleWebView(ctx) }
+                    catch (_: Exception) { lease.creationFailed(); profile.retire(); profileFailure = "The browser view could not start. Switch profiles or restart the browser."; return@factory android.widget.FrameLayout(ctx) }
+                created.apply {
+                    webView = this
+                    try { lease.bind(this) }
+                    catch (_: Exception) { profile.retire(); profileFailure = "The selected isolated profile could not be bound. No page was loaded. Switch to Normal or restart the browser."; return@apply }
                     captionWebViewToken = java.util.UUID.randomUUID().toString().replace("-", "")
-                    com.mangalens.core.web.SafeWebView.configure(this)
+                    try { com.mangalens.core.web.SafeWebView.configure(this, BrowserProfileRuntime.cookies(profile, this)) }
+                    catch (_: Exception) { profile.retire(); profileFailure = "The profile browser settings could not be applied. No page was loaded. Switch profiles or restart the browser."; return@apply }
                     mobileUserAgent = settings.userAgentString.orEmpty()
                     if (tab.desktop) {
                         settings.userAgentString = browserDesktopUserAgent(mobileUserAgent)
@@ -848,7 +915,8 @@ internal fun GuardedBrowserTabScreen(
                             resultMsg: android.os.Message?
                         ): Boolean {
                             if (!owns(view)) return false
-                            if (latestAdBlockEnabled && latestSiteAdBlockEnabled) {
+                            if (latestAdBlockEnabled && protection.modeFor(currentUrl) != com.mangalens.core.adblock.AdBlockMode.ALLOW) {
+                                engine.statsStore.recordPopup(com.mangalens.core.adblock.AdBlockSite.from(currentUrl)?.host.orEmpty())
                                 translationStatus = "Blocked a popup window."
                                 return false
                             }
@@ -859,7 +927,8 @@ internal fun GuardedBrowserTabScreen(
                         if (event.actionMasked == MotionEvent.ACTION_UP) hudVisible = true
                         false
                     }
-                    webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled && siteAdBlockEnabled }) {
+                    webViewClient = object : AdBlockWebViewClient(engine, { latestAdBlockEnabled }, protection::modeFor,
+                        { profile.isCurrent() && !revoked.get() && session.profileKey == profile.choice.key && session.state.value?.activeTabId == tab.id }) {
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val blocked = super.shouldOverrideUrlLoading(view, request)
                             if (!owns(view) || awaitingDispatch) return true
@@ -931,7 +1000,7 @@ internal fun GuardedBrowserTabScreen(
                             if (request?.isForMainFrame != true) return
                             val ticket = callbackTicket(view, request.url.toString()) ?: return
                             pageLoad = pageLoad.failed(ticket, request.url.toString(), true, "Page could not load. Check your connection and retry.")
-                            captureGate.revoke(); captureAuthority.set(null)
+                            captureGate.revoke(); protectionWriteOwner.getAndSet(null)?.retire(); captureAuthority.set(null)
                             translating = false
                             autoScroll = false
                             hudVisible = true
@@ -943,7 +1012,7 @@ internal fun GuardedBrowserTabScreen(
                             if (request?.isForMainFrame != true) return
                             val ticket = callbackTicket(view, request.url.toString()) ?: return
                             pageLoad = pageLoad.failed(ticket, request.url.toString(), true, "Website returned HTTP ${response?.statusCode ?: "error"}. Retry or open the source.")
-                            captureGate.revoke(); captureAuthority.set(null)
+                            captureGate.revoke(); protectionWriteOwner.getAndSet(null)?.retire(); captureAuthority.set(null)
                             translating = false
                             autoScroll = false
                             hudVisible = true
@@ -954,7 +1023,7 @@ internal fun GuardedBrowserTabScreen(
                             val failedUrl = error?.url ?: view?.url
                             val ticket = callbackTicket(view, failedUrl) ?: return
                             pageLoad = pageLoad.failed(ticket, failedUrl, true, "Secure connection failed. Check the source and retry.")
-                            captureGate.revoke(); captureAuthority.set(null)
+                            captureGate.revoke(); protectionWriteOwner.getAndSet(null)?.retire(); captureAuthority.set(null)
                             translating = false
                             autoScroll = false
                             hudVisible = true
@@ -967,7 +1036,7 @@ internal fun GuardedBrowserTabScreen(
                             currentUrl = pageUrl ?: currentUrl
                             observeBrowser("finish_applied", view, callbackUrl = pageUrl)
                             if (pageLoad.readyFor(ticket)) {
-                                captureAuthority.set(BrowserUploadScope(tab.id, ticket.epoch, ticket.url))
+                                captureAuthority.set(BrowserUploadScope(tab.id, ticket.epoch, ticket.url, profile.choice.key))
                                 super.onPageFinished(view, pageUrl)
                                 if (wasLoading) pageUrl?.takeIf(com.mangalens.core.router.UrlEngineRouter::isSafeWebUrl)?.let { committedUrl ->
                                     val committedTitle = view?.title.orEmpty()
@@ -976,7 +1045,7 @@ internal fun GuardedBrowserTabScreen(
                                             val saved = session.submit { it.commit(tab.id, ticket.url, committedUrl, committedTitle) }.await()
                                             if (callbackTicket(view, committedUrl) == ticket && pageLoad.readyFor(ticket) &&
                                                 saved.activeTabId == tab.id && saved.activeTab.url == committedUrl)
-                                                onPageChanged(committedUrl)
+                                                if (sourceHandoffAllowed()) onPageChanged(committedUrl)
                                         } catch (cancelled: CancellationException) { throw cancelled }
                                         catch (_: Exception) {
                                             if (callbackTicket(view, committedUrl) == ticket && pageLoad.readyFor(ticket))
@@ -993,11 +1062,11 @@ internal fun GuardedBrowserTabScreen(
                         }
                     }
                     webView = this
-                    (webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(this)
+                    (webViewClient as? AdBlockWebViewClient)?.prepareForNavigation(this, url)
                 }
             },
-            onRelease = { view -> browserLifecycleViewEvent(BrowserLifecyclePhase.VIEW_RELEASE, view) },
-            update = { view -> if (webView !== view) webView = view }
+            onRelease = { view -> if (view is WebView) browserLifecycleViewEvent(BrowserLifecyclePhase.VIEW_RELEASE, view) },
+            update = { view -> if (view is WebView && webView !== view) webView = view }
         )
 
         AnimatedVisibility(
@@ -1035,7 +1104,7 @@ internal fun GuardedBrowserTabScreen(
                         if (pageLoad.loading) {
                             commandSerial++
                             awaitingDispatch = false
-                            captureGate.revoke(); captureAuthority.set(null)
+                            captureGate.revoke(); protectionWriteOwner.getAndSet(null)?.retire(); captureAuthority.set(null)
                             uploadBridge.cancel(); clearFind()
                             pageLoad.navigation?.let { pageLoad = pageLoad.stopped(it) }
                             webView?.stopLoading()
@@ -1046,18 +1115,25 @@ internal fun GuardedBrowserTabScreen(
                 if (detectedMedia != null || VideoSourcePolicy.isSourcePage(currentUrl)) {
                     TextButton(
                         onClick = { openCurrentVideo() },
-                        enabled = pageReady,
+                        enabled = sourceHandoffAllowed() && pageReady,
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) { Text("Video") }
                 }
                 TextButton(
                     onClick = {
-                        siteAdBlockEnabled = !siteAdBlockEnabled
-                        reloadPage()
+                        val owner = captureOwner()
+                        val site = owner?.let { com.mangalens.core.adblock.AdBlockSite.from(it.pageUrl) }
+                        if (owner != null && site != null) { protectionPage = owner to site; protectionMessage = null }
+                        else translationStatus = "Protection settings need a current loaded HTTP or HTTPS page."
                     },
-                    enabled = adBlockEnabled,
-                    contentPadding = PaddingValues(horizontal = 7.dp)
-                ) { Text(if (adBlockEnabled && siteAdBlockEnabled) "Ads ✓" else "Ads") }
+                    enabled = protectionState.ready && pageReady,
+                    contentPadding = PaddingValues(horizontal = 7.dp),
+                    modifier = Modifier.semantics { contentDescription = "Open this site Protection Center" }
+                ) { Text(if (!adBlockEnabled) "Ads" else when (protection.modeFor(currentUrl)) {
+                    com.mangalens.core.adblock.AdBlockMode.STANDARD -> "Ads ✓"
+                    com.mangalens.core.adblock.AdBlockMode.STRICT -> "Ads Strict"
+                    com.mangalens.core.adblock.AdBlockMode.ALLOW -> "Ads Allow"
+                }) }
                 TextButton(onClick = { address = currentUrl; showAddress = true }, contentPadding = PaddingValues(horizontal = 7.dp)) { Text("URL") }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1067,9 +1143,14 @@ internal fun GuardedBrowserTabScreen(
                 TextButton(onClick = { panel = BrowserWorkspacePanel.TOOLS; hudVisible = true }, modifier = Modifier.semantics {
                     contentDescription = "Browser tools"
                 }) { Text("Tools") }
+                onProfiles?.let { open -> TextButton(onClick = open) { Text(profile.choice.label) } }
                 Spacer(Modifier.weight(1f))
                 Text(if (tab.desktop) "Desktop" else "Mobile", style = MaterialTheme.typography.labelSmall)
             }
+            profileFailure?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
+            if (!protectionState.ready) Text("Loading site protection settings…", modifier = Modifier.padding(8.dp))
+            protectionState.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(8.dp)) }
+            if (!profile.choice.allowsNativeSourceHandoff) Text("${profile.choice.label} · isolated cookies and history · native source handoffs unavailable", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp))
             if (pageLoad.loading) LinearProgressIndicator(progress = loadProgress / 100f, modifier = Modifier.fillMaxWidth())
             }
         }
@@ -1121,9 +1202,10 @@ internal fun GuardedBrowserTabScreen(
                         )
                         com.mangalens.ui.video.VideoDockAction(
                             label = "Download",
-                            status = "Resolve best media",
-                            enabled = pageReady,
-                            onClick = {
+                            status = if (profile.choice.allowsNativeSourceHandoff) "Resolve best media" else "Normal profile only",
+                            enabled = sourceHandoffAllowed() && pageReady,
+                            onClick = download@{
+                                if (!sourceHandoffAllowed()) { translationStatus = BrowserProfilePolicy.HANDOFF_MESSAGE; return@download }
                                 val ownerView = webView
                                 val ownerTicket = callbackTicket(ownerView, currentUrl)
                                 val sourcePage = currentUrl
@@ -1166,7 +1248,15 @@ internal fun GuardedBrowserTabScreen(
                                                         quality = DownloadQuality.BEST,
                                                         sourcePageUrl = sourcePage,
                                                         headers = enriched.headers,
-                                                        provider = enriched.provider ?: "web-sniff"
+                                                        provider = enriched.provider ?: "web-sniff",
+                                                        capturedMedia = com.mangalens.download.ResolvedMediaLink(
+                                                            enriched.url, sniffedMime(enriched), enriched.provider ?: "web-sniff",
+                                                            title = capturedTitle, sourcePageUrl = sourcePage, headers = enriched.headers.toMap(),
+                                                            audioUrl = enriched.audioUrl, audioHeaders = enriched.audioHeaders.toMap(),
+                                                            audioMimeType = enriched.audioMimeType,
+                                                            expectedDurationUs = enriched.videoFragments?.durationUs ?: enriched.audioFragments?.durationUs,
+                                                            videoFragments = enriched.videoFragments?.captured(), audioFragments = enriched.audioFragments?.captured()
+                                                        )
                                                     )
                                                     downloadStatus("Detected media queued with the current website session.")
                                                 } catch (cancelled: CancellationException) { throw cancelled }
@@ -1189,13 +1279,13 @@ internal fun GuardedBrowserTabScreen(
                         )
                         com.mangalens.ui.video.VideoDockAction(
                             label = "Manga",
-                            status = "Reader",
-                            enabled = pageReady,
-                            onClick = { onOpenManga(currentUrl) }
+                            status = if (profile.choice.allowsNativeSourceHandoff) "Reader" else "Normal profile only",
+                            enabled = sourceHandoffAllowed() && pageReady,
+                            onClick = { if (sourceHandoffAllowed()) onOpenManga(currentUrl) else translationStatus = BrowserProfilePolicy.HANDOFF_MESSAGE }
                         )
                         com.mangalens.ui.video.VideoDockAction(
                             label = "Site data",
-                            status = "Cookies / cache",
+                            status = "Cookies / storage",
                             onClick = { clearSiteDialog = true }
                         )
                         com.mangalens.ui.video.VideoDockAction(

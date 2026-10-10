@@ -5,7 +5,7 @@ object ChapterImageExtractionScript {
     val extract: String = """
         (function(){
           var roots=document.querySelectorAll('${ChapterImageCandidates.READER_SELECTOR}');
-          var nodes=document.querySelectorAll('img'), images=[], seen={}, budget=0, limit=${ChapterImageCandidates.MAX_IMAGES};
+          var nodes=document.querySelectorAll('img'), images=[], seen={}, budget=0, limited=false, limit=${ChapterImageCandidates.MAX_IMAGES};
           var hasReader=roots.length>0, commercial=['girlfriendgpt.com','girlfriendgpt.ai','girlfriendgpt.co','veyragame.com'];
           function safe(v){
             if(!v || v.length>${ChapterImageCandidates.MAX_URL_CHARS}) return null;
@@ -89,16 +89,22 @@ object ChapterImageExtractionScript {
             if(e.closest && e.closest('form,[role="dialog"],[aria-modal="true"]'))continue;
             if(!u || seen[u])continue;
             if(/(?:google\.com\/recaptcha|gstatic\.com\/recaptcha|hcaptcha\.com\/|challenges\.cloudflare\.com\/|\/cdn-cgi\/challenge-platform\/)/i.test(u))continue;
-            var row={url:u,promotion:promo};budget+=JSON.stringify(row).length;
-            if(budget>1400000)return JSON.stringify({pageUrl:location.href,images:[],videos:[],error:'Image evidence exceeds the bounded limit'});
-            seen[u]=true;images.push(row);
+            var row={url:u,promotion:promo}, size=JSON.stringify(row).length;
+            if(budget+size>1400000){limited=true;break;}
+            budget+=size;seen[u]=true;images.push(row);
           }
+          if(nodes.length>=6000 || images.length>=limit)limited=true;
           var videos=[], videoNodes=document.querySelectorAll('video,video source');
+          if(videoNodes.length>=500)limited=true;
           for(var i=0;i<videoNodes.length && i<500;i++){
             var video=videoNodes[i], value=safe(video.currentSrc)||safe(video.getAttribute('src'));
-            if(value && videos.indexOf(value)<0){budget+=JSON.stringify(value).length;if(budget>1450000)break;videos.push(value);}
+            if(value && videos.indexOf(value)<0){var size=JSON.stringify(value).length;if(budget+size>1450000){limited=true;break;}budget+=size;videos.push(value);}
           }
-          return JSON.stringify({pageUrl:location.href,images:images,videos:videos});
+          var doc=document.documentElement, body=document.body;
+          var total=Math.max(doc?doc.scrollHeight:0,body?body.scrollHeight:0), height=Number(window.innerHeight);
+          var viewport=height>0 && total>0 && isFinite(height) && isFinite(total) ?
+            {top:Math.max(0,Math.round(window.scrollY||0)),height:Math.round(height),total:Math.round(total)} : null;
+          return JSON.stringify({pageUrl:location.href,images:images,videos:videos,viewport:viewport,limited:limited});
         })();
     """.trimIndent()
 }

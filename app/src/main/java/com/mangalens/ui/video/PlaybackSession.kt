@@ -153,7 +153,8 @@ internal class PlaybackSession(private val app: Application) {
         refreshFromRevision: Long? = null,
         sourceResolutionId: String? = null,
         providerCaptions: ProviderCaptionInventory? = null,
-        videoMimeType: String? = null, audioMimeType: String? = null
+        videoMimeType: String? = null, audioMimeType: String? = null,
+        videoFragments: com.mangalens.download.OriginalFragmentPlan? = null, audioFragments: com.mangalens.download.OriginalFragmentPlan? = null
     ): Boolean {
         checkMain()
         if (!policy.ownsPresentation(epoch)) return false
@@ -162,6 +163,8 @@ internal class PlaybackSession(private val app: Application) {
         val soundHeaders = audioHeaders.toMap()
         val capturedVideoMime = com.mangalens.download.MediaTransportMime.capture(videoMimeType)
         val capturedAudioMime = audioMimeType.takeIf { !audioUrl.isNullOrBlank() }?.let(com.mangalens.download.MediaTransportMime::capture)
+        val capturedVideoFragments = com.mangalens.download.OriginalFragmentTransport.capture(videoFragments, value, capturedVideoMime)
+        val capturedAudioFragments = com.mangalens.download.OriginalFragmentTransport.capture(audioFragments, audioUrl, capturedAudioMime)
         val captionInventory = providerCaptions?.captureSnapshot()
         if (captionInventory != null && (sourceResolutionId?.matches(Regex("[a-f0-9]{32}")) != true ||
             !runCatching { captionInventory.validate(); true }.getOrDefault(false))) return false
@@ -177,6 +180,7 @@ internal class PlaybackSession(private val app: Application) {
                 append("audio-").append(name.lowercase()).append('=').append(headerValue).append('\n')
             }
             append(com.mangalens.download.MediaTransportMime.identitySuffix(capturedVideoMime, capturedAudioMime))
+            append(com.mangalens.download.OriginalFragmentTransport.identitySuffix(capturedVideoFragments, capturedAudioFragments))
             if (captionInventory != null) append("provider-resolution=").append(captionResolution).append('\n')
                 .append("provider-inventory=").append(captionInventory.fingerprint()).append('\n')
         }
@@ -185,14 +189,11 @@ internal class PlaybackSession(private val app: Application) {
         // Each media source owns a request-context snapshot. This matters for signed/CDN media:
         // redirects and segment requests keep the source-page Referer/Cookie instead of inheriting
         // whichever WebView page happened to load most recently.
-        val videoFactory = sourceFactory(
-            MediaPlaybackDataSource.factory(MediaRequestContext(value, referer, videoHeaders))
-        )
+        val fragmentPair = java.util.UUID.randomUUID().toString()
+        val videoFactory = httpSourceFactory(value, referer, videoHeaders, capturedVideoFragments, fragmentPair, "video")
         val videoSource = videoFactory.createMediaSource(playbackHttpMediaItem(value, capturedVideoMime))
         val source = if (!audioUrl.isNullOrBlank()) {
-            val audioFactory = sourceFactory(
-                MediaPlaybackDataSource.factory(MediaRequestContext(audioUrl, referer, soundHeaders))
-            )
+            val audioFactory = httpSourceFactory(audioUrl, referer, soundHeaders, capturedAudioFragments, fragmentPair, "audio")
             val audioSource = audioFactory.createMediaSource(playbackHttpMediaItem(audioUrl, capturedAudioMime))
             MergingMediaSource(videoSource, audioSource)
         } else {
@@ -217,7 +218,7 @@ internal class PlaybackSession(private val app: Application) {
         recentRecordedKey = null
         httpRequestKey = requestKey
         check(policy.acceptSource(epoch))
-        val nextSource = PlaybackSessionSource(value, referer, videoHeaders, audioUrl, soundHeaders, captionResolution, captionInventory, capturedVideoMime, capturedAudioMime)
+        val nextSource = PlaybackSessionSource(value, referer, videoHeaders, audioUrl, soundHeaders, captionResolution, captionInventory, capturedVideoMime, capturedAudioMime, capturedVideoFragments, capturedAudioFragments)
         capturedSource = nextSource
         val revision = sourceRevision
         captionPublication.invalidate(); currentCaptionTrack = null
@@ -289,14 +290,24 @@ internal class PlaybackSession(private val app: Application) {
     }
 
     private fun sourceWithItem(source: PlaybackSessionSource, item: MediaItem): MediaSource {
-        val video = sourceFactory(MediaPlaybackDataSource.factory(MediaRequestContext(source.uri, source.referer, source.headers)))
+        val pair = java.util.UUID.randomUUID().toString()
+        val video = httpSourceFactory(source.uri, source.referer, source.headers, source.videoFragments, pair, "video")
             .createMediaSource(item.buildUpon().setMimeType(source.videoMimeType).build())
         val audioUrl = source.audioUrl
         return if (!audioUrl.isNullOrBlank()) {
-            val audio = sourceFactory(MediaPlaybackDataSource.factory(MediaRequestContext(audioUrl, source.referer, source.audioHeaders)))
+            val audio = httpSourceFactory(audioUrl, source.referer, source.audioHeaders, source.audioFragments, pair, "audio")
                 .createMediaSource(playbackHttpMediaItem(audioUrl, source.audioMimeType))
             MergingMediaSource(video, audio)
         } else video
+    }
+
+    private fun httpSourceFactory(value: String, page: String?, headers: Map<String, String>,
+        fragments: com.mangalens.download.OriginalFragmentPlan?, pair: String, role: String): DefaultMediaSourceFactory {
+        val context = MediaRequestContext(value, page, headers)
+        return if (fragments == null) sourceFactory(MediaPlaybackDataSource.factory(context))
+        else DefaultMediaSourceFactory(DefaultDataSource.Factory(app,
+            OriginalFragmentDataSource.Factory(fragments, context, pair, role)))
+        // Concatenated bytes never borrow the cache entry for the manifest/base URL.
     }
 
     private fun isManagedCaption(track: PlayerCaptionTrack): Boolean {
@@ -347,6 +358,8 @@ internal class PlaybackSession(private val app: Application) {
         val audio = source.audioUrl?.takeIf { it.isNotBlank() }
         val input = if (audio != null) audio else source.uri
         val headers = if (audio != null) source.audioHeaders else source.headers
+        val fragments = if (audio != null) source.audioFragments else source.videoFragments
+        if (task.source.source.fragmentPlan != fragments || fragments != null && task.source.source.sourceResolutionId != source.sourceResolutionId) return false
         return task.source.source.uri == input && task.source.source.headers == headers &&
             matchesProviderPlaybackSource(task, source.sourceResolutionId, source.providerCaptions)
     }
@@ -461,9 +474,11 @@ internal data class PlaybackSessionSource(
     val sourceResolutionId: String? = null,
     val providerCaptions: ProviderCaptionInventory? = null,
     val videoMimeType: String? = null,
-    val audioMimeType: String? = null
+    val audioMimeType: String? = null,
+    val videoFragments: com.mangalens.download.OriginalFragmentPlan? = null,
+    val audioFragments: com.mangalens.download.OriginalFragmentPlan? = null
 ) {
-    fun captured() = copy(headers = headers.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
+    fun captured() = copy(headers = headers.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot(), videoFragments = videoFragments?.captured(), audioFragments = audioFragments?.captured())
     val online get() = uri.startsWith("https://", true) || uri.startsWith("http://", true)
 }
 

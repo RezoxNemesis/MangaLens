@@ -19,7 +19,15 @@ class OrezToolRegistry {
         "browser_click" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.NETWORK_MUTATION),
         "browser_fill" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.NETWORK_MUTATION),
         "browser_scroll" to Descriptor(null, OrezCapability.WEB, OrezToolRisk.LOCAL_MUTATION),
+        "search_library" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
+        "list_recent_chapters" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
+        "read_chapter_metadata" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
+        "set_chapter_bookmark" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.LOCAL_MUTATION),
+        "read_series_memory" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
+        "set_user_series_term" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.LOCAL_MUTATION),
         "search_saved_memory" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
+        "save_next_chapter" to Descriptor(null, OrezCapability.READER, OrezToolRisk.NETWORK_READ),
+        "save_chapter_url" to Descriptor(null, OrezCapability.READER, OrezToolRisk.NETWORK_READ),
         "inspect_saved_chapter" to Descriptor(null, OrezCapability.LIBRARY, OrezToolRisk.READ_ONLY),
         "translate_saved_chapter" to Descriptor(null, OrezCapability.TRANSLATION, OrezToolRisk.LOCAL_MUTATION),
         "inspect_selected_media" to Descriptor(null, OrezCapability.MEDIA, OrezToolRisk.READ_ONLY),
@@ -54,6 +62,19 @@ class OrezToolRegistry {
             com.mangalens.orez.research.OrezResearchRequest(call.arguments.getValue("query"),
                 com.mangalens.orez.research.ResearchFreshnessRequest.valueOf(call.arguments.getValue("freshness")),
                 call.arguments.getValue("limit").toInt()).validate()
+            return
+        }
+        if (call.name in setOf("save_next_chapter", "save_chapter_url")) {
+            if (call.name == "save_next_chapter") require(call.arguments.keys == setOf("chapterId") &&
+                call.arguments.getValue("chapterId").matches(Regex("[a-f0-9]{32}"))) { "Next chapter requires one captured saved source identity." }
+            else {
+                require(call.arguments.keys == setOf("value")) { "Chapter acquisition requires one literal user URL." }
+                OrezNextChapterPolicy.publicUrl(call.arguments.getValue("value"))
+            }
+            return
+        }
+        if (call.name in OrezLibraryRequest.tools) {
+            OrezLibraryArgumentPolicy.validate(call.name,call.arguments)
             return
         }
         val nativeChapter = call.name in setOf("inspect_saved_chapter", "translate_saved_chapter")

@@ -6,13 +6,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
 
-data class BlockEvent(val timestamp: Long, val host: String, val pageHost: String, val type: String, val rule: String, val thirdParty: Boolean)
+data class BlockEvent(val timestamp: Long, val host: String, val pageHost: String, val type: String, val rule: String, val thirdParty: Boolean, val tracker: Boolean = false)
 
 data class AdBlockStats(
     val blockedRequests: Long = 0,
     val knownBytesSaved: Long = 0,
     val blockedDomains: List<String> = emptyList(),
-    val events: List<BlockEvent> = emptyList()
+    val events: List<BlockEvent> = emptyList(),
+    val blockedTrackers: Long = 0,
+    val blockedPopups: Long = 0
 )
 
 class AdBlockStatsStore {
@@ -23,16 +25,19 @@ class AdBlockStatsStore {
     private val events = java.util.ArrayDeque<BlockEvent>()
     private val blockedRequests = AtomicLong(0)
     private val knownBytesSaved = AtomicLong(0)
+    private val blockedTrackers = AtomicLong(0)
+    private val blockedPopups = AtomicLong(0)
     private val domains = Collections.synchronizedSet(linkedSetOf<String>())
     private val _stats = MutableStateFlow(AdBlockStats())
     val stats: StateFlow<AdBlockStats> = _stats.asStateFlow()
 
     @Synchronized
-    fun recordBlocked(host: String, knownBytes: Long = 0, pageHost: String = "", type: String = "unknown", rule: String = "local rule") {
+    fun recordBlocked(host: String, knownBytes: Long = 0, pageHost: String = "", type: String = "unknown", rule: String = "local rule", tracker: Boolean = false) {
         events.addLast(BlockEvent(System.currentTimeMillis(), host, pageHost, type, rule,
-            pageHost.isNotBlank() && host != pageHost && !host.endsWith(".$pageHost")))
+            pageHost.isNotBlank() && host != pageHost && !host.endsWith(".$pageHost"), tracker))
         while (events.size > 200) events.removeFirst()
         blockedRequests.incrementAndGet()
+        if (tracker) blockedTrackers.incrementAndGet()
         if (knownBytes > 0) knownBytesSaved.addAndGet(knownBytes)
         if (host.isNotBlank()) synchronized(domains) {
             domains.add(host)
@@ -42,10 +47,20 @@ class AdBlockStatsStore {
     }
 
     @Synchronized
+    fun recordPopup(pageHost: String) {
+        blockedPopups.incrementAndGet()
+        events.addLast(BlockEvent(System.currentTimeMillis(), pageHost, pageHost, "popup", "Blocked popup window", false))
+        while (events.size > 200) events.removeFirst()
+        publish()
+    }
+
+    @Synchronized
     fun reset() {
         events.clear()
         blockedRequests.set(0)
         knownBytesSaved.set(0)
+        blockedTrackers.set(0)
+        blockedPopups.set(0)
         synchronized(domains) { domains.clear() }
         publish()
     }
@@ -55,7 +70,9 @@ class AdBlockStatsStore {
             blockedRequests = blockedRequests.get(),
             knownBytesSaved = knownBytesSaved.get(),
             blockedDomains = synchronized(domains) { domains.toList().asReversed() },
-            events = events.toList().asReversed()
+            events = events.toList().asReversed(),
+            blockedTrackers = blockedTrackers.get(),
+            blockedPopups = blockedPopups.get()
         )
     }
 }

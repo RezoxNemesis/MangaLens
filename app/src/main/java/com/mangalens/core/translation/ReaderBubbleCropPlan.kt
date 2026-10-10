@@ -8,25 +8,27 @@ internal class ReaderBubbleCropPlan private constructor(
     val bounds: MemoryRegionBounds,
     val sample: Int,
     val predictedWidth: Int,
-    val predictedHeight: Int
+    val predictedHeight: Int,
+    private val maximumPixels: Long
 ) {
     fun acceptsActualDecode(width: Int, height: Int): Boolean =
         width in maxOf(1, (bounds.right - bounds.left) / sample)..predictedWidth &&
             height in maxOf(1, (bounds.bottom - bounds.top) / sample)..predictedHeight &&
-            width.toLong() * height <= MAX_PREVIEW_PIXELS && maxOf(width, height) <= MAX_PREVIEW_EDGE
+            width.toLong() * height <= maximumPixels && maxOf(width, height) <= MAX_PREVIEW_EDGE
 
     companion object {
         const val MAX_PREVIEW_PIXELS = 1_000_000L
         const val MAX_PREVIEW_EDGE = 1280
-        fun create(source: MemorySourceProof): ReaderBubbleCropPlan {
+        fun create(source: MemorySourceProof, maximumPixels: Long = MAX_PREVIEW_PIXELS): ReaderBubbleCropPlan {
+            require(maximumPixels in 1..MAX_PREVIEW_PIXELS)
             source.validate()
             val width = source.bounds.right - source.bounds.left
             val height = source.bounds.bottom - source.bounds.top
             var sample = 1
             fun rounded(value: Int): Int = ((value.toLong() + sample - 1) / sample).toInt()
-            while (rounded(width).toLong() * rounded(height) > MAX_PREVIEW_PIXELS ||
+            while (rounded(width).toLong() * rounded(height) > maximumPixels ||
                 maxOf(rounded(width), rounded(height)) > MAX_PREVIEW_EDGE) sample *= 2
-            return ReaderBubbleCropPlan(source.bounds, sample, rounded(width), rounded(height))
+            return ReaderBubbleCropPlan(source.bounds, sample, rounded(width), rounded(height), maximumPixels)
         }
     }
 }

@@ -3,7 +3,7 @@ package com.mangalens.ui.web
 import java.net.URI
 import java.util.Locale
 
-internal data class BrowserUploadScope(val tabId: String, val navigationEpoch: Long, val pageUrl: String)
+internal data class BrowserUploadScope(val tabId: String, val navigationEpoch: Long, val pageUrl: String, val profileKey: String = "normal")
 internal data class BrowserUploadTypes(val mimeTypes: List<String>, val extensions: List<String>)
 internal data class BrowserUploadRequest(val token: String, val scope: BrowserUploadScope, val types: BrowserUploadTypes, val multiple: Boolean)
 internal data class BrowserUploadSelection(val uri: String, val mimeType: String?, val displayName: String?, val readable: Boolean)
@@ -17,7 +17,7 @@ internal class BrowserUploadGate {
     @Synchronized fun begin(
         scope: BrowserUploadScope, accepts: List<String>, multiple: Boolean, callback: (List<String>?) -> Unit
     ): BrowserUploadRequest? {
-        if (awaiting != null || !Regex("[a-f0-9]{32}").matches(scope.tabId) || scope.navigationEpoch <= 0 ||
+        if (awaiting != null || !BrowserProfilePolicy.validKey(scope.profileKey) || !Regex("[a-f0-9]{32}").matches(scope.tabId) || scope.navigationEpoch <= 0 ||
             runCatching { requireBrowserUrl(scope.pageUrl) }.isFailure) {
             callback(null)
             return null

@@ -46,6 +46,9 @@ internal fun ReaderBubbleToolsPanel(controller: ReaderBubbleToolsController, onR
                         Text(it)
                     }
                     if (view.hasOriginalCrop) {
+                        controller.artworkRepair?.let { repair ->
+                            ReaderLaMaRepairTools(controller, repair, state.artworkPreview, state.busy)
+                        }
                         TextButton(controller::edit, enabled = !state.busy,
                             modifier = Modifier.semantics { contentDescription = "Edit selected saved bubble" }) { Text("Edit personal correction") }
                         if (controller.regionActionsAvailable) {

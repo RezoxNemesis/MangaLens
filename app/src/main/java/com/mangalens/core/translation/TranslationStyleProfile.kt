@@ -32,6 +32,15 @@ data class TranslationStyleProfile(
             "formal", "Formal",
             "Use polished, respectful language while preserving character hierarchy and social nuance."
         )
+        val MANGA = TranslationStyleProfile(
+            "manga", "Manga",
+            "Preserve source character voice, emotion, genre terminology and established names or honorifics. Use expressive manga dialogue and concise emphasis without inventing politeness, explanations or plot facts."
+        )
+        val LITERAL = TranslationStyleProfile(
+            "literal", "Literal",
+            "Favor a direct rendering of the source wording, clause order and explicit meaning over creative localization. Preserve names, honorifics and emphasis; use readable target-language grammar without adding explanations or implied facts.",
+            naturalDialogue = false
+        )
         val WEBTOON = TranslationStyleProfile(
             "webtoon", "Webtoon",
             "Write concise, expressive webtoon dialogue with strong emotional rhythm and readable line length."
@@ -47,7 +56,9 @@ data class TranslationStyleProfile(
             FAITHFUL.id -> FAITHFUL
             CASUAL.id -> CASUAL
             FORMAL.id -> FORMAL
+            MANGA.id -> MANGA
             WEBTOON.id -> WEBTOON
+            LITERAL.id -> LITERAL
             else -> NATURAL
         }
 

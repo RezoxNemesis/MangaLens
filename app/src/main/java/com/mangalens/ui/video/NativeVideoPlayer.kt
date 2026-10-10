@@ -56,7 +56,8 @@ fun NativeVideoPlayer(
     onSourceRefreshed: (VideoPlaybackSelection, VideoPlaybackSelection, () -> Boolean) -> Boolean = { _, _, commit -> commit() },
     onReadySource: (VideoReadyObservation) -> Unit = {},
     providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
-    videoMimeType: String? = null, audioMimeType: String? = null
+    videoMimeType: String? = null, audioMimeType: String? = null,
+    videoFragments: com.mangalens.download.OriginalFragmentPlan? = null, audioFragments: com.mangalens.download.OriginalFragmentPlan? = null
 ) {
     val context = LocalContext.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -91,6 +92,8 @@ fun NativeVideoPlayer(
     var activeAudioHeaders by remember(url, sourcePageUrl, audioHeaders) { mutableStateOf(audioHeaders) }
     var activeVideoMime by remember(url, sourcePageUrl, videoMimeType) { mutableStateOf(videoMimeType) }
     var activeAudioMime by remember(url, sourcePageUrl, audioUrl, audioMimeType) { mutableStateOf(audioMimeType.takeIf { audioUrl != null }) }
+    var activeVideoFragments by remember(url, sourcePageUrl, videoFragments) { mutableStateOf(videoFragments?.captured()) }
+    var activeAudioFragments by remember(url, sourcePageUrl, audioUrl, audioFragments) { mutableStateOf(audioFragments?.captured()) }
     var activeResolutionId by remember(url, sourcePageUrl, resolutionId) { mutableStateOf(resolutionId) }
     var activeProviderCaptions by remember(url, sourcePageUrl, resolutionId, providerCaptions) { mutableStateOf(providerCaptions?.captureSnapshot()) }
     var readyBinding by remember(player) { mutableStateOf<Pair<VideoPlaybackSelection, Long>?>(null) }
@@ -108,19 +111,22 @@ fun NativeVideoPlayer(
         FullVideoSubtitleGenerator(context.applicationContext, playerVm.speech, scope,
             attachmentAllowed = playerVm::canAttachGenerated, attachManually = playerVm::selectGeneratedCaption)
     }
-    val subtitleSource = remember(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, sourcePageUrl, activeResolutionId, activeProviderCaptions) {
+    val subtitleSource = remember(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, sourcePageUrl, activeResolutionId, activeProviderCaptions, activeVideoFragments, activeAudioFragments) {
         SubtitleMediaSource(
             uri = activeAudioUrl ?: activeUrl,
             headers = if (activeAudioUrl != null) activeAudioHeaders else activeHeaders,
             cacheKey = sourcePageUrl ?: url,
-            label = "Online video", providerCaptions = activeProviderCaptions, sourceResolutionId = activeResolutionId.takeIf { activeProviderCaptions != null }
+            label = "Online video", providerCaptions = activeProviderCaptions,
+            sourceResolutionId = activeResolutionId.takeIf { activeProviderCaptions != null || activeAudioFragments != null || activeVideoFragments != null },
+            fragmentPlan = (if (activeAudioUrl != null) activeAudioFragments else activeVideoFragments)?.captured()
         )
     }
     LaunchedEffect(subtitleSource) { fullSubtitleGenerator.bind(subtitleSource) }
 
     fun activeSelection(): VideoPlaybackSelection? = activeResolutionId?.let { id ->
         VideoPlaybackSelection(id, activeUrl, activeHeaders.toMap(), sourcePageUrl, activeAudioUrl, activeAudioHeaders.toMap(),
-            providerCaptions = activeProviderCaptions?.captureSnapshot(), videoMimeType = activeVideoMime, audioMimeType = activeAudioMime)
+            providerCaptions = activeProviderCaptions?.captureSnapshot(), videoMimeType = activeVideoMime, audioMimeType = activeAudioMime,
+            videoFragments = activeVideoFragments, audioFragments = activeAudioFragments)
     }
 
     fun publishReadySource() {
@@ -199,11 +205,12 @@ fun NativeVideoPlayer(
                 val expectedRoot = refreshFromSelection
                 val replacement = VideoPlaybackPublication.capture(resolved.url, resolvedHeaders, sourcePageUrl,
                     resolved.audioUrl, resolvedAudioHeaders, providerCaptions = resolved.providerCaptions,
-                    videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType)
+                    videoMimeType = resolved.mimeType, audioMimeType = resolved.audioMimeType,
+                    videoFragments = resolved.videoFragments, audioFragments = resolved.audioFragments)
                 refreshRequests.publish(
                     request,
-                    PlaybackStreamIdentity(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, activeVideoMime, activeAudioMime),
-                    PlaybackStreamIdentity(replacement.videoUrl, replacement.videoHeaders, replacement.audioUrl, replacement.audioHeaders, replacement.videoMimeType, replacement.audioMimeType),
+                    PlaybackStreamIdentity(activeUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, activeVideoMime, activeAudioMime, activeVideoFragments, activeAudioFragments),
+                    PlaybackStreamIdentity(replacement.videoUrl, replacement.videoHeaders, replacement.audioUrl, replacement.audioHeaders, replacement.videoMimeType, replacement.audioMimeType, replacement.videoFragments, replacement.audioFragments),
                     apply = {
                         activeUrl = resolved.url
                         activeHeaders = replacement.videoHeaders
@@ -211,6 +218,8 @@ fun NativeVideoPlayer(
                         activeAudioHeaders = replacement.audioHeaders
                         activeVideoMime = replacement.videoMimeType
                         activeAudioMime = replacement.audioMimeType
+                        activeVideoFragments = replacement.videoFragments?.captured()
+                        activeAudioFragments = replacement.audioFragments?.captured()
                         activeResolutionId = if (expectedRoot == null) null else replacement.resolutionId
                         activeProviderCaptions = replacement.providerCaptions?.captureSnapshot()?.takeIf { activeResolutionId != null }
                         playbackError = null
@@ -223,7 +232,8 @@ fun NativeVideoPlayer(
                                 refreshFromRevision = refreshFromRevision,
                                 sourceResolutionId = replacement.resolutionId.takeIf { expectedRoot != null },
                                 providerCaptions = replacement.providerCaptions.takeIf { expectedRoot != null },
-                                videoMimeType = replacement.videoMimeType, audioMimeType = replacement.audioMimeType).also { accepted ->
+                                videoMimeType = replacement.videoMimeType, audioMimeType = replacement.audioMimeType,
+                                videoFragments = replacement.videoFragments, audioFragments = replacement.audioFragments).also { accepted ->
                                 if (accepted) readyBinding = if (expectedRoot == null) null else replacement to playerVm.sourceRevision
                             }
                         }
@@ -254,7 +264,7 @@ fun NativeVideoPlayer(
         }
     }
 
-    LaunchedEffect(activeUrl, sourcePageUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, activeResolutionId, activeProviderCaptions, activeVideoMime, activeAudioMime) {
+    LaunchedEffect(activeUrl, sourcePageUrl, activeHeaders, activeAudioUrl, activeAudioHeaders, activeResolutionId, activeProviderCaptions, activeVideoMime, activeAudioMime, activeVideoFragments, activeAudioFragments) {
         playbackError = null
         val accepted = playerVm.openHttp(
             activeUrl,
@@ -263,7 +273,8 @@ fun NativeVideoPlayer(
             audioUrl = activeAudioUrl,
             audioHeaders = activeAudioHeaders,
             sourceResolutionId = activeResolutionId,
-            providerCaptions = activeProviderCaptions, videoMimeType = activeVideoMime, audioMimeType = activeAudioMime
+            providerCaptions = activeProviderCaptions, videoMimeType = activeVideoMime, audioMimeType = activeAudioMime,
+            videoFragments = activeVideoFragments, audioFragments = activeAudioFragments
         )
         readyBinding = if (accepted) activeSelection()?.let { it to playerVm.sourceRevision } else null
         if (accepted) publishReadySource()
@@ -277,7 +288,7 @@ fun NativeVideoPlayer(
         }
     }
 
-    DisposableEffect(player, url, sourcePageUrl, requestHeaders, audioUrl, audioHeaders, resolutionId, refreshRequests, videoMimeType, audioMimeType) {
+    DisposableEffect(player, url, sourcePageUrl, requestHeaders, audioUrl, audioHeaders, resolutionId, refreshRequests, videoMimeType, audioMimeType, videoFragments, audioFragments) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) { playbackHeight = videoSize.height }

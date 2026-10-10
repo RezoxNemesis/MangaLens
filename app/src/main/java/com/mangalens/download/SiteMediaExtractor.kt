@@ -47,7 +47,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
                     ?.let { return it.copy(requestedHeight = quality.height) }
             } catch (failure: Exception) {
                 session.checkActive()
-                if (failure is InterruptedException) throw failure
+                if (failure is InterruptedException || failure is java.util.concurrent.CancellationException || failure is OriginalHlsSelectedSourceException) throw failure
                 failures += failure
             }
         }
@@ -89,7 +89,7 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
         }
         val processId = "mangalens-resolve-${UUID.randomUUID()}"
         val guard = MediaProcessGuard(session, processId, timeoutMs, YoutubeDL::destroyProcessById)
-        return try { guard.run {
+        val selected = try { guard.run {
             guard.checkActive()
             NativeOwnedExtractorTools.configure(app, request, session)
             guard.checkActive()
@@ -104,6 +104,10 @@ class YtDlpSiteMediaExtractor(context: Context, private val allowSeparateStreams
             guard.close()
             browserCookies?.delete()
         }
+        // The native extractor has actually returned before the typed finite-playlist adapter starts.
+        return selected?.let { media -> OriginalHlsVodCapture.enrich(media, session) { actual ->
+            android.webkit.CookieManager.getInstance().getCookie(actual)
+        } }
     }
 
     /**
@@ -147,17 +151,40 @@ internal object SiteMediaInfoParser {
     fun parse(json: String, sourcePage: String, allowSeparateStreams: Boolean = false): ResolvedMediaLink? {
         if (json.length > 16 * 1024 * 1024) return null
         val info = JSONObject(json)
-        if (info.optString("_type") in setOf("playlist", "multi_video") || info.optBoolean("has_drm")) return null
+        if (info.optString("_type") in setOf("playlist", "multi_video")) return null
         val formats = info.optJSONArray("requested_formats")
+        val selectedHls = allowSeparateStreams && (formats?.length() ?: 0) > 1 &&
+            (0 until requireNotNull(formats).length()).any { formats?.optJSONObject(it)?.optString("protocol")?.startsWith("m3u8") == true }
+        if (info.optBoolean("has_drm")) {
+            if (selectedHls) throw OriginalHlsSelectedSourceException.unsupported()
+            return null
+        }
+        if (selectedHls && formats?.length() != 2) throw OriginalHlsSelectedSourceException.unsupported()
         if (allowSeparateStreams && formats?.length() == 2) {
-            val parts = (0 until formats.length()).map { formats.getJSONObject(it) }
-            if (parts.any { it.optBoolean("has_drm") }) return null
-            val video = parts.singleOrNull { it.optString("vcodec").let { codec -> codec.isNotBlank() && codec != "none" } } ?: return null
-            val audio = parts.singleOrNull { it.optString("vcodec") == "none" && it.optString("acodec") != "none" } ?: return null
-            val videoMime = OriginalMediaFormatPolicy.videoMime(video.optString("ext")) ?: return null
-            if (parts.any { protectedOrUnsupportedProtocol(it) }) return null
-            val videoUrl = video.optString("url").takeIf(::isWebUrl) ?: return null
-            val audioUrl = audio.optString("url").takeIf(::isWebUrl) ?: return null
+            fun incompleteSelectedPair(): ResolvedMediaLink? {
+                if (selectedHls) throw OriginalHlsSelectedSourceException.unsupported()
+                return null
+            }
+            val parts = (0 until formats.length()).map { index ->
+                formats.optJSONObject(index) ?: if (selectedHls) throw OriginalHlsSelectedSourceException.unsupported()
+                else formats.getJSONObject(index)
+            }
+            if (parts.any { it.optBoolean("has_drm") }) {
+                if (selectedHls) throw OriginalHlsSelectedSourceException.unsupported()
+                return null
+            }
+            val video = parts.singleOrNull { it.optString("vcodec").let { codec -> codec.isNotBlank() && codec != "none" } } ?: return incompleteSelectedPair()
+            val audio = parts.singleOrNull { it.optString("vcodec") == "none" && it.optString("acodec") != "none" } ?: return incompleteSelectedPair()
+            val videoMime = selectedTrackMime(video, audio = false) ?: return incompleteSelectedPair()
+            if (parts.any { protectedOrUnsupportedProtocol(it) }) {
+                if (selectedHls) throw OriginalHlsSelectedSourceException.unsupported()
+                return null
+            }
+            val videoUrl = video.optString("url").takeIf(::isWebUrl) ?: return incompleteSelectedPair()
+            val audioUrl = audio.optString("url").takeIf(::isWebUrl) ?: return incompleteSelectedPair()
+            val audioMime = selectedTrackMime(audio, audio = true) ?: return incompleteSelectedPair()
+            val videoHls = CapturedHlsTrackSource.capture(info, video, videoMime)
+            val audioHls = CapturedHlsTrackSource.capture(info, audio, audioMime)
             val videoFragments = fragmentPlan(info, video)
             val audioFragments = fragmentPlan(info, audio)
             return ResolvedMediaLink(videoUrl, videoMime, info.optString("extractor_key", "yt-dlp"),
@@ -166,8 +193,9 @@ internal object SiteMediaInfoParser {
                 audioUrl = audioUrl, audioHeaders = safeHeaders(info) + safeHeaders(audio),
                 expectedDurationUs = durationUs(info), originalSelection = selection(info, video, audio),
                 providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, audio.optString("language")),
-                audioMimeType = MediaTransportMime.audioContainer(audio.optString("ext")),
-                videoFragments = videoFragments, audioFragments = audioFragments)
+                audioMimeType = audioMime,
+                videoFragments = videoFragments, audioFragments = audioFragments,
+                videoHlsSource = videoHls, audioHlsSource = audioHls)
         }
         if (info.optString("vcodec") == "none" || info.optString("acodec") == "none") return null
         // Never substitute one of requested_formats: those commonly contain separate tracks.
@@ -191,6 +219,17 @@ internal object SiteMediaInfoParser {
             providerCaptions = ProviderCaptionDiscovery.fromMetadata(info, sourcePage, info.optString("language")),
             videoFragments = fragmentPlan(info, info)
         )
+    }
+
+    private fun selectedTrackMime(format: JSONObject, audio: Boolean): String? {
+        val mime = when {
+            format.optString("protocol").contains("dash") && !format.optString("protocol").startsWith("http_dash_segments") -> "application/dash+xml"
+            audio -> MediaTransportMime.audioContainer(format.optString("ext"))
+            else -> OriginalMediaFormatPolicy.videoMime(format.optString("ext"))
+        }
+        if (format.optString("protocol").startsWith("m3u8") && mime !in setOf("video/mp4", "audio/mp4"))
+            throw OriginalHlsSelectedSourceException.unsupported()
+        return mime
     }
 
     private fun fragmentPlan(info: JSONObject, format: JSONObject): OriginalFragmentPlan? {

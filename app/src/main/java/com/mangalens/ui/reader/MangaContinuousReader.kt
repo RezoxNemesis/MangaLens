@@ -113,6 +113,7 @@ fun MangaContinuousReader(
     onSavedBubble: ((Int, Int, com.mangalens.core.translation.SavedMangaLettering) -> Unit)? = null,
     onVisiblePages: (Set<Int>) -> Unit = {},
     readerPresentationEpoch: Long? = null,
+    onManuallyHiddenPages: (Set<Int>) -> Unit = {},
     ocrDiagnostics: Map<Int, com.mangalens.core.translation.SavedPageOcrDiagnostics> = emptyMap()
 ) {
     val density = LocalDensity.current
@@ -150,10 +151,29 @@ fun MangaContinuousReader(
     val detectedPromoPages = promoPages + pages.filter { page -> page.promotionHint?.matches(page) == true }.map { it.index }
     var hidePromos by rememberSaveable(chapterId) { mutableStateOf(prefs.getBoolean("hide_promos", true)) }
     var revealedPromoPages by remember(chapterId) { mutableStateOf(emptySet<Int>()) }
+    // Explicit personal presentation only; leaves originals and Native journals untouched.
+    var manuallyHiddenPages by remember(chapterId) { mutableStateOf(emptyMap<Int, ReaderManualPageHide>()) }
+    val currentPages by key(chapterId) { rememberUpdatedState(pages) }
+    fun manuallyHidden(page: ChapterPage) = manuallyHiddenPages[page.index]?.matches(chapterId, page) == true
+    fun pageHidden(page: ChapterPage) = manuallyHidden(page) ||
+        hidePromos && page.index in detectedPromoPages && page.index !in revealedPromoPages
+    val manualHidingCallback by rememberUpdatedState(onManuallyHiddenPages)
+    fun revealPage(page: ChapterPage) {
+        if (displayOptions.controlsLocked) return
+        val selected = manuallyHiddenPages[page.index]
+        val current = currentPages.singleOrNull { it.index == page.index }
+        if (selected != null && current != null && selected.matches(chapterId, page) && selected.matches(chapterId, current)) {
+            manuallyHiddenPages = manuallyHiddenPages - page.index
+            manualHidingCallback(currentPages.filter(::manuallyHidden).map { it.index }.toSet())
+        }
+        // Automatic-promo reveal keeps its existing behavior; it cannot override a different manual selection.
+        revealedPromoPages = revealedPromoPages + page.index
+    }
+    val manuallyHiddenPageIndices = pages.filter(::manuallyHidden).map { it.index }.toSet()
+    LaunchedEffect(chapterId, manuallyHiddenPageIndices) { manualHidingCallback(manuallyHiddenPageIndices) }
     val originalShown = originalVisible || peekOriginal || displayOptions.comparison == ReaderComparison.ORIGINAL
     val comparison = if (originalShown || !translated) ReaderComparison.ORIGINAL else displayOptions.comparison
     val customDisplay = displayOptions.marginCrop > 0f || comparison == ReaderComparison.SIDE_BY_SIDE || comparison == ReaderComparison.SPLIT
-    val currentPages by key(chapterId) { rememberUpdatedState(pages) }
     val currentPositionCallback by key(chapterId) { rememberUpdatedState(onPositionChanged) }
     // Metadata belongs to the chapter, so a layout-mode switch cannot recreate zero-height pages.
     // Only bounds/managed-surface checks run here; bitmap decoding stays with visible images.
@@ -181,7 +201,7 @@ fun MangaContinuousReader(
     ReaderWindowEffect(chapterId, displayOptions.effectiveWindow(readingMode))
     val activePage = positionState.page
     var guidedLastPage by remember(chapterId) { mutableStateOf<Int?>(null) }
-    val guidedOwner = if (readingMode == "guided") pages.getOrNull(activePage)?.takeIf { it.localPath != null }?.let { page ->
+    val guidedOwner = if (readingMode == "guided") pages.getOrNull(activePage)?.takeIf { it.localPath != null && !manuallyHidden(it) }?.let { page ->
         ReaderGuidedOwner(chapterId, page.index, requireNotNull(page.localPath), page.contentRevision,
             readerPresentationEpoch, displayOptions.spreadRtl)
     } else null
@@ -355,17 +375,29 @@ fun MangaContinuousReader(
         }
     } }
     val visiblePageCallback by rememberUpdatedState(onVisiblePage)
-    LaunchedEffect(chapterId, activePage, pages.map { it.index }) { visiblePageCallback(pages.getOrNull(activePage)?.index) }
+    LaunchedEffect(chapterId, activePage, pages.map { it.index }, manuallyHiddenPageIndices) {
+        visiblePageCallback(pages.getOrNull(activePage)?.index?.takeUnless { it in manuallyHiddenPageIndices })
+    }
+
+    // Notes are fixed reading UI; source restoration remains in each image's native Canvas.
+    val hasSfxNotes = personalOverlays.values.any { page -> page.values.any(com.mangalens.core.translation.ReaderSfxRestorationPlan::needsOriginal) }
+    val sfxNotes = if (hasSfxNotes) remember(chapterId, readerPresentationEpoch) { ReaderSfxNoteRegistry() } else null
+    DisposableEffect(sfxNotes) { onDispose { sfxNotes?.close() } }
+    val sfxVisiblePages = if (!hasSfxNotes) emptySet() else when (readingMode) {
+        "spread" -> layout.ordinals(pagerState.settledPage)
+        "horizontal" -> horizontalListState.layoutInfo.visibleItemsInfo.map { it.index }.take(2)
+        else -> listOf(positionState.page)
+    }.mapNotNull { pages.getOrNull(it)?.index?.takeUnless { index -> index in manuallyHiddenPageIndices } }.toSet()
 
     val visiblePagesCallback by rememberUpdatedState(onVisiblePages)
-    LaunchedEffect(chapterId, readingMode, layout.columns, pages.map { it.index }) {
+    LaunchedEffect(chapterId, readingMode, layout.columns, pages.map { it.index }, manuallyHiddenPageIndices) {
         snapshotFlow {
             val ordinals = when (readingMode) {
                 "spread" -> layout.ordinals(pagerState.settledPage)
                 "horizontal" -> horizontalListState.layoutInfo.visibleItemsInfo.map { it.index }.take(2)
                 else -> listOf(positionState.page)
             }
-            ordinals.mapNotNull { pages.getOrNull(it)?.index }.toSet()
+            ordinals.mapNotNull { pages.getOrNull(it)?.index?.takeUnless { index -> index in manuallyHiddenPageIndices } }.toSet()
         }.collect { visiblePagesCallback(it) }
     }
 
@@ -401,6 +433,7 @@ fun MangaContinuousReader(
         }
     }
 
+    CompositionLocalProvider(LocalReaderSfxNotes provides sfxNotes) {
     BoxWithConstraints(
         modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).pointerInput(displayOptions.controlsLocked) {
             detectTapGestures(onTap = { if (displayOptions.controlsLocked) return@detectTapGestures; val previousHud = hudVisible; hudVisible = !hudVisible; observeReader("surface_hud_tap");
@@ -424,11 +457,11 @@ fun MangaContinuousReader(
                         PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) { if (!displayOptions.controlsLocked) onRetryPage(page) }
                         return@items
                     }
-                    val promoHidden = hidePromos && page.index in detectedPromoPages && page.index !in revealedPromoPages
+                    val promoHidden = pageHidden(page)
                     if (promoHidden) {
                         PromoPagePlaceholder(
                             page = page,
-                            onShow = { if (!displayOptions.controlsLocked) revealedPromoPages = revealedPromoPages + page.index }
+                            onShow = { revealPage(page) }, manuallyHidden = manuallyHidden(page)
                         )
                         return@items
                     }
@@ -478,11 +511,11 @@ fun MangaContinuousReader(
                     val itemWidth = (maxHeight * (surface.aspectRatio ?: 1f)).coerceIn(maxWidth * .5f, maxWidth * 2f)
                     OptionalReaderPage(page, surface, displayOptions, comparison, customDisplay, translated && !originalShown,
                         overlays[page.index].orEmpty(), personalOverlays[page.index].orEmpty(), textScale, onSavedBubble,
-                        hidePromos && page.index in detectedPromoPages && page.index !in revealedPromoPages,
-                        { revealedPromoPages = revealedPromoPages + page.index }, { if (!displayOptions.controlsLocked) onRetryPage(page) },
+                        pageHidden(page),
+                        { revealPage(page) }, { if (!displayOptions.controlsLocked) onRetryPage(page) },
                         { val previous = hudVisible; hudVisible = !hudVisible; observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PAGER_TAP, previousHud = previous) },
                         { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f }, { onLongPressPage(page) },
-                        Modifier.width(itemWidth).fillMaxSize(), Triple(scale, panX, panY), diagnostics = recordedDiagnostics(page))
+                        Modifier.width(itemWidth).fillMaxSize(), Triple(scale, panX, panY), diagnostics = recordedDiagnostics(page), manuallyHidden = manuallyHidden(page))
                 }
             }
         } else {
@@ -505,11 +538,11 @@ fun MangaContinuousReader(
                                 OptionalReaderPage(member, pageSurfaces.getValue(member.index), displayOptions, comparison, customDisplay,
                                     translated && !originalShown, overlays[member.index].orEmpty(), personalOverlays[member.index].orEmpty(), textScale,
                                     spreadBubbleCallback,
-                                    hidePromos && member.index in detectedPromoPages && member.index !in revealedPromoPages,
-                                    { revealedPromoPages = revealedPromoPages + member.index }, { if (!displayOptions.controlsLocked) onRetryPage(member) },
+                                    pageHidden(member),
+                                    { revealPage(member) }, { if (!displayOptions.controlsLocked) onRetryPage(member) },
                                     { val previous = hudVisible; hudVisible = !hudVisible; observeHud(ReaderHudPhase.WRITE, ReaderHudWriter.PAGER_TAP, previousHud = previous) },
                                     { scale = if (scale > 1f) 1f else 2f; panX = 0f; panY = 0f }, { onLongPressPage(member) },
-                                    Modifier.weight(1f).fillMaxSize(), Triple(scale, panX, panY), diagnostics = recordedDiagnostics(member))
+                                    Modifier.weight(1f).fillMaxSize(), Triple(scale, panX, panY), diagnostics = recordedDiagnostics(member), manuallyHidden = manuallyHidden(member))
                             }
                         }
                         return@HorizontalPager
@@ -522,13 +555,14 @@ fun MangaContinuousReader(
                         }
                         return@HorizontalPager
                     }
-                    val promoHidden = hidePromos && page.index in detectedPromoPages && page.index !in revealedPromoPages
+                    val promoHidden = pageHidden(page)
                     if (promoHidden) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             PromoPagePlaceholder(
                                 page = page,
-                                onShow = { if (!displayOptions.controlsLocked) revealedPromoPages = revealedPromoPages + page.index },
-                                onSkip = { if (!displayOptions.controlsLocked) goToPage(position + 1) }
+                                onShow = { revealPage(page) },
+                                onSkip = { if (!displayOptions.controlsLocked) goToPage(position + 1) },
+                                manuallyHidden = manuallyHidden(page)
                             )
                         }
                         return@HorizontalPager
@@ -605,6 +639,11 @@ fun MangaContinuousReader(
                 }
             }
         }
+
+        ReaderSfxNotesHost(sfxNotes, sfxVisiblePages, translated && !originalShown && !displayOptions.controlsLocked,
+            Modifier.align(Alignment.TopEnd).padding(end = 8.dp,
+                top = if (hudVisible || translationActive) headerHeight + 8.dp else 8.dp)
+                .then(if (hudVisible || translationActive) Modifier else Modifier.statusBarsPadding()))
 
         if (displayOptions.controlsLocked) Surface(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp),
             shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
@@ -728,8 +767,30 @@ fun MangaContinuousReader(
                         }
                     }
                     if (controls) {
-                        if (onCorrectPage != null) TextButton({ pages.getOrNull(activePage)?.index?.let(onCorrectPage) }, enabled = pages.isNotEmpty(),
+                        if (onCorrectPage != null) TextButton({ pages.getOrNull(activePage)?.takeUnless(::manuallyHidden)?.index?.let(onCorrectPage) },
+                            enabled = pages.getOrNull(activePage)?.let { !manuallyHidden(it) } == true,
                             modifier = Modifier.semantics { contentDescription = "Correct current page" }) { Text("Personal corrections") }
+                        val selectedHidePage = pages.getOrNull(activePage)
+                        val selectedManuallyHidden = selectedHidePage?.let(::manuallyHidden) == true
+                        TextButton({
+                            val capturedPage = selectedHidePage ?: return@TextButton
+                            if (displayOptions.controlsLocked) return@TextButton
+                            // A delayed click cannot hide a replacement page presentation.
+                            val currentPage = currentPages.singleOrNull { it.index == capturedPage.index } ?: return@TextButton
+                            val selected = ReaderManualPageHide.capture(chapterId, capturedPage) ?: return@TextButton
+                            if (!selected.matches(chapterId, currentPage)) return@TextButton
+                            if (selectedManuallyHidden) revealPage(currentPage)
+                            else if (manuallyHiddenPages.size < ReaderManualPageHide.MAX_PAGES || currentPage.index in manuallyHiddenPages) {
+                                // Retire the old Reader authority before hiding any source, including a spread's secondary page.
+                                manualHidingCallback(manuallyHiddenPageIndices + currentPage.index)
+                                manuallyHiddenPages = manuallyHiddenPages + (currentPage.index to selected)
+                            }
+                        }, enabled = selectedHidePage?.let { ReaderManualPageHide.capture(chapterId, it) } != null &&
+                            (selectedManuallyHidden || manuallyHiddenPages.size < ReaderManualPageHide.MAX_PAGES),
+                            modifier = Modifier.semantics { contentDescription = if (selectedManuallyHidden)
+                                "Show current page hidden by you" else "Hide current page for this Reader session" }) {
+                            Text(if (selectedManuallyHidden) "Show current page" else "Hide current page for this session")
+                        }
                         Text("Reading mode", style = MaterialTheme.typography.titleSmall)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("vertical" to "Vertical scroll", "ltr" to "Horizontal LTR", "rtl" to "Horizontal RTL",
@@ -773,7 +834,7 @@ fun MangaContinuousReader(
                             Box {
                                 TextButton({ styleMenu = true }) { Text("Style: $translationStyle ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) }
                                 androidx.compose.material3.DropdownMenu(styleMenu, { styleMenu = false }) {
-                                    listOf("natural", "faithful", "casual", "formal", "webtoon").forEach { style -> androidx.compose.material3.DropdownMenuItem(text = { Text(style.replaceFirstChar { it.uppercase() }) }, onClick = { onTranslationStyleChanged(style); styleMenu = false }) }
+                                    listOf("natural", "faithful", "casual", "formal", "manga", "webtoon", "literal").forEach { style -> androidx.compose.material3.DropdownMenuItem(text = { Text(style.replaceFirstChar { it.uppercase() }) }, onClick = { onTranslationStyleChanged(style); styleMenu = false }) }
                                 }
                             }
                         }
@@ -818,13 +879,15 @@ fun MangaContinuousReader(
             }
         }
     }
+    }
 }
 
 @Composable
 private fun PromoPagePlaceholder(
     page: ChapterPage,
     onShow: () -> Unit,
-    onSkip: (() -> Unit)? = null
+    onSkip: (() -> Unit)? = null,
+    manuallyHidden: Boolean = false
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -833,8 +896,9 @@ private fun PromoPagePlaceholder(
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .35f))
     ) {
         Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Promotional page hidden", style = MaterialTheme.typography.titleMedium)
-            Text("Page ${page.index + 1} was classified as an announcement, ad-free upsell or scan-credit page. Nothing was deleted.",
+            Text(if (manuallyHidden) "Page hidden by you" else "Promotional page hidden", style = MaterialTheme.typography.titleMedium)
+            Text(if (manuallyHidden) "Page ${page.index + 1} is hidden for this Reader session. Nothing was deleted."
+                else "Page ${page.index + 1} was classified as an announcement, ad-free upsell or scan-credit page. Nothing was deleted.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onShow) { Text("Show this page") }
@@ -852,7 +916,8 @@ private fun OptionalReaderPage(page: ChapterPage, surface: ReaderPageSurface, op
     textScale: Float, onSavedBubble: ((Int, Int, com.mangalens.core.translation.SavedMangaLettering) -> Unit)?,
     promoHidden: Boolean, onShowPromo: () -> Unit, onRetry: () -> Unit,
     onHud: () -> Unit, onZoom: () -> Unit, onLongPress: () -> Unit, modifier: Modifier, viewportTransform: Any?,
-    onUnselectedTap: ((Float, Int) -> Unit)? = null, diagnostics: com.mangalens.core.translation.SavedPageOcrDiagnostics? = null) {
+    onUnselectedTap: ((Float, Int) -> Unit)? = null, diagnostics: com.mangalens.core.translation.SavedPageOcrDiagnostics? = null,
+    manuallyHidden: Boolean = false) {
     if (page.error != null || surface.sourceUnreadable) {
         Box(modifier, contentAlignment = Alignment.Center) {
             PageLoadError(page.copy(error = page.error ?: "The saved image could not be read. Retry its source or import the original again.")) {
@@ -863,7 +928,7 @@ private fun OptionalReaderPage(page: ChapterPage, surface: ReaderPageSurface, op
     }
     if (promoHidden) {
         Box(modifier, contentAlignment = Alignment.Center) {
-            PromoPagePlaceholder(page, { if (!options.controlsLocked) onShowPromo() })
+            PromoPagePlaceholder(page, { if (!options.controlsLocked) onShowPromo() }, manuallyHidden = manuallyHidden)
         }
         return
     }

@@ -35,13 +35,17 @@ internal class ReaderBubbleOriginalCrop internal constructor(
 /** Every decoder borrows the actual held original FD, not a path reopened after checksum verification. */
 internal class ReaderBubbleOriginalCropLoader(private val sourceDirectory: File) {
     suspend fun open(inspection: ReaderBubbleInspection, current: suspend () -> Boolean): ReaderBubbleOriginalCrop? =
-        acquireReaderBubblePreviewOnIo { openOnIo(inspection, current) }
+        inspection.source?.let { source -> acquireReaderBubblePreviewOnIo { openOnIo(source, ReaderBubbleCropPlan.MAX_PREVIEW_PIXELS, current) } }
+
+    /** Only a proof-backed caller may derive expanded native-patch bounds; taps cannot create this source. */
+    internal suspend fun openVerifiedSource(source: MemorySourceProof, maximumPixels: Long,
+        current: suspend () -> Boolean): ReaderBubbleOriginalCrop? =
+        acquireReaderBubblePreviewOnIo { openOnIo(source, maximumPixels, current) }
 
     @Suppress("DEPRECATION")
-    private suspend fun openOnIo(inspection: ReaderBubbleInspection, current: suspend () -> Boolean): ReaderBubbleOriginalCrop? {
+    private suspend fun openOnIo(source: MemorySourceProof, maximumPixels: Long, current: suspend () -> Boolean): ReaderBubbleOriginalCrop? {
             currentCoroutineContext().ensureActive()
-            val source = inspection.source ?: return null
-            val plan = ReaderBubbleCropPlan.create(source)
+            val plan = ReaderBubbleCropPlan.create(source, maximumPixels)
             if (!current()) return null
             val file = try { File(source.sourcePath).canonicalFile } catch (_: IOException) { return null }
             if (file.path != source.sourcePath || file.parentFile != sourceDirectory.canonicalFile || !file.isFile)
@@ -53,6 +57,11 @@ internal class ReaderBubbleOriginalCropLoader(private val sourceDirectory: File)
             try {
                 if (!verified(input, file, source)) return null
                 currentCoroutineContext().ensureActive()
+                if (maximumPixels < ReaderBubbleCropPlan.MAX_PREVIEW_PIXELS) {
+                    val job = currentCoroutineContext()[kotlinx.coroutines.Job]
+                    com.mangalens.core.reader.PngRasterIntegrity.verifyIfPng(input, checkpoint = { job?.ensureActive() })
+                    input.channel.position(0L)
+                }
                 decoder = BitmapRegionDecoder.newInstance(input.fd, false) ?: return null
                 if (decoder.width != source.imageWidth || decoder.height != source.imageHeight) return null
                 currentCoroutineContext().ensureActive()

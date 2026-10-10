@@ -8,20 +8,30 @@ internal object AdBlockScript {
 
     fun disable(): String = "window.__mangalensAdGuardV2 && window.__mangalensAdGuardV2.stop();"
 
-    fun build(): String = script
+    fun build(mode: AdBlockMode = AdBlockMode.STANDARD, origin: String? = null): String {
+        if (mode == AdBlockMode.ALLOW) return disable()
+        val selected = if (mode == AdBlockMode.STRICT) script.replace("var protectionStrict=false;", "var protectionStrict=true;") else script
+        if (origin == null) return selected
+        val quoted = origin.replace("\\", "\\\\").replace("'", "\\'")
+        return "(function(){if(window.top!==window || location.origin!=='" + quoted + "')return;" + selected + "})();"
+    }
 
     private val script: String by lazy { """
         (function(){
           if(window.top!==window) return;
+          var protectionStrict=false;
           var existing=window.__mangalensAdGuardV2;
+          if(existing && existing.enabled && existing.protectionStrict!==protectionStrict){existing.stop();existing=null;}
           if(existing && existing.enabled){ existing.schedule(document.documentElement||document); return; }
-          var state={enabled:true}, pending=[], timer=null;
-          var originals=new WeakMap(), skipTimes=new WeakMap(), skipChecks=new WeakMap();
+          var state={enabled:true,protectionStrict:protectionStrict}, pending=[], timer=null;
+          var strictOwned=[], originals=new WeakMap(), skipTimes=new WeakMap(), skipChecks=new WeakMap();
           var hosts=${literal(AdBlockRequestPolicy.blockedDomains)};
           var adSegments=${literal(AdBlockRequestPolicy.explicitAdSegments)};
           var navigationSegments=${literal(AdBlockRequestPolicy.adNavigationSegments)};
           var queryKeys=${literal(AdBlockRequestPolicy.adQueryKeys)};
           var trackerFilenames=${literal(AdBlockRequestPolicy.trackerFilenames)};
+          var strictSegments=${literal(AdBlockProtectionPolicy.strictAdSegments)},strictKeys=${literal(AdBlockProtectionPolicy.strictAdQueryKeys)};
+          var strictSelectors='[data-ad-unit],[data-ad-client],[data-testid="ad-placement"]';
           var selectors=[
             '[id="ad" i]','[id^="ad-" i]','[class~="ad" i]','[class~="ads" i]','[class*="ad-banner" i]',
             '[class*="ad-container" i]','[class*="ad-wrapper" i]','[class*="ad-slot" i]',
@@ -55,12 +65,16 @@ internal object AdBlockScript {
               var segments=pathname.toLowerCase().split('/'), allowed=kind==='navigation'?navigationSegments:adSegments;
               for(var j=0;j<segments.length;j++) if(allowed.indexOf(segments[j].split('.')[0])!==-1) return true;
               if(kind==='navigation') return false;
+              if(protectionStrict){
+                if((host==='google-analytics.com'||/\.google-analytics\.com$/.test(host)) && /^\/(?:g\/|j\/)?collect$/.test(pathname.toLowerCase())) return true;
+                for(var q=0;q<segments.length;q++)if(strictSegments.indexOf(segments[q].split('.')[0])!==-1)return true;
+              }
               if(trackerFilenames.indexOf(segments[segments.length-1])!==-1) return true;
               var parameters=u.search.slice(1).split('&');
               for(var k=0;k<parameters.length;k++){
                 var key=parameters[k].split('=')[0];
                 try{ key=decodeURIComponent(key.replace(/\+/g,' ')); }catch(_){}
-                if(queryKeys.indexOf(key.toLowerCase())!==-1) return true;
+                if(queryKeys.indexOf(key.toLowerCase())!==-1 || (protectionStrict && strictKeys.indexOf(key.toLowerCase())!==-1)) return true;
               }
             }catch(_){}
             return false;
@@ -83,12 +97,17 @@ internal object AdBlockScript {
               node.style.setProperty('display',saved.display,saved.displayPriority);
             if(node.style.getPropertyValue('visibility')==='hidden' && node.style.getPropertyPriority('visibility')==='important')
               node.style.setProperty('visibility',saved.visibility,saved.visibilityPriority);
+            var ownedIndex=strictOwned.indexOf(node);if(ownedIndex!==-1)strictOwned.splice(ownedIndex,1);
             originals.delete(node); node.removeAttribute('data-mangalens-ad-hidden');
           }
           function hide(node,explicit,reason){
             if(!state.enabled || !node) return;
             if(protectedContent(node,explicit)){ restore(node); return; }
             if(!originals.has(node)){
+              if(reason==='strict-ad-marker'){
+                if(strictOwned.length>=128)return;
+                strictOwned.push(node);
+              }
               originals.set(node,{display:node.style.getPropertyValue('display'),displayPriority:node.style.getPropertyPriority('display'),
                 visibility:node.style.getPropertyValue('visibility'),visibilityPriority:node.style.getPropertyPriority('visibility')});
               node.setAttribute('data-mangalens-ad-hidden','1');
@@ -166,10 +185,20 @@ internal object AdBlockScript {
             if(!state.enabled || !root) return;
             skipAllowed();
             var saved=root.nodeType===1?originals.get(root):null;
-            if(saved && saved.reason!=='sponsored' && !matches(root,selectors)) restore(root);
+            if(saved && saved.reason!=='sponsored' && !matches(root,selectors) && !(protectionStrict && saved.reason==='strict-ad-marker' && matches(root,strictSelectors))) restore(root);
             var nodes=collect(root,selectors);
             for(var i=0;i<nodes.length;i++) hide(nodes[i],provider.test(nodes[i].tagName));
             sponsored(root);
+            if(protectionStrict){
+              var strong=collect(root,strictSelectors);
+              for(var k=0;k<strong.length;k++){
+                var item=strong[k],prior=originals.get(item);
+                if(matches(item,selectors) || (prior && prior.reason==='sponsored'))continue;
+                // Exact ad markers alone cannot remove a substantial story/image or playable owner.
+                if((item.textContent||'').trim().length>160 || item.querySelector('img,video,audio,iframe,form,input')){if(prior && prior.reason==='strict-ad-marker')restore(item);continue;}
+                hide(item,false,'strict-ad-marker');
+              }
+            }
           }
           function flush(){
             timer=null;
@@ -230,6 +259,8 @@ internal object AdBlockScript {
             if(window.fetch===fetch) window.fetch=nativeFetch;
             if(navigator.sendBeacon===beacon) navigator.sendBeacon=nativeBeacon;
             if(XMLHttpRequest.prototype.open===xhr) XMLHttpRequest.prototype.open=nativeXhr;
+            // Bounded Strict ownership also restores nodes detached by an SPA before reinsertion.
+            var detached=strictOwned.slice();for(var d=0;d<detached.length;d++)restore(detached[d]);
             var nodes=document.querySelectorAll('[data-mangalens-ad-hidden]');
             for(var i=0;i<nodes.length;i++){
               restore(nodes[i]);
@@ -243,7 +274,7 @@ internal object AdBlockScript {
           XMLHttpRequest.prototype.open=xhr;
           document.addEventListener('click',click,true);
           observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true,
-            attributeFilter:['class','id','style','src','data-ad-slot','disabled','aria-disabled','data-testid','aria-label','role','aria-modal']});
+            attributeFilter:['class','id','style','src','data-ad-slot','data-ad-unit','data-ad-client','disabled','aria-disabled','data-testid','aria-label','role','aria-modal']});
           schedule(document.documentElement||document);
         })();
     """.trimIndent() }

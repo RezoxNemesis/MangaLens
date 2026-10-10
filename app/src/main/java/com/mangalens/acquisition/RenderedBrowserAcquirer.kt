@@ -13,6 +13,11 @@ import com.mangalens.core.acquisition.ChapterImageCandidate
 import com.mangalens.core.acquisition.ChapterImageCandidates
 import com.mangalens.core.acquisition.ChapterImageExtractionScript
 import com.mangalens.core.adblock.AdBlockEngine
+import com.mangalens.core.acquisition.LazyChapterObservation
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -28,7 +33,8 @@ data class RenderedPageSet(
     val observations: Int,
     val mainFrameHttpStatus: Int,
     val navigationError: String?,
-    val imageCandidates: List<ChapterImageCandidate> = imageUrls.map { ChapterImageCandidate(it) }
+    val imageCandidates: List<ChapterImageCandidate> = imageUrls.map { ChapterImageCandidate(it) },
+    val discoveryLimited: Boolean = false
 )
 
 /**
@@ -48,13 +54,16 @@ class RenderedBrowserAcquirer(
     suspend fun discoverWithCookie(
         url: String,
         timeoutMs: Long,
-        cookie: String?
+        cookie: String?,
+        isCurrent: () -> Boolean = { true }
     ): RenderedPageSet = withContext(Dispatchers.Main) {
+        val acquisitionScope = CoroutineScope(currentCoroutineContext())
         suspendCancellableCoroutine { continuation ->
             val finished = AtomicBoolean(false)
             val networkImages = ConcurrentHashMap.newKeySet<String>()
             val networkVideos = ConcurrentHashMap.newKeySet<String>()
-            var discoveredImages = emptyList<ChapterImageCandidate>()
+            var observation = LazyChapterObservation()
+            var scheduledGeneration = -1L
             var navigationGeneration = 0L
             val observationGuard = Any()
             var currentDocument: String? = null
@@ -65,7 +74,13 @@ class RenderedBrowserAcquirer(
                 com.mangalens.core.web.SafeWebView.configure(this)
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = true
-
+                // Headless extraction still needs a real positive layout viewport for lazy scrolling.
+                val metrics = context.resources.displayMetrics
+                val width = metrics.widthPixels.coerceIn(320, 1536)
+                val height = metrics.heightPixels.coerceIn(480, 2048)
+                measure(android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(height, android.view.View.MeasureSpec.EXACTLY))
+                layout(0, 0, width, height)
             }
 
             val cookieManager = CookieManager.getInstance()
@@ -73,44 +88,77 @@ class RenderedBrowserAcquirer(
             cookieManager.setAcceptThirdPartyCookies(webView, false)
 
 
+            fun closeAcquisition() {
+                handler.removeCallbacksAndMessages(null)
+                (webView.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
+                webView.stopLoading()
+                webView.destroy()
+            }
+            // Caller selection predicates are consulted only on Main, never request IO.
+            fun ownerActive(): Boolean {
+                if (finished.get() || !continuation.isActive) return false
+                if (!isCurrent()) {
+                    continuation.cancel(CancellationException("The chapter acquisition selection changed."))
+                    return false
+                }
+                return true
+            }
             fun finishAcquisition(result: RenderedPageSet) {
-                if (finished.compareAndSet(false, true)) {
-                    handler.removeCallbacksAndMessages(null)
-                    (webView.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
-                    webView.stopLoading()
-                    webView.destroy()
+                if (ownerActive() && finished.compareAndSet(false, true)) {
+                    closeAcquisition()
                     if (continuation.isActive) continuation.resume(result)
+                }
+            }
+            fun result(document: String, limited: Boolean, error: String? = null) = RenderedPageSet(
+                finalUrl = document,
+                imageUrls = observation.images.map { it.url },
+                videoStreamUrls = networkVideos.toList(), resourceImageUrls = networkImages.toList(),
+                observations = observation.observations, mainFrameHttpStatus = 200,
+                navigationError = error, imageCandidates = observation.images, discoveryLimited = limited)
+
+            fun observe(document: String, generation: Long) {
+                if (!ownerActive() || navigationGeneration != generation || webView.url != document) return
+                webView.evaluateJavascript(ChapterImageExtractionScript.extract) { rawResult ->
+                    if (!ownerActive() || navigationGeneration != generation || webView.url != document) return@evaluateJavascript
+                    // The bounded JSON catalogue is decoded off Main in a child of this acquisition.
+                    acquisitionScope.launch {
+                        val decoded = withContext(Dispatchers.Default) {
+                            val raw = rawResult.orEmpty()
+                            ChapterImageCandidates.decodeObservation(raw, document)
+                        }
+                        if (!ownerActive() || navigationGeneration != generation || webView.url != document) return@launch
+                        synchronized(observationGuard) {
+                            decoded.videos.filter(::isVideoCandidate)
+                                .take((MAX_VIDEO_URLS - networkVideos.size).coerceAtLeast(0)).forEach(networkVideos::add)
+                        }
+                        val decision = observation.observe(decoded.images, decoded.viewport, networkVideos.size, decoded.limited)
+                        if (decision.stop) {
+                            val message = if (observation.images.isEmpty() && networkVideos.isEmpty())
+                                "Acquisition observation limit: No valid media streams found"
+                            else if (decision.limited) "Chapter discovery reached its bounded observation limit. The source may contain more pages."
+                            else null
+                            finishAcquisition(result(document, decision.limited, message))
+                        } else {
+                            // Walk the viewport rather than jump past lazy-loading intermediate nodes.
+                            webView.evaluateJavascript("if(window.innerHeight>0)window.scrollBy(0,Math.max(1,Math.floor(window.innerHeight*0.85)));", null)
+                            handler.postDelayed({ observe(document, generation) }, LazyChapterObservation.WAIT_MS)
+                        }
+                    }
                 }
             }
 
             handler.postDelayed({
-                // Network scheduling does not prove node identity, chapter membership or reading order.
-                val fallbackImages = discoveredImages.map { it.url }
-
-                finishAcquisition(
-                    RenderedPageSet(
-                        finalUrl = webView.url ?: url,
-                        imageUrls = fallbackImages,
-                        videoStreamUrls = networkVideos.toList(),
-                        resourceImageUrls = networkImages.toList(),
-                        observations = 1,
-                        mainFrameHttpStatus = 200,
-                        navigationError = if (fallbackImages.isEmpty() && networkVideos.isEmpty()) {
-                            "Acquisition timeout: No valid media streams found"
-                        } else null,
-                        imageCandidates = discoveredImages
-                    )
-                )
+                if (!ownerActive()) return@postDelayed
+                val noMedia = observation.images.isEmpty() && networkVideos.isEmpty()
+                finishAcquisition(result(webView.url ?: url, true, if (noMedia)
+                    "Acquisition timeout: No valid media streams found"
+                else "Chapter discovery reached its time limit. Acquired candidates are retained; the source may contain more pages."))
             }, timeoutMs.coerceIn(5_000L, 20_000L))
 
-            continuation.invokeOnCancellation { handler.post {
-                if (finished.compareAndSet(false, true)) {
-                    handler.removeCallbacksAndMessages(null)
-                    (webView.webViewClient as? AdBlockWebViewClient)?.clearScriptRegistration()
-                    webView.stopLoading()
-                    webView.destroy()
-                }
-            } }
+            continuation.invokeOnCancellation {
+                // Retire before queuing Main cleanup so request callbacks cannot add late evidence.
+                if (finished.compareAndSet(false, true)) handler.post { closeAcquisition() }
+            }
 
             webView.webViewClient = object : AdBlockWebViewClient(adBlockEngine, adBlockEnabled) {
 
@@ -123,6 +171,7 @@ class RenderedBrowserAcquirer(
                     val captured = synchronized(observationGuard) { navigationGeneration to currentDocument }
                     val blocked = super.shouldInterceptRequest(view, request)
                     if (blocked != null || finished.get()) return blocked
+                    if (reqUrl.length > ChapterImageCandidates.MAX_URL_CHARS) return null
                     val cleanUrl = reqUrl.substringBefore("#")
                     val referer = request.requestHeaders.entries.firstOrNull { it.key.equals("Referer", true) }?.value?.let {
                         ChapterImageCandidates.normalizedUrl(it, captured.second ?: url)
@@ -152,7 +201,8 @@ class RenderedBrowserAcquirer(
                         networkImages.clear()
                         networkVideos.clear()
                     }
-                    discoveredImages = emptyList()
+                    observation = LazyChapterObservation()
+                    scheduledGeneration = -1L
                     super.onPageStarted(view, loadedUrl, favicon)
                 }
 
@@ -168,16 +218,18 @@ class RenderedBrowserAcquirer(
                         if (continuation.isActive) continuation.resume(
                             RenderedPageSet(
                                 finalUrl = url,
-                                imageUrls = emptyList(),
-                                videoStreamUrls = emptyList(),
-                                resourceImageUrls = emptyList(),
-                                observations = 0,
+                                imageUrls = observation.images.map { it.url },
+                                videoStreamUrls = networkVideos.toList(),
+                                resourceImageUrls = networkImages.toList(),
+                                observations = observation.observations,
                                 mainFrameHttpStatus = 0,
                                 navigationError = if (detail.didCrash()) {
                                     "WebView renderer crashed during acquisition."
                                 } else {
                                     "WebView renderer was reclaimed because of memory pressure."
-                                }
+                                },
+                                imageCandidates = observation.images,
+                                discoveryLimited = true
                             )
                         )
                     }
@@ -186,28 +238,10 @@ class RenderedBrowserAcquirer(
 
                 override fun onPageFinished(view: WebView?, loadedUrl: String?) {
                     super.onPageFinished(view, loadedUrl)
-                    if (finished.get() || loadedUrl == null || loadedUrl != webView.url) return
+                    if (!ownerActive() || loadedUrl == null || loadedUrl != webView.url || scheduledGeneration == navigationGeneration) return
+                    scheduledGeneration = navigationGeneration
                     val capturedGeneration = navigationGeneration
-                    // Trigger lazy image loading before the bounded observation, not after it.
-                    webView.evaluateJavascript("window.scrollTo(0,document.body?document.body.scrollHeight:0);", null)
-                    handler.postDelayed({
-                        if (finished.get() || navigationGeneration != capturedGeneration || webView.url != loadedUrl) return@postDelayed
-                        webView.evaluateJavascript(ChapterImageExtractionScript.extract) { rawResult ->
-                            if (finished.get() || navigationGeneration != capturedGeneration || webView.url != loadedUrl) return@evaluateJavascript
-                            discoveredImages = ChapterImageCandidates.decode(rawResult.orEmpty(), loadedUrl)
-                            synchronized(observationGuard) {
-                                ChapterImageCandidates.decodeVideos(rawResult.orEmpty(), loadedUrl).filter(::isVideoCandidate)
-                                    .take((MAX_VIDEO_URLS - networkVideos.size).coerceAtLeast(0)).forEach(networkVideos::add)
-                            }
-                            if (discoveredImages.isNotEmpty() || networkVideos.isNotEmpty()) {
-                                finishAcquisition(RenderedPageSet(
-                                    finalUrl = loadedUrl, imageUrls = discoveredImages.map { it.url },
-                                    videoStreamUrls = networkVideos.toList(), resourceImageUrls = networkImages.toList(),
-                                    observations = 1, mainFrameHttpStatus = 200, navigationError = null,
-                                    imageCandidates = discoveredImages))
-                            }
-                        }
-                    }, 2500L)
+                    handler.postDelayed({ observe(loadedUrl, capturedGeneration) }, LazyChapterObservation.INITIAL_WAIT_MS)
                 }
             }
             (webView.webViewClient as AdBlockWebViewClient).prepareForNavigation(webView)

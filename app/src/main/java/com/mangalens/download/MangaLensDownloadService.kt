@@ -128,7 +128,8 @@ class MangaLensDownloadService : DownloadService(
         }
 
         private suspend fun persistState(context: Context, dao: DownloadDao, download: Download, message: String?) {
-            val state = when (download.state) {
+            val pairedFailure = runCatching { SelectedDownloadTransportPolicy.requireSupported(DownloadRequestContextStore(context).readMedia(download.request.id)) }.exceptionOrNull()
+            val state = if (pairedFailure != null) DownloadState.FAILED else when (download.state) {
                 Download.STATE_COMPLETED -> DownloadState.COMPLETED
                 Download.STATE_FAILED -> DownloadState.FAILED
                 Download.STATE_STOPPED -> DownloadState.PAUSED
@@ -136,7 +137,7 @@ class MangaLensDownloadService : DownloadService(
                 else -> DownloadState.QUEUED
             }
             val total = if (state == DownloadState.COMPLETED && download.contentLength < 0) download.bytesDownloaded else download.contentLength
-            if (dao.adaptiveStateIfActive(download.request.id, download.bytesDownloaded, total, state, message) > 0 &&
+            if (dao.adaptiveStateIfActive(download.request.id, download.bytesDownloaded, total, state, pairedFailure?.message ?: message) > 0 &&
                 state in setOf(DownloadState.COMPLETED, DownloadState.FAILED)) {
                 MediaDownloadManager.notifyCommittedState(context, download.request.id)
             }
@@ -176,6 +177,8 @@ class MangaLensDownloadService : DownloadService(
             val (provider, cache) = storage(app)
             val contexts = DownloadRequestContextStore(app)
             val created = DownloadManager(app, DefaultDownloadIndex(provider), DownloaderFactory { request ->
+                OriginalFragmentTransport.requireDownloadBinding(null, contexts.readMedia(request.id))
+                SelectedDownloadTransportPolicy.requireSupported(contexts.readMedia(request.id))
                 val requestContext = contexts.read(request.id)
                 val upstream = if (requestContext == null) dataSource else {
                     OkHttpDataSource.Factory(

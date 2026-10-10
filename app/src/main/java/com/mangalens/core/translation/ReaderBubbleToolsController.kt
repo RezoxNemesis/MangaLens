@@ -9,6 +9,8 @@ import com.mangalens.orez.SavedBubbleOrezAnswerPolicy
 import com.mangalens.ui.reader.ReaderBubbleOriginalCrop
 import com.mangalens.ui.reader.ReaderBubbleOriginalCropLoader
 import com.mangalens.ui.reader.ReaderBubblePreviewOwnership
+import com.mangalens.core.translation.inpainting.ReaderLaMaRepairPreview
+import com.mangalens.core.translation.inpainting.SavedBubbleArtworkRepair
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,7 +31,8 @@ internal data class ReaderBubbleToolsState(
     val preview: ReaderBubblePreviewOwnership<ReaderBubbleOriginalCrop>? = null,
     val glossaryEditor: ReaderMemoryEditor? = null,
     val answer: SavedBubbleOrezAnswer? = null,
-    val alternatives: List<ReaderBubbleRegionAlternative> = emptyList()
+    val alternatives: List<ReaderBubbleRegionAlternative> = emptyList(),
+    val artworkPreview: ReaderBubblePreviewOwnership<ReaderLaMaRepairPreview>? = null
 )
 
 /** Explicit actions retain the selected native and personal snapshots; a callback cannot create proof. */
@@ -42,7 +45,9 @@ internal class ReaderBubbleToolsController(
     private val explanation: () -> SavedBubbleExplanation?,
     private val showEditor: (ReaderMemoryPresentation, Int, ReaderMemoryEditor) -> Unit,
     private val regionActions: () -> SavedBubbleRegionActions? = { null },
-    private val showGeneratedEditor: ((ReaderMemoryPresentation, Int, ReaderMemoryEditor, MemoryCorrectionEdit, String) -> Unit)? = null
+    private val showGeneratedEditor: ((ReaderMemoryPresentation, Int, ReaderMemoryEditor, MemoryCorrectionEdit, String) -> Unit)? = null,
+    private val isPageAllowed: (Int) -> Boolean = { true },
+    private val artworkRepairProvider: () -> SavedBubbleArtworkRepair? = { null }
 ) {
     private val _state = MutableStateFlow(ReaderBubbleToolsState())
     val state = _state.asStateFlow()
@@ -51,9 +56,12 @@ internal class ReaderBubbleToolsController(
     @Volatile private var selected: ReaderMemoryPresentation? = null
     private var inspection: ReaderBubbleInspection? = null
     private var operation: Job? = null
+    @Volatile private var artworkEpoch = 0L
+    private var artworkOperation = false
+    internal val artworkRepair: SavedBubbleArtworkRepair? get() = artworkRepairProvider()
 
     fun open(presentation: ReaderMemoryPresentation, pageIndex: Int, letteringIndex: Int, expected: SavedMangaLettering) {
-        if (!authority.isCurrent(presentation)) return
+        if (!authority.isCurrent(presentation) || !isPageAllowed(pageIndex)) return
         dismiss()
         selected = presentation
         val selection = selectionId
@@ -84,13 +92,60 @@ internal class ReaderBubbleToolsController(
     }
 
     fun dismiss() {
+        ++artworkEpoch; artworkOperation = false
         ++selectionId; ++operationId
         operation?.cancel(); operation = null
         selected = null; inspection = null
         val preview = _state.value.preview
+        val artworkPreview = _state.value.artworkPreview
         _state.value = ReaderBubbleToolsState()
         // A displayed Image closes at Compose disposal, never while it can still draw the bitmap.
         preview?.abandon()
+        artworkPreview?.abandon()
+    }
+
+    /** Retire this optional producer synchronously on pause; native return is still awaited on IO. */
+    fun clearArtworkPreview() {
+        ++artworkEpoch
+        val cancelledArtwork = artworkOperation
+        if (cancelledArtwork) { ++operationId; operation?.cancel(); operation = null; artworkOperation = false }
+        val old = _state.value.artworkPreview
+        _state.update { it.copy(artworkPreview = null, busy = if (cancelledArtwork) false else it.busy) }
+        old?.abandon()
+    }
+
+    fun previewArtworkRepair() {
+        if (_state.value.busy || inspection == null || !isCurrent(selectionId)) return
+        // Capture before the first IO dispatch; ON_PAUSE can invalidate even a held preparation.
+        val epoch = ++artworkEpoch
+        artworkOperation = true
+        act { selection, request, adapter, captured ->
+        try {
+        if (epoch != artworkEpoch) throw SelectionChanged()
+        val repair = artworkRepairProvider() ?: error("Optional artwork repair is unavailable.")
+        check(captured.source != null) { "Retranslate this page to establish original coordinates." }
+        val owner = NativeComputePrecondition { waited ->
+            requireCurrent(selection, request)
+            if (epoch != artworkEpoch) throw SelectionChanged()
+            val current = if (waited) adapter.isInspectionCurrentOnIo(captured) else adapter.tryAcceptInspection(captured) != null
+            if (!current) throw SelectionChanged()
+        }
+            val preview = repair.preview(captured, owner)
+            val ownership = ReaderBubblePreviewOwnership(preview)
+            try {
+                requireCurrent(selection, request)
+                if (epoch != artworkEpoch || !adapter.isInspectionCurrentOnIo(captured)) throw SelectionChanged()
+                requireCurrent(selection, request)
+                if (adapter.tryAcceptInspection(captured) == null) throw SelectionChanged()
+                // Main uses the existing short native/profile gates (bounded NOFOLLOW stats); no hash/JSON/fsync.
+                preview.bindDeliveryCurrent { isCurrent(selection) && artworkEpoch == epoch && adapter.tryAcceptInspection(captured) != null }
+                val old = _state.value.artworkPreview
+                _state.update { it.copy(artworkPreview = ownership,
+                    message = "Experimental repair preview only. Artwork fidelity has not been qualified; originals and saved translations are unchanged.", error = false) }
+                old?.abandon()
+            } catch (problem: Throwable) { ownership.abandon(); throw problem }
+        } finally { if (epoch == artworkEpoch) artworkOperation = false }
+        }
     }
 
     fun onVisiblePage(index: Int?) {
@@ -232,13 +287,16 @@ internal class ReaderBubbleToolsController(
                 }
             }
             finally {
-                if (isCurrent(selection) && operationId == request) _state.update { it.copy(busy = false) }
+                if (isCurrent(selection) && operationId == request) {
+                    artworkOperation = false
+                    _state.update { it.copy(busy = false) }
+                }
             }
         }
     }
 
     private fun isCurrent(selection: Long): Boolean = selectionId == selection && _state.value.open &&
-        selected?.let(authority::isCurrent) == true
+        selected?.let(authority::isCurrent) == true && _state.value.pageIndex?.let(isPageAllowed) == true
 
     private suspend fun requireCurrent(selection: Long, request: Long) {
         currentCoroutineContext().ensureActive()

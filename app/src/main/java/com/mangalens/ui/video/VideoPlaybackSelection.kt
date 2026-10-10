@@ -16,16 +16,19 @@ data class VideoPlaybackSelection(
     val durationUs: Long? = null,
     val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
     val videoMimeType: String? = null,
-    val audioMimeType: String? = null
+    val audioMimeType: String? = null,
+    val videoFragments: com.mangalens.download.OriginalFragmentPlan? = null,
+    val audioFragments: com.mangalens.download.OriginalFragmentPlan? = null
 ) {
-    fun captured() = copy(videoHeaders = videoHeaders.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
+    fun captured() = copy(videoHeaders = videoHeaders.toMap(), audioHeaders = audioHeaders.toMap(), providerCaptions = providerCaptions?.captureSnapshot(), videoFragments = videoFragments?.captured(), audioFragments = audioFragments?.captured())
 
     fun toOrezSelection(): OrezMediaSelection? {
         if (audioUrl != null && durationUs !in 1..VideoPlaybackPublication.MAX_DURATION_US) return null
         return OrezMediaSelection(videoUrl, pageUrl ?: videoUrl, "Video", videoHeaders.toMap(),
             resolutionId = resolutionId,
             audio = audioUrl?.let { OrezAudioSelection(it, resolutionId, audioHeaders.toMap()) },
-            expectedDurationUs = durationUs, providerCaptions = providerCaptions?.captureSnapshot())
+            expectedDurationUs = durationUs, providerCaptions = providerCaptions?.captureSnapshot(),
+            videoFragments = videoFragments?.captured(), audioFragments = audioFragments?.captured())
     }
 }
 
@@ -39,13 +42,16 @@ internal object VideoPlaybackPublication {
     fun capture(videoUrl: String, videoHeaders: Map<String, String>, pageUrl: String?,
         audioUrl: String?, audioHeaders: Map<String, String>,
         providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
-        videoMimeType: String? = null, audioMimeType: String? = null): VideoPlaybackSelection {
+        videoMimeType: String? = null, audioMimeType: String? = null,
+        videoFragments: com.mangalens.download.OriginalFragmentPlan? = null, audioFragments: com.mangalens.download.OriginalFragmentPlan? = null): VideoPlaybackSelection {
         require(safeUrl(videoUrl) && (audioUrl == null || safeUrl(audioUrl))) { "A detected media source is not a safe HTTP or HTTPS address." }
         return VideoPlaybackSelection(UUID.randomUUID().toString().replace("-", ""), videoUrl,
             headers(videoHeaders), pageUrl?.takeIf(::safeUrl), audioUrl,
             if (audioUrl == null) emptyMap() else headers(audioHeaders), providerCaptions = providerCaptions?.captureSnapshot(),
             videoMimeType = com.mangalens.download.MediaTransportMime.capture(videoMimeType),
-            audioMimeType = audioMimeType.takeIf { audioUrl != null }?.let(com.mangalens.download.MediaTransportMime::capture))
+            audioMimeType = audioMimeType.takeIf { audioUrl != null }?.let(com.mangalens.download.MediaTransportMime::capture),
+            videoFragments = com.mangalens.download.OriginalFragmentTransport.capture(videoFragments, videoUrl, videoMimeType),
+            audioFragments = com.mangalens.download.OriginalFragmentTransport.capture(audioFragments, audioUrl, audioMimeType))
     }
 
     fun sameTuple(left: VideoPlaybackSelection, right: VideoPlaybackSelection): Boolean =

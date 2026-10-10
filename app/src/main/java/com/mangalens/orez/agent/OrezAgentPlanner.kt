@@ -10,11 +10,29 @@ class OrezAgentPlanner(
 ) {
     fun plan(input: String, context: OrezAgentContext): OrezTaskPlan? {
         val clean = input.trim()
-        if (clean.isBlank()) return null
+        if (clean.isBlank() || com.mangalens.orez.OrezAppKnowledge.isHelpRequest(clean)) return null
+        val libraryRequest = OrezLibraryRequest.parseExplicit(clean)
+        if (libraryRequest != null && context.origin == OrezTrustOrigin.USER && context.explicitUserRequest) {
+            val scope = context.libraryScope?.validate() ?: return null
+            if (scope.request != libraryRequest || scope.selectedChapterId != context.activeChapterId.takeIf { libraryRequest.operation.selected }) return null
+            return OrezTaskPlan(objective=clean,steps=listOf(OrezPlanStep(0,OrezToolRegistry().call(libraryRequest.operation.tool,
+                libraryRequest.arguments(scope.selectedChapterId)))))
+        }
         val research = com.mangalens.orez.research.OrezResearchRequest.parseExplicit(clean)
         if (research != null && context.origin == OrezTrustOrigin.USER && context.explicitUserRequest) {
             return OrezTaskPlan(objective = clean, steps = listOf(OrezPlanStep(0,
                 OrezToolRegistry().call("research_web", research.arguments()))))
+        }
+        if (context.origin == OrezTrustOrigin.USER && context.explicitUserRequest) {
+            val scope = context.chapterAcquisition
+            val next = scope?.next
+            if (OrezNextChapterRequest.isRequested(clean) && next != null && next.chapterId == context.activeChapterId)
+                return OrezTaskPlan(objective = clean, steps = listOf(OrezPlanStep(0, OrezToolRegistry().call(
+                    "save_next_chapter", mapOf("chapterId" to next.chapterId)))))
+            val literal = OrezNextChapterRequest.directUrl(clean)
+            if (literal != null && scope?.next == null && scope?.targetUrl == literal)
+                return OrezTaskPlan(objective = clean, steps = listOf(OrezPlanStep(0, OrezToolRegistry().call(
+                    "save_chapter_url", mapOf("value" to literal)))))
         }
         val lower = URL_REGEX.replace(clean.lowercase(Locale.ROOT), " ").trim()
         val explicitUrls = URL_REGEX.findAll(clean).map { it.value.trimEnd('.', ',', ')', ']', '!', '?') }

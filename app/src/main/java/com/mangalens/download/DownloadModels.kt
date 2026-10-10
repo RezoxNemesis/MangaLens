@@ -32,10 +32,11 @@ data class DownloadEntity(
     val stage: String? = null,
     val provider: String = "generic",
     val sourcePageUrl: String? = null,
-    val requestedHeight: Int? = null
+    val requestedHeight: Int? = null,
+    @ColumnInfo(defaultValue = "NULL") val selectedTransport: String? = null
 ) {
     val progress: Float get() = if (state == DownloadState.COMPLETED) 1f else if (totalBytes <= 0L) 0f else (bytesDownloaded.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
-    val isAdaptive: Boolean get() = isAdaptiveMediaSource(sourceUrl, mimeType)
+    val isAdaptive: Boolean get() = selectedTransport == null && isAdaptiveMediaSource(sourceUrl, mimeType)
     val isVideo: Boolean get() = mimeType.startsWith("video/") || isAdaptive
     val canPreview: Boolean get() = isVideo && bytesDownloaded >= 5L * 1024L * 1024L && (!destination.isNullOrBlank() || isAdaptive)
 }
@@ -76,14 +77,14 @@ interface DownloadDao {
     suspend fun completeIfActive(id: String, uri: String, size: Long, mime: String? = null): Int
     @Query("UPDATE media_downloads SET state = 'FAILED', error = :message WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING')")
     suspend fun failIfActive(id: String, message: String): Int
-    @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = :state, error = :message WHERE id = :id AND state != 'CANCELLED' AND (:state != 'PAUSED' OR state = 'PAUSED') AND (state NOT IN ('PAUSED', 'COMPLETED', 'FAILED') OR state = :state)")
+    @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total, state = :state, error = :message WHERE id = :id AND selectedTransport IS NULL AND state != 'CANCELLED' AND (:state != 'PAUSED' OR state = 'PAUSED') AND (state NOT IN ('PAUSED', 'COMPLETED', 'FAILED') OR state = :state)")
     suspend fun adaptiveStateIfActive(id: String, done: Long, total: Long, state: DownloadState, message: String?): Int
-    @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING') AND bytesDownloaded <= :done")
+    @Query("UPDATE media_downloads SET bytesDownloaded = :done, totalBytes = :total WHERE id = :id AND selectedTransport IS NULL AND state IN ('QUEUED', 'DOWNLOADING') AND bytesDownloaded <= :done")
     suspend fun adaptiveProgressIfActive(id: String, done: Long, total: Long): Int
     @Query("UPDATE media_downloads SET state = :state, error = NULL WHERE id = :id AND state IN ('PAUSED', 'FAILED')")
     suspend fun resumeIfStopped(id: String, state: DownloadState): Int
-    @Query("UPDATE media_downloads SET sourceUrl = :url, mimeType = :mime, title = :title, provider = :provider, sourcePageUrl = :pageUrl, requestedHeight = :requestedHeight, error = NULL, stage = :stage WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED', 'PAUSED')")
-    suspend fun refreshSource(id: String, url: String, mime: String, title: String, provider: String, pageUrl: String?, requestedHeight: Int?, stage: String): Int
+    @Query("UPDATE media_downloads SET sourceUrl = :url, mimeType = :mime, title = :title, provider = :provider, sourcePageUrl = :pageUrl, requestedHeight = :requestedHeight, selectedTransport = :selectedTransport, error = NULL, stage = :stage WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING', 'FAILED', 'PAUSED')")
+    suspend fun refreshSource(id: String, url: String, mime: String, title: String, provider: String, pageUrl: String?, requestedHeight: Int?, stage: String, selectedTransport: String? = null): Int
     @Query("UPDATE media_downloads SET stage = :stage WHERE id = :id AND state IN ('QUEUED', 'DOWNLOADING')")
     suspend fun stageIfActive(id: String, stage: String): Int
     @Query("UPDATE media_downloads SET actualHeight = :height, stage = :stage WHERE id = :id AND state = 'COMPLETED'")
@@ -91,9 +92,9 @@ interface DownloadDao {
     @Query("""UPDATE media_downloads SET state = 'CANCELLED', stage = 'Partial cleanup requested', error = 'Stopped for partial cleanup'
         WHERE id = :id AND state = 'FAILED' AND destination IS NULL AND sourceUrl = :url AND createdAt = :createdAt
         AND bytesDownloaded = :done AND totalBytes = :total AND mimeType = :mime AND title = :title
-        AND stage IS :stage AND error IS :error AND provider = :provider AND sourcePageUrl IS :page AND requestedHeight IS :height""")
+        AND stage IS :stage AND error IS :error AND provider = :provider AND sourcePageUrl IS :page AND requestedHeight IS :height AND selectedTransport IS :selectedTransport""")
     suspend fun claimFailedPartials(id: String, url: String, createdAt: Long, done: Long, total: Long, mime: String,
-        title: String, stage: String?, error: String?, provider: String, page: String?, height: Int?): Int
+        title: String, stage: String?, error: String?, provider: String, page: String?, height: Int?, selectedTransport: String? = null): Int
     @Query("""UPDATE media_downloads SET bytesDownloaded = 0, totalBytes = -1, stage = 'Partial files removed', error = NULL
         WHERE id = :id AND state = 'CANCELLED' AND stage = 'Partial cleanup requested' AND destination IS NULL
         AND sourceUrl = :url AND createdAt = :createdAt AND bytesDownloaded = :done AND totalBytes = :total""")
@@ -101,10 +102,15 @@ interface DownloadDao {
     @Query("DELETE FROM media_downloads WHERE id = :id") suspend fun delete(id: String)
 }
 
-@Database(entities = [DownloadEntity::class], version = 3, exportSchema = false)
+@Database(entities = [DownloadEntity::class], version = 4, exportSchema = false)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun downloads(): DownloadDao
     companion object {
+        internal val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE media_downloads ADD COLUMN selectedTransport TEXT DEFAULT NULL")
+            }
+        }
         @Volatile private var instance: DownloadDatabase? = null
         fun get(context: android.content.Context): DownloadDatabase =
             instance ?: synchronized(this) {
@@ -122,7 +128,8 @@ abstract class DownloadDatabase : RoomDatabase() {
                                 db.execSQL("ALTER TABLE media_downloads ADD COLUMN sourcePageUrl TEXT")
                                 db.execSQL("ALTER TABLE media_downloads ADD COLUMN requestedHeight INTEGER")
                             }
-                        }
+                        },
+                        MIGRATION_3_4
                     )
                     .build()
                     .also { instance = it }

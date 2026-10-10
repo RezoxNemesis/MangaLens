@@ -1,0 +1,17 @@
+Optional experimental LaMa artwork repair preview
+
+Publisher: Carve/LaMa-ONNX (conversion of advimman/lama big-lama)
+Model repository revision: c3c0c9e468934d62e79c329e35d82dd09ff8c444
+Artifact: lama_fp32.onnx, publisher-declared 208044816 bytes
+Publisher-declared SHA-256: 1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6
+Converter revision: f5fb39a18022c34a71bf9a47a6ec393c804b49ca
+License: Apache-2.0; accompanying LaMa-Apache-2.0.txt reproduces the pinned converter license.
+Sources: https://huggingface.co/Carve/LaMa-ONNX
+         https://github.com/Carve-Photos/lama
+         https://github.com/advimman/lama
+Runtime: existing ONNX Runtime Android 1.20.0; existing runtime license/notices remain applicable.
+
+MangaLens does not bundle these weights. An explicit download obtains the public pinned artifact
+into private app storage; actual whole-file checksum, size, CPU graph and tensor contracts are
+checked before a preview. Publisher metadata does not establish installed runtime compatibility
+or image quality. The experimental output is transient and cannot modify saved images/text.

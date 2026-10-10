@@ -5,6 +5,7 @@ import com.mangalens.orez.OrezTaskEntity
 import org.json.JSONArray
 import org.json.JSONObject
 import com.mangalens.orez.OrezRoute
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.mangalens.core.translation.TranslationStyleProfile
@@ -33,7 +34,7 @@ class OrezTaskStore(
         require(encoded.length <= 128 * 1024) { "Orez journal exceeds the safe limit" }
         val root = JSONObject(encoded)
         val schema = root.getInt("schema")
-        require(schema in 1..4) { "Unsupported Orez task schema" }
+        require(schema in 1..6) { "Unsupported Orez task schema" }
         val steps = root.getJSONArray("steps")
         require(steps.length() in 1..32) { "Invalid task step count" }
         return OrezTaskPlan(
@@ -55,7 +56,9 @@ class OrezTaskStore(
                             }, options.optInt("reconstructionVersion", 1)).normalized()
                     },
                     scope.optJSONObject("selectedMedia")?.let { source -> selection(source, schema) },
-                    scope.optJSONObject("subtitle")?.let { options -> subtitle(options, schema) })
+                    scope.optJSONObject("subtitle")?.let { options -> subtitle(options, schema) },
+                    if (schema < 5) null else scope.optJSONObject("chapterAcquisition")?.let(OrezChapterAcquisitionScope::decode),
+                    if (schema < 6) null else OrezLibraryScopeCodec.decode(scope.getJSONObject("libraryScope")))
             },
             executionEpoch = root.optLong("executionEpoch", 0),
             pausedByUser = root.optBoolean("pausedByUser", false),
@@ -114,6 +117,31 @@ class OrezTaskStore(
     suspend fun isExecuting(id: String, epoch: Long): Boolean = load(id)?.let {
         it.executionEpoch == epoch && !it.pausedByUser && !it.resuming && it.pendingControl == null && it.status == OrezTaskStatus.RUNNING
     } == true
+
+    /** Stop/resume/checkpoint share this lock with the actual Library/owned-receipt publication. */
+    internal suspend fun <T : Any> publishAcquisition(id: String, epoch: Long, scope: OrezChapterAcquisitionScope, publish: () -> T): T = journalLock.withLock {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val current = load(id)
+        if (current == null || current.executionEpoch != epoch || current.pausedByUser || current.resuming || current.pendingControl != null ||
+            current.status != OrezTaskStatus.RUNNING || current.authorization?.chapterAcquisition != scope ||
+            current.steps.singleOrNull()?.call?.name !in setOf("save_next_chapter", "save_chapter_url"))
+            throw kotlinx.coroutines.CancellationException("Native acquisition publication was retired.")
+        publish()
+    }
+
+    /** Prepared metadata publication/reads share cancellation, resume and generation ownership. */
+    internal suspend fun <T : Any> publishLibrary(id: String, epoch: Long, scope: OrezLibraryScope, publish: () -> T): T = journalLock.withLock {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val current = load(id)
+        val call = current?.steps?.singleOrNull()?.call
+        val authorization = current?.authorization
+        if (current == null || current.executionEpoch != epoch || current.pausedByUser || current.resuming || current.pendingControl != null ||
+            current.status != OrezTaskStatus.RUNNING || authorization == null || authorization.libraryScope != scope ||
+            authorization.origin != OrezTrustOrigin.USER || !authorization.explicitUserRequest ||
+            call == null || call.name != scope.request.operation.tool || call.arguments != scope.request.arguments(scope.selectedChapterId))
+            throw kotlinx.coroutines.CancellationException("Native Library metadata publication was retired.")
+        publish()
+    }
 
     suspend fun pause(id: String): OrezTaskPlan? = journalLock.withLock {
         val plan = load(id) ?: return@withLock null
@@ -195,7 +223,7 @@ class OrezTaskStore(
 
     private fun encode(plan: OrezTaskPlan): String {
         val root = JSONObject()
-            .put("schema", if (plan.authorization?.translation?.refinementRequest != null) 4 else
+            .put("schema", if (plan.authorization?.libraryScope != null) 6 else if (plan.authorization?.chapterAcquisition != null) 5 else if (plan.authorization?.translation?.refinementRequest != null) 4 else
                 if (plan.authorization?.let { it.selectedMedia != null || it.subtitle != null } == true) 3 else
                 if (plan.authorization != null || plan.executionEpoch != 0L || plan.pausedByUser || plan.resuming || plan.pendingControl != null ||
                 plan.steps.any { it.dependsOn.isNotEmpty() || it.references.isNotEmpty() || it.outputKind != null }) 2 else 1)
@@ -208,6 +236,8 @@ class OrezTaskStore(
         plan.authorization?.let { scope ->
             val authorization = JSONObject().put("origin", scope.origin.name).put("explicitUserRequest", scope.explicitUserRequest)
                 .put("chapterIds", JSONArray(scope.chapterIds.toList())).put("urls", JSONArray(scope.urls.toList()))
+            scope.chapterAcquisition?.let { authorization.put("chapterAcquisition", it.validated().encode()) }
+            scope.libraryScope?.let { authorization.put("libraryScope",OrezLibraryScopeCodec.encode(it)) }
             scope.translation?.let { options -> authorization.put("translation", JSONObject()
                 .put("targetLanguage", options.targetLanguage).put("styleId", options.styleId).put("customStyle", options.customStyle)
                 .put("ocrScript", options.ocrScript).put("highAccuracy", options.highAccuracy)
@@ -216,6 +246,10 @@ class OrezTaskStore(
                 .apply { if (options.reconstructionVersion >= 2) put("reconstructionVersion", options.reconstructionVersion) }) }
             scope.selectedMedia?.let { source -> authorization.put("selectedMedia", JSONObject()
                 .put("uri", source.uri).put("cacheKey", source.cacheKey).put("label", source.label).put("headers", JSONObject(source.headers))
+                .apply {
+                    source.videoFragments?.let { put("videoFragments", it.toJson()) }
+                    source.audioFragments?.let { put("audioFragments", it.toJson()) }
+                }
                 .put("providerCaptions", source.providerCaptions?.let(ProviderCaptionJournal::inventory) ?: JSONObject.NULL)
                 .put("resolutionId", source.resolutionId ?: JSONObject.NULL).put("expectedDurationUs", source.expectedDurationUs ?: JSONObject.NULL)
                 .put("audio", source.audio?.let { audio -> JSONObject().put("uri", audio.uri).put("resolutionId", audio.resolutionId)
@@ -270,6 +304,8 @@ class OrezTaskStore(
             if (schema <= 2) return legacy
             require(listOf("resolutionId", "audio", "expectedDurationUs").all(source::has)) { "Captured playable source metadata is incomplete." }
             return legacy.copy(providerCaptions = source.optJSONObject("providerCaptions")?.let(ProviderCaptionJournal::inventory),
+                videoFragments = if (source.has("videoFragments")) com.mangalens.download.OriginalFragmentPlan.fromJson(source.getJSONObject("videoFragments")) else null,
+                audioFragments = if (source.has("audioFragments")) com.mangalens.download.OriginalFragmentPlan.fromJson(source.getJSONObject("audioFragments")) else null,
                 resolutionId = if (source.isNull("resolutionId")) null else source.getString("resolutionId"),
                 expectedDurationUs = if (source.isNull("expectedDurationUs")) null else source.getLong("expectedDurationUs"),
                 audio = if (source.isNull("audio")) null else source.getJSONObject("audio").let { audio ->

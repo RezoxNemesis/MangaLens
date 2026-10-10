@@ -8,14 +8,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** A foreground document receipt. A URL alone never identifies a live browser authority. */
-internal data class BrowserDomOwner(val tabId: String, val navigationEpoch: Long, val url: String, val viewToken: String) {
+internal data class BrowserDomOwner(val tabId: String, val navigationEpoch: Long, val url: String, val viewToken: String, val profileKey: String = "normal") {
     init {
         require(tabId.isNotBlank() && tabId.length <= 128 && '\u0000' !in tabId)
         require(navigationEpoch > 0 && viewToken.matches(Regex("[a-f0-9]{32}")))
         require(BrowserDomPolicy.permittedAddress(url))
+        require(BrowserProfilePolicy.validKey(profileKey))
     }
     val pageId: String get() = MessageDigest.getInstance("SHA-256")
-        .digest(listOf(tabId, navigationEpoch.toString(), url, viewToken).joinToString("\u0000").toByteArray(Charsets.UTF_8))
+        .digest((listOf(tabId, navigationEpoch.toString(), url, viewToken) +
+            if (profileKey == "normal") emptyList() else listOf(profileKey)).joinToString("\u0000").toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
 }
 

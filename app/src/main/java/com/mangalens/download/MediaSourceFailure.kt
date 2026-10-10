@@ -15,7 +15,7 @@ import javax.net.ssl.SSLException
 enum class MediaSourceFailureKind {
     PROVIDER_VERIFICATION_REQUIRED, PROVIDER_AUDIENCE_RESTRICTED, PROVIDER_LOGIN_REQUIRED,
     PROVIDER_UNAVAILABLE, NETWORK_PROXY_BLOCKED, NETWORK_TLS_FAILURE, NETWORK_CONNECTION_FAILED,
-    TIMEOUT, SOURCE_ACCESS_DENIED, EXTRACTOR_FAILURE
+    TIMEOUT, SOURCE_ACCESS_DENIED, UNSUPPORTED_TRANSPORT, EXTRACTOR_FAILURE, TRANSPORT_RESTART_REQUIRED
 }
 
 /** Only fixed, actionable text leaves the native error boundary; raw diagnostics stay in causes. */
@@ -45,6 +45,8 @@ data class MediaSourceFailure(val kind: MediaSourceFailureKind, val message: Str
             val text = failure.message.orEmpty().take(32_768).lowercase(Locale.ROOT)
                 .replace('’', '\'').replace('‘', '\'')
             return when {
+                failure is OriginalHlsUnprovenReleaseException -> MediaSourceFailureKind.TRANSPORT_RESTART_REQUIRED
+                failure is OriginalHlsSelectedSourceException -> failure.failure.kind
                 text.contains("sign in to confirm you're not a bot") ||
                     text.contains("confirm you are not a bot") ||
                     text.contains("captcha required") -> MediaSourceFailureKind.PROVIDER_VERIFICATION_REQUIRED
@@ -73,6 +75,7 @@ data class MediaSourceFailure(val kind: MediaSourceFailureKind, val message: Str
 
         // An explicit provider reason remains useful if a subsequent compatibility client fails.
         private fun priority(kind: MediaSourceFailureKind): Int = when (kind) {
+            MediaSourceFailureKind.TRANSPORT_RESTART_REQUIRED -> 110
             MediaSourceFailureKind.PROVIDER_VERIFICATION_REQUIRED,
             MediaSourceFailureKind.PROVIDER_AUDIENCE_RESTRICTED,
             MediaSourceFailureKind.PROVIDER_LOGIN_REQUIRED -> 100
@@ -81,6 +84,7 @@ data class MediaSourceFailure(val kind: MediaSourceFailureKind, val message: Str
             MediaSourceFailureKind.NETWORK_TLS_FAILURE -> 80
             MediaSourceFailureKind.TIMEOUT, MediaSourceFailureKind.NETWORK_CONNECTION_FAILED -> 70
             MediaSourceFailureKind.SOURCE_ACCESS_DENIED -> 60
+            MediaSourceFailureKind.UNSUPPORTED_TRANSPORT -> 50
             MediaSourceFailureKind.EXTRACTOR_FAILURE -> 0
         }
 
@@ -103,6 +107,10 @@ data class MediaSourceFailure(val kind: MediaSourceFailureKind, val message: Str
                 "Media resolution timed out. Retry or open the source page."
             MediaSourceFailureKind.SOURCE_ACCESS_DENIED ->
                 "The source rejected access to its media. Open the source page to check your access, or retry when the source is available."
+            MediaSourceFailureKind.UNSUPPORTED_TRANSPORT ->
+                "This selection cannot be saved by the current download transport. No completed download was created; existing partial files were retained. Resolve a new supported download or choose another available source."
+            MediaSourceFailureKind.TRANSPORT_RESTART_REQUIRED ->
+                "An HLS response did not close. Restart MangaLens before another HLS request; existing partial files were retained."
             MediaSourceFailureKind.EXTRACTOR_FAILURE ->
                 "The installed extractor could not resolve an accessible video. Retry or open the source page; MangaLens may need an app update if the site's player has changed."
         })

@@ -43,8 +43,13 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
             val memoryTools = plan.authorization?.let { scope -> OrezMemoryTools(OrezNativeMemoryHost(applicationContext), scope, isExecuting = { store.isExecuting(id, plan.executionEpoch) }) }
             val researchTools = if (plan.steps.any { it.call.name == "research_web" }) OrezResearchTools(plan,
                 isExecuting = { store.isExecuting(id, plan.executionEpoch) }) else null
+            val acquisitionTools = if (plan.steps.any { it.call.name in setOf("save_next_chapter", "save_chapter_url") })
+                OrezChapterAcquisitionTools(applicationContext, store, plan) else null
+            val libraryTools = if (plan.steps.any { it.call.name in OrezLibraryRequest.tools }) OrezLibraryTools(applicationContext,store,plan) else null
             val executor = OrezTaskExecutor(store, OrezDurableTools { step, requestId ->
                 when (step.call.name) {
+                    in OrezLibraryRequest.tools -> requireNotNull(libraryTools).execute(step,requestId)
+                    "save_next_chapter", "save_chapter_url" -> requireNotNull(acquisitionTools).execute(step, requestId)
                     "research_web" -> requireNotNull(researchTools).execute(step, requestId)
                     "search_saved_memory" -> requireNotNull(memoryTools).execute(step, requestId)
                     "enqueue_download" -> executeDownload(step, requestId, id, plan.executionEpoch, store)
@@ -138,6 +143,10 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
     }
 
     private fun completionMessage(plan: OrezTaskPlan): String {
+        val metadata = plan.steps.singleOrNull { it.outputKind == OrezOutputKind.LIBRARY_METADATA }
+        if (metadata != null) return OrezLibraryRules.completion(metadata.outputs)
+        val acquired = plan.steps.lastOrNull { it.outputKind == OrezOutputKind.ACQUIRED_CHAPTER }
+        if (acquired != null) return "Acquired and saved ${acquired.outputs["pageCount"]} verified originals of “${acquired.outputs["title"]}”. Open this chapter from Library to read it offline."
         val research = plan.steps.lastOrNull { it.outputKind == OrezOutputKind.RESEARCH_EVIDENCE }
         if (research != null) return com.mangalens.orez.research.OrezResearchEvidenceCodec.receipt(research.outputs,
             OrezDurablePlanRules.requestId(plan.id, research.index),
@@ -166,6 +175,8 @@ class OrezDownloadTaskWorker(context: Context, params: WorkerParameters) : Corou
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("Orez is executing your task")
             .setContentText(when {
+                plan.steps.any { it.call.name in OrezLibraryRequest.tools } -> "Reading or saving captured Library metadata"
+                plan.steps.any { it.call.name in setOf("save_next_chapter", "save_chapter_url") } -> "Acquiring and saving chapter originals"
                 plan.steps.any { it.call.name == "research_web" } -> "Gathering public sources • progress is available in Orez"
                 plan.steps.any { it.call.name == "search_saved_memory" } -> "Searching selected chapter memory"
                 plan.steps.any { it.call.name == "enqueue_download" } -> "Transfer progress is available in Downloads"

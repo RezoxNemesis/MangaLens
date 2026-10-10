@@ -179,11 +179,17 @@ class OrezAiViewModel @JvmOverloads constructor(
                 val resources = resourcePreferences.capture()
                 kotlinx.coroutines.withContext(resources) request@ {
                 dao.insert(OrezMessageEntity(role = "YOU", text = input))
+                val acquisition = if (acceptedImage == null) com.mangalens.orez.agent.OrezChapterAcquisitionCapture.capture(
+                    getApplication<android.app.Application>(), input, activeChapterId) else null
+                val libraryScope = if (acceptedImage == null) com.mangalens.orez.agent.OrezLibraryCapture.capture(
+                    getApplication<android.app.Application>(),input,activeChapterId) else null
                 val appContext = OrezAgentContext(
                         hasActiveChapter = hasActiveChapter,
                         hasLibrary = libraryContext.isNotBlank(),
                         activeUrl = activeUrl,
                         activeChapterId = activeChapterId,
+                        chapterAcquisition = acquisition,
+                        libraryScope = libraryScope,
                         translationOptions = capturedTranslationOptions().captureForNewRequest(),
                         selectedMedia = acceptedMedia,
                         subtitleOptions = subtitleOptions.captureForNewRequest()
@@ -352,6 +358,12 @@ class OrezAiViewModel @JvmOverloads constructor(
         val plan = taskStore.decode(encoded)
         plan.steps.count { it.status == OrezStepStatus.COMPLETED } to plan.steps.size
     }.getOrNull()
+
+    fun hasAcquiredChapter(encoded: String): Boolean = runCatching {
+        val plan = taskStore.decode(encoded)
+        OrezDurablePlanRules.validate(plan)
+        plan.status == OrezTaskStatus.COMPLETED && plan.steps.any { it.outputKind == com.mangalens.orez.agent.OrezOutputKind.ACQUIRED_CHAPTER }
+    }.getOrDefault(false)
 
     fun canResumeTask(encoded: String): Boolean = runCatching {
         val plan = taskStore.decode(encoded)
@@ -635,6 +647,12 @@ fun OrezAiScreen(
             }
 
             item {
+                if (completedTasks.any { vm.hasAcquiredChapter(it.planJson) }) {
+                    TextButton(onClick = { onRoute("", OrezRoute.LIBRARY) }) { Text("Open acquired chapters in Library") }
+                }
+            }
+
+            item {
                 val research = completedTasks.flatMap { task -> vm.researchResults(task.planJson) }.take(5)
                 if (research.isNotEmpty()) {
                     Card(Modifier.fillMaxWidth()) {
@@ -668,6 +686,8 @@ fun OrezAiScreen(
                 androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { AssistChip(onClick = { changeDraft("Research \"your public question\"") }, label = { Text("Research") }) }
                     item { AssistChip(onClick = { changeDraft("Find manga: ") }, label = { Text("Find") }) }
+                    item { AssistChip(onClick = { changeDraft("Save the next chapter") }, enabled = activeChapterId != null && !imageState.hasSelection && !vm.typing,
+                        label = { Text("Save next chapter") }) }
                     item { AssistChip(onClick = { changeDraft("Summarize this chapter faithfully without spoilers.") }, label = { Text("Summarize") }) }
                     item { AssistChip(onClick = { changeDraft("Help me improve OCR for this chapter.") }, label = { Text("Fix OCR") }) }
                     item { AssistChip(onClick = { changeDraft("Help me plan my reading list from my saved chapters.") }, label = { Text("Reading list") }) }

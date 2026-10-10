@@ -15,6 +15,8 @@ REQUIRE_MODEL=false
 CLASSES=""
 STARTUP_TRACE=false
 LISTENERS=""
+TRANSLATION_QUALITY_CASE=""
+TRANSLATION_QUALITY_REFINEMENT=""
 CORE_CLASSES=com.mangalens.ProductSmokeTest,com.mangalens.WatchPermissionSmokeTest,com.mangalens.WebNavigationSmokeTest,com.mangalens.AppearanceSmokeTest,com.mangalens.ReaderRestorationSmokeTest
 while (($#)); do
   case "$1" in
@@ -28,9 +30,11 @@ while (($#)); do
     --classes) CLASSES="$2"; shift 2 ;;
     --startup-trace) STARTUP_TRACE=true; shift ;;
     --listener) LISTENERS="$2"; shift 2 ;;
+    --translation-quality-case) TRANSLATION_QUALITY_CASE="$2"; shift 2 ;;
+    --translation-quality-refinement) TRANSLATION_QUALITY_REFINEMENT="$2"; shift 2 ;;
     --require-model) REQUIRE_MODEL=true; shift ;;
     --help)
-      echo "Usage: $0 [--suite core|full] [--require-model] [--startup-trace] [--listener class1,class2] [--classes class1,class2] [--app-apk path] [--test-apk path] [--self-test-apk path] [--evidence-dir path] [--timeout seconds] [--install-timeout seconds]"
+      echo "Usage: $0 [--suite core|full] [--require-model] [--startup-trace] [--listener class1,class2] [--classes class1,class2] [--app-apk path] [--test-apk path] [--self-test-apk path] [--evidence-dir path] [--timeout seconds] [--install-timeout seconds] [--translation-quality-case authored_id --translation-quality-refinement draft_only|captured]"
       echo 'Set ANDROID_SERIAL to select a dedicated QA emulator. Full native-model coverage downloads the pinned free 491 MB Qwen Lite fixture.'
       exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -40,6 +44,11 @@ done
 [[ "$TEST_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo 'Timeout must be positive seconds.' >&2; exit 2; }
 [[ "$INSTALL_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo 'Install timeout must be positive seconds.' >&2; exit 2; }
 [[ -z "$LISTENERS" || "$LISTENERS" =~ ^[a-zA-Z_][a-zA-Z0-9_.$]*(,[a-zA-Z_][a-zA-Z0-9_.$]*)*$ ]] || { echo 'Listeners must be comma-separated Java class names.' >&2; exit 2; }
+if [[ -n "$TRANSLATION_QUALITY_CASE" || -n "$TRANSLATION_QUALITY_REFINEMENT" ]]; then
+  [[ "$TRANSLATION_QUALITY_CASE" =~ ^[a-z][a-z0-9_]{1,63}$ ]] || { echo 'Choose one authored translation quality case.' >&2; exit 2; }
+  [[ "$TRANSLATION_QUALITY_REFINEMENT" == draft_only || "$TRANSLATION_QUALITY_REFINEMENT" == captured ]] || { echo 'Choose draft_only or captured explicitly.' >&2; exit 2; }
+  [[ "$CLASSES" == com.mangalens.TranslationQualityCorpusDiagnosticTest || "$CLASSES" == com.mangalens.TranslationQualityCorpusDiagnosticTest#collectOneAuthoredSourceAndBothTargets ]] || { echo 'Corpus collection requires its exact opt-in diagnostic class.' >&2; exit 2; }
+fi
 REQUIRED_CLASSES="$CORE_CLASSES"
 if [[ "$REQUIRE_MODEL" == true ]]; then REQUIRED_CLASSES+=,com.mangalens.NativeModelTest; fi
 if [[ -n "$SELF_TEST_APK" ]]; then REQUIRED_CLASSES+=,com.mangalens.SelfTestPackageCoexistenceTest; test -s "$SELF_TEST_APK"; fi
@@ -74,6 +83,7 @@ export MANGALENS_ACCEPTANCE_APK="$APP_APK" MANGALENS_ACCEPTANCE_TEST_APK="$TEST_
 export MANGALENS_ACCEPTANCE_SELF_TEST_APK="$SELF_TEST_APK"
 export MANGALENS_ACCEPTANCE_PACKAGE="$PACKAGE"
 export MANGALENS_ACCEPTANCE_CLASSES="$CLASSES" MANGALENS_ACCEPTANCE_REQUIRED_CLASSES="$REQUIRED_CLASSES"
+export MANGALENS_ACCEPTANCE_QUALITY_CASE="$TRANSLATION_QUALITY_CASE" MANGALENS_ACCEPTANCE_QUALITY_MODE="$TRANSLATION_QUALITY_REFINEMENT"
 python3 - "$DIAGNOSTICS" <<'PY'
 import hashlib, json, os, platform, subprocess, sys
 from pathlib import Path
@@ -91,8 +101,10 @@ record = {
     'source_status': git('status', '--porcelain').splitlines(),
     'suite': os.environ['MANGALENS_ACCEPTANCE_SUITE'],
     'test_classes': os.environ['MANGALENS_ACCEPTANCE_CLASSES'].split(',') if os.environ['MANGALENS_ACCEPTANCE_CLASSES'] else 'all discovered functional instrumentation tests',
-    'excluded_diagnostic_classes': [] if os.environ['MANGALENS_ACCEPTANCE_CLASSES'] else ['com.mangalens.ui.web.BrowserCompositionHostDiagnosticTest'],
+    'excluded_diagnostic_classes': [] if os.environ['MANGALENS_ACCEPTANCE_CLASSES'] else ['com.mangalens.ui.web.BrowserCompositionHostDiagnosticTest', 'com.mangalens.TranslationQualityCorpusDiagnosticTest'],
     'required_classes': os.environ['MANGALENS_ACCEPTANCE_REQUIRED_CLASSES'].split(','),
+    'translation_quality_case': os.environ['MANGALENS_ACCEPTANCE_QUALITY_CASE'] or None,
+    'translation_quality_refinement': os.environ['MANGALENS_ACCEPTANCE_QUALITY_MODE'] or None,
     'app_apk': os.environ['MANGALENS_ACCEPTANCE_APK'],
     'app_apk_sha256': checksum(os.environ['MANGALENS_ACCEPTANCE_APK']),
     'test_apk_sha256': checksum(os.environ['MANGALENS_ACCEPTANCE_TEST_APK']),
@@ -210,6 +222,9 @@ fi
 
 ARGS=(-w -r -e expected_source_sha "$SOURCE_SHA" -e require_model "$REQUIRE_MODEL")
 if [[ -n "$LISTENERS" ]]; then ARGS+=(-e listener "$LISTENERS"); fi
+if [[ -n "$TRANSLATION_QUALITY_CASE" ]]; then
+  ARGS+=(-e translation_quality_case "$TRANSLATION_QUALITY_CASE" -e translation_quality_refinement "$TRANSLATION_QUALITY_REFINEMENT")
+fi
 if [[ -n "$SELF_TEST_APK" ]]; then ARGS+=(-e require_self_test true); fi
 if [[ "$SUITE" == full ]]; then
   bash scripts/android/stage-speech-reference.sh "$PACKAGE" "$DIAGNOSTICS"
@@ -222,8 +237,8 @@ fi
 if [[ -n "$CLASSES" ]]; then
   ARGS+=(-e class "$CLASSES")
 else
-  # Host ownership experiments are isolated opt-in diagnostics, outside the functional full suite.
-  ARGS+=(-e notClass com.mangalens.ui.web.BrowserCompositionHostDiagnosticTest)
+  # Host experiments and source-aware output collection are opt-in diagnostics outside the functional full suite.
+  ARGS+=(-e notClass com.mangalens.ui.web.BrowserCompositionHostDiagnosticTest,com.mangalens.TranslationQualityCorpusDiagnosticTest)
 fi
 set +e
 timeout --signal=TERM --kill-after=10s "$TEST_TIMEOUT" adb shell am instrument "${ARGS[@]}" "$INSTRUMENTATION" 2>&1 | tee "$DIAGNOSTICS/instrumentation.txt"

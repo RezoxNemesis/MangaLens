@@ -2,7 +2,8 @@ package com.mangalens.core.translation
 
 import com.mangalens.core.translation.memory.*
 
-data class PersonalMangaLettering(val original: SavedMangaLettering, val personal: SavedMangaLettering, val revision: Int)
+data class PersonalMangaLettering(val original: SavedMangaLettering, val personal: SavedMangaLettering, val revision: Int,
+    val regionPresentation: MemoryRegionPresentation? = null, val pageIndex: Int? = null)
 
 /** The caller supplies a freshly verified native page, never reconstructed viewport geometry. */
 internal object PersonalMemoryOverlayPolicy {
@@ -30,7 +31,8 @@ internal object PersonalMemoryOverlayPolicy {
             val translated = edit.translated ?: native.translated
             val hindiDraft = if (edit.translated == null) native.savedHindiDraft else edit.hindiDraft
             if (!TranslationQualityPolicy.isUsable(source, translated, task.config.targetLanguage, hindiDraft)) return@mapIndexedNotNull null
-            index to PersonalMangaLettering(native, native.copy(source = source, translated = translated, savedHindiDraft = hindiDraft), bubble.editRevision)
+            index to PersonalMangaLettering(native, native.copy(source = source, translated = translated, savedHindiDraft = hindiDraft), bubble.editRevision,
+                edit.regionPresentation, page.index.takeIf { edit.regionPresentation != null })
         }.toMap()
     }
 

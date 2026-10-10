@@ -77,34 +77,9 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
             }
         }
         item{Text("Appearance",fontWeight=FontWeight.Bold)}
-        item {
-            val appearance = com.mangalens.ui.theme.LocalAppearance.current
-            val prefs = context.getSharedPreferences("mangalens_appearance", android.content.Context.MODE_PRIVATE)
-            com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()) {
-                Text("Layout density", style = MaterialTheme.typography.labelLarge)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    com.mangalens.ui.theme.LayoutDensity.entries.forEach { density ->
-                        FilterChip(appearance.density == density,
-                            { prefs.edit().putString("density", density.name).apply() }, label = { Text(density.label) })
-                    }
-                }
-                Text("Accent", style = MaterialTheme.typography.labelLarge)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    com.mangalens.ui.theme.Accent.entries.forEach { accent ->
-                        FilterChip(appearance.accent == accent,
-                            { prefs.edit().putString("accent", accent.name).apply() }, label = { Text(accent.label) })
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Reduce motion", Modifier.weight(1f))
-                    Switch(appearance.reducedMotion, { prefs.edit().putBoolean("reduced_motion", it).apply() })
-                }
-                Text("Build ${com.mangalens.BuildConfig.VERSION_NAME} • ${com.mangalens.BuildConfig.SOURCE_SHA} • ${com.mangalens.BuildConfig.BUILD_CHANNEL}",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        item { com.mangalens.ui.theme.AppearanceControls(state.themeMode) }
 
-        item{Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){ThemeMode.entries.forEach{mode->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(mode.name.lowercase().replaceFirstChar{it.uppercase()});RadioButton(selected=state.themeMode==mode,onClick={onThemeModeChanged(mode)})}}}}}
+        item{Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){ThemeMode.entries.forEach{mode->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(mode.name.lowercase().replace('_', ' ').replaceFirstChar{it.uppercase()});RadioButton(selected=state.themeMode==mode,onClick={onThemeModeChanged(mode)})}}}}}
         item{
             Text("Protection Center",fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.secondary)
             com.mangalens.ui.components.Panel(Modifier.fillMaxWidth()){
@@ -199,7 +174,9 @@ fun SettingsScreen(state:MangaLensUiState,onThemeModeChanged:(ThemeMode)->Unit,o
                             TranslationStyleProfile.FAITHFUL,
                             TranslationStyleProfile.CASUAL,
                             TranslationStyleProfile.FORMAL,
-                            TranslationStyleProfile.WEBTOON
+                            TranslationStyleProfile.MANGA,
+                            TranslationStyleProfile.WEBTOON,
+                            TranslationStyleProfile.LITERAL
                         ).forEach { style ->
                             FilterChip(
                                 selected=state.translationStyle==style.id,

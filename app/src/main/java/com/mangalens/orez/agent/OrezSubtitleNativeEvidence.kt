@@ -40,17 +40,19 @@ internal object OrezSubtitleNativeEvidence {
         } else {
             require(!task.source.source.cacheKey.startsWith("orez-audio-pair:")) { "A native split audio receipt needs its captured video/audio selection." }
             task.source.source.let { OrezMediaSelection(it.uri, it.cacheKey, it.label, it.headers.toMap(),
-                resolutionId = it.sourceResolutionId, providerCaptions = it.providerCaptions?.captureSnapshot()) }
+                resolutionId = it.sourceResolutionId, providerCaptions = it.providerCaptions?.captureSnapshot(),
+                expectedDurationUs = it.fragmentPlan?.durationUs, videoFragments = it.fragmentPlan?.captured()) }
         }
         val options = task.config.orezOptions().also(OrezSubtitleContract::validate)
         val candidate = task.config.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && descriptor.hasProviderCaptionCandidate()
         val model = task.config.modelSha256 ?: "".also { require(candidate) { "The native subtitle request has no captured speech model or provider caption inventory." } }
         return OrezSubtitleReceipt(task.id, task.generation, task.ownerRequestId,
-            OrezSubtitleSnapshot(sourceId, descriptor, task.source.fingerprint, model, hasSubtitleSourceProof(task.source) || candidate), options,
+            OrezSubtitleSnapshot(sourceId, descriptor, task.source.fingerprint, model, hasSubtitleSourceProof(task.source) || candidate || descriptor.hasFragmentSourceCandidate()), options,
             OrezNativeSubtitleStatus.valueOf(task.status.name), task.durationMs, task.processedMs, task.windows.size, task.cues.size,
             validationPending = task.validationPending || task.pcmValidationRequired, error = task.error,
             configFingerprint = task.config.fingerprint(), audioComplete = task.audioComplete,
-            sourceCueCount = task.sourceCueCount, pendingTargetCues = task.pendingTargetCues, providerCaptionReceipt = task.providerCaptionReceipt)
+            sourceCueCount = task.sourceCueCount, pendingTargetCues = task.pendingTargetCues, providerCaptionReceipt = task.providerCaptionReceipt,
+            fragmentContentSha256 = task.source.fragmentContentSha256, fragmentSize = task.source.fragmentSize)
     }
 
     fun receipt(task: SubtitleGenerationTask, sourceId: String, directory: File, expectedDescriptor: OrezMediaSelection? = null): OrezSubtitleReceipt {
@@ -60,7 +62,8 @@ internal object OrezSubtitleNativeEvidence {
             window.cues.isEmpty() && if (window.silent) window.sourceCues.isEmpty() && window.translations.isEmpty()
             else window.sourceCues.isNotEmpty() && window.translations.map { it.sourceIndex }.sorted() == window.sourceCues.indices.toList()
         }
-        val exports = if (task.status == SubtitleGenerationStatus.COMPLETED && !metadata.validationPending && metadata.media.verifiable && targetsComplete) {
+        val exports = if (task.status == SubtitleGenerationStatus.COMPLETED && !metadata.validationPending && metadata.media.verifiable && targetsComplete &&
+            (task.providerCaptionReceipt != null || hasSubtitleSourceProof(task.source))) {
             val cues = task.cues
             fun validate(path: String?, savedHash: String?, extension: String, expected: String): Pair<String, Long> {
                 val folder = File(directory.canonicalFile, task.id)

@@ -46,13 +46,12 @@ internal object SubtitleInputs {
             }
         }
         val uri = Uri.parse(source.uri)
-        val descriptor = (listOf(source.uri, source.headers.toSortedMap().entries.joinToString("\n") { "${it.key}:${it.value}" }) +
-            if (source.providerCaptions == null) emptyList() else listOf(source.sourceResolutionId.orEmpty(), source.providerCaptions.fingerprint()))
-            .joinToString("|") { "${it.length}:$it" }
+        val descriptor = descriptor(source)
         if (source.captionDocumentOnly) {
             // This fingerprints a captured caption source; it is never media-byte or PCM proof.
             return@withContext SubtitleSourceIdentity(source, SubtitleGenerationStore.digest(descriptor + "|caption-document-only-v1"), false)
         }
+        if (source.fragmentPlan != null) return@withContext SubtitleFragmentSources.capture(context, source)
         if (uri.scheme in listOf("content", "file", "android.resource") || uri.scheme == null) {
             if (uri.scheme == "content") runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             val input = if (uri.scheme == null) File(source.uri).inputStream() else context.contentResolver.openInputStream(uri)
@@ -72,6 +71,18 @@ internal object SubtitleInputs {
             SubtitleSourceIdentity(source.copy(headers = source.headers.toMap()), SubtitleGenerationStore.digest(descriptor + validator?.fingerprint.orEmpty()),
                 validator != null, validator?.etag, validator?.size, validator?.url)
         }
+    }
+    private fun descriptor(source: SubtitleMediaSource): String =
+        (listOf(source.uri, source.headers.toSortedMap().entries.joinToString("\n") { "${it.key}:${it.value}" }) +
+            if (source.providerCaptions == null) emptyList() else listOf(source.sourceResolutionId.orEmpty(), source.providerCaptions.fingerprint()))
+            .joinToString("|") { "${it.length}:$it" }
+    internal fun fragmentDescriptor(source: SubtitleMediaSource): String {
+        val plan = requireNotNull(source.fragmentPlan).captured()
+        require(!source.captionDocumentOnly && plan.sourceUrl == source.uri && source.sourceResolutionId?.matches(Regex("[a-f0-9]{32}")) == true) {
+            "Fragment audio needs its exact accepted native source resolution."
+        }
+        return SubtitleGenerationStore.digest(descriptor(source) + listOf("subtitle-fragment-source-v1", plan.version,
+            plan.sha256(), source.sourceResolutionId.orEmpty(), source.cacheKey).joinToString("|") { "${it.length}:$it" })
     }
     fun config(context: Context, sourceLanguage: String, options: SubtitleTargetOptions? = null): SubtitleGenerationConfig {
         val model = File(context.filesDir, "speech/whisper.bin")
@@ -97,7 +108,7 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
         val store = SubtitleGenerationStore.shared(applicationContext)
         val workerCaller = currentCoroutineContext()
         try {
-            val captured = store.get(id)?.takeIf { it.generation == generation } ?: return@withContext Result.success()
+            var captured = store.get(id)?.takeIf { it.generation == generation } ?: return@withContext Result.success()
             suspend fun checkOwner() {
                 if (captured.source.source.captionDocumentOnly &&
                     !store.browserCaptionAuthority.permits(browserCaptionBinding(captured))) throw BrowserCaptionAuthorityRetired()
@@ -129,6 +140,9 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                 }
             }
             setForeground(notification(captured, "Checking video and speech model"))
+            SubtitleFragmentSources.withSource(applicationContext, captured.source, current = ::checkOwner) { provenSource ->
+            if (captured.source.source.fragmentPlan != null)
+                captured = store.bindFragmentSource(id, generation, provenSource) ?: return@withSource Result.success()
             withContext(NativeComputePrecondition { waited ->
                 workerCaller.ensureActive()
                 checkOwner()
@@ -297,9 +311,16 @@ class SubtitleGenerationWorker(context: Context, parameters: WorkerParameters) :
                         Result.success()
                         } finally { translator?.close() }
                     } finally {
-                        withContext(NonCancellable) { engine.close(); workerScope.cancel() }
+                        withContext(NonCancellable) {
+                            try { engine.close() }
+                            catch (failure: Throwable) {
+                                currentCoroutineContext()[SubtitleFragmentSources.HeldFragmentSubtitleSource]?.retainUnreleased(engine)
+                                throw failure
+                            } finally { workerScope.cancel() }
+                        }
                     }
                 }
+            }
             }
         } catch (_: BrowserCaptionAuthorityRetired) {
             // No browser authority survives process death or source retirement. The exact old

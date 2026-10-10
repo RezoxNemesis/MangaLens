@@ -69,7 +69,9 @@ data class OrezAgentContext(
     val activeChapterId: String? = null,
     val translationOptions: OrezTranslationOptions = OrezTranslationOptions(),
     val selectedMedia: OrezMediaSelection? = null,
-    val subtitleOptions: OrezSubtitleOptions = OrezSubtitleOptions()
+    val subtitleOptions: OrezSubtitleOptions = OrezSubtitleOptions(),
+    val chapterAcquisition: OrezChapterAcquisitionScope? = null,
+    val libraryScope: OrezLibraryScope? = null
 )
 
 /** Trusted UI selection, captured once. Tools receive only its opaque identity. */
@@ -83,7 +85,9 @@ data class OrezMediaSelection(
     val resolutionId: String? = null,
     val audio: OrezAudioSelection? = null,
     val expectedDurationUs: Long? = null,
-    val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null
+    val providerCaptions: com.mangalens.download.ProviderCaptionInventory? = null,
+    val videoFragments: com.mangalens.download.OriginalFragmentPlan? = null,
+    val audioFragments: com.mangalens.download.OriginalFragmentPlan? = null
 ) {
     val sourceId: String get() {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -95,13 +99,15 @@ data class OrezMediaSelection(
                 (audio?.let { listOf(it.uri, it.resolutionId, it.headers.size.toString()) +
                     it.headers.toSortedMap().flatMap { entry -> listOf(entry.key, entry.value) } }.orEmpty())
         // Length framing prevents header/source delimiters from aliasing a selection.
-        for (value in fields + providerCaptions?.let { listOf("provider-caption-inventory", it.fingerprint()) }.orEmpty()) {
+        for (value in fields + providerCaptions?.let { listOf("provider-caption-inventory", it.fingerprint()) }.orEmpty() +
+            if (videoFragments == null && audioFragments == null) emptyList() else
+                listOf("original-fragment-transport", com.mangalens.download.OriginalFragmentTransport.identitySuffix(videoFragments, audioFragments))) {
             digest.update(value.toByteArray(Charsets.UTF_8).size.toString().toByteArray(Charsets.UTF_8))
             digest.update(':'.code.toByte()); digest.update(value.toByteArray(Charsets.UTF_8))
         }
         return "selected-" + digest.digest().joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 255) }.take(32)
     }
-    fun captured() = copy(headers = headers.toMap(), audio = audio?.copy(headers = audio.headers.toMap()), providerCaptions = providerCaptions?.captureSnapshot())
+    fun captured() = copy(headers = headers.toMap(), audio = audio?.copy(headers = audio.headers.toMap()), providerCaptions = providerCaptions?.captureSnapshot(), videoFragments = videoFragments?.captured(), audioFragments = audioFragments?.captured())
 }
 
 /** Complete captured native policy; a later Settings/model change cannot alter a queued request. */
@@ -164,12 +170,14 @@ data class OrezTaskAuthorization(
     val urls: Set<String> = emptySet(),
     val translation: OrezTranslationOptions? = null,
     val selectedMedia: OrezMediaSelection? = null,
-    val subtitle: OrezSubtitleOptions? = null
+    val subtitle: OrezSubtitleOptions? = null,
+    val chapterAcquisition: OrezChapterAcquisitionScope? = null,
+    val libraryScope: OrezLibraryScope? = null
 ) {
     fun context() = OrezAgentContext(origin = origin, explicitUserRequest = explicitUserRequest)
 }
 
-enum class OrezOutputKind { DOWNLOAD_RECEIPT, SAVED_CHAPTER, CHAPTER_TRANSLATION, MEDIA_SOURCE, SUBTITLE_TRACK, MEMORY_SEARCH, RESEARCH_EVIDENCE }
+enum class OrezOutputKind { DOWNLOAD_RECEIPT, ACQUIRED_CHAPTER, SAVED_CHAPTER, CHAPTER_TRANSLATION, MEDIA_SOURCE, SUBTITLE_TRACK, MEMORY_SEARCH, RESEARCH_EVIDENCE, LIBRARY_METADATA }
 enum class OrezPendingControl { PAUSE, CANCEL }
 enum class OrezOutputField(val key: String) {
     CHAPTER_ID("chapterId"), SOURCE_FINGERPRINT("sourceFingerprint"), DOWNLOAD_ID("downloadId"),

@@ -30,28 +30,78 @@ class ReaderMemoryController internal constructor(
     @Volatile private var accepted: ReaderTranslationReceipt? = null
     @Volatile private var visiblePage: Int? = null
     @Volatile private var visiblePages: Set<Int> = emptySet()
+    @Volatile private var manuallyHiddenPages: Set<Int> = emptySet()
     @Volatile private var pageRequest = 0L
     @Volatile private var overlayRequest = 0L
     private var overlayJob: Job? = null
     @Volatile private var bubbleExplanation: SavedBubbleExplanation? = null
     @Volatile private var regionActions: SavedBubbleRegionActions? = null
+    @Volatile private var artworkRepair: com.mangalens.core.translation.inpainting.SavedBubbleArtworkRepair? = null
     private var tools: ReaderBubbleToolsController? = null
     internal val bubbleTools: ReaderBubbleToolsController
         get() = tools ?: ReaderBubbleToolsController(filesRoot, scope, authority, storeProvider, writer,
             explanation = { bubbleExplanation }, showEditor = ::showInspectedEditor,
-            regionActions = { regionActions }, showGeneratedEditor = ::showGeneratedEditor).also { tools = it }
+            regionActions = { regionActions }, showGeneratedEditor = ::showGeneratedEditor,
+            isPageAllowed = { it !in manuallyHiddenPages },
+            artworkRepairProvider = { artworkRepair }).also { tools = it }
     internal fun configureBubbleExplanation(explanation: SavedBubbleExplanation) { bubbleExplanation = explanation }
     internal fun configureBubbleRegionActions(actions: SavedBubbleRegionActions) { regionActions = actions }
+    internal fun configureBubbleArtworkRepair(repair: com.mangalens.core.translation.inpainting.SavedBubbleArtworkRepair) { artworkRepair = repair }
+
+    /** This optional gateway is captured by one actual Reader presentation, not a numeric crop. */
+    internal fun sfxRestorationGateway(selected: ReaderMemoryPresentation): com.mangalens.ui.reader.ReaderSfxRestorationGateway =
+        object : com.mangalens.ui.reader.ReaderSfxRestorationGateway {
+            private fun visible(region: PersonalReaderRegion) = readerVisible && authority.isCurrent(selected) &&
+                (region.pageIndex in visiblePages || visiblePages.isEmpty() && visiblePage == region.pageIndex) &&
+                _state.value.personalOverlays[region.pageIndex]?.get(region.nativeIndex) === region.personal
+            override fun isCurrent(region: PersonalReaderRegion) = visible(region)
+            override suspend fun open(region: PersonalReaderRegion): com.mangalens.ui.reader.ReaderSfxOriginalPatch? =
+                com.mangalens.ui.reader.acquireReaderBubblePreviewOnIo {
+                if (!visible(region) || !ReaderSfxRestorationPlan.needsOriginal(region.personal)) return@acquireReaderBubblePreviewOnIo null
+                currentCoroutineContext().ensureActive()
+                val adapter = adapter(storeProvider())
+                val inspection = adapter.inspectSavedBubble(selected, region.pageIndex, region.nativeIndex, region.personal.original)
+                    ?: return@acquireReaderBubblePreviewOnIo null
+                if (inspection.view.personalRevision != region.personal.revision || !visible(region)) return@acquireReaderBubblePreviewOnIo null
+                val bounds = ReaderSfxRestorationPlan.originalPatch(inspection.proof.page, region.nativeIndex, region.personal.original)
+                    ?: return@acquireReaderBubblePreviewOnIo null
+                val source = inspection.source?.copy(bounds = bounds) ?: return@acquireReaderBubblePreviewOnIo null
+                fun current() = visible(region) && adapter.tryAcceptInspection(inspection) != null
+                val crop = com.mangalens.ui.reader.ReaderBubbleOriginalCropLoader(File(filesRoot, "chapters"))
+                    .openVerifiedSource(source, ReaderSfxRestorationPlan.MAX_DECODE_PIXELS) {
+                        currentCoroutineContext().ensureActive()
+                        visible(region) && adapter.isInspectionCurrentOnIo(inspection) &&
+                            com.mangalens.core.compute.ResourceGovernorRuntime.shared.awaitBoundary(com.mangalens.core.compute.ResourceWorkKind.INTERACTIVE) { visible(region) }
+                    } ?: return@acquireReaderBubblePreviewOnIo null
+                var transferred = false
+                try {
+                    currentCoroutineContext().ensureActive()
+                    if (!current()) return@acquireReaderBubblePreviewOnIo null
+                    // A separate transparent overlay cannot replace opacity in the cleaned image beneath it.
+                    // Preserve honesty by declining nonopaque patches instead of claiming restored alpha.
+                    val row = IntArray(crop.bitmap.width)
+                    for (y in 0 until crop.bitmap.height) {
+                        if (y % 16 == 0) currentCoroutineContext().ensureActive()
+                        crop.bitmap.getPixels(row, 0, row.size, 0, y, row.size, 1)
+                        if (row.any { it ushr 24 != 255 }) return@acquireReaderBubblePreviewOnIo null
+                    }
+                    if (!current()) return@acquireReaderBubblePreviewOnIo null
+                    val native = region.personal.original; val page = inspection.proof.page
+                    com.mangalens.ui.reader.ReaderSfxOriginalPatch(crop, android.graphics.Rect(native.left, native.top, native.right, native.bottom),
+                        page.imageWidth, page.imageHeight, source.imageWidth, source.imageHeight, bounds, ::current).also { transferred = true }
+                } finally { if (!transferred) crop.close() }
+            }
+        }
     private fun showGeneratedEditor(selected: ReaderMemoryPresentation, pageIndex: Int, editor: ReaderMemoryEditor,
         edit: MemoryCorrectionEdit, label: String) {
-        if (!readerVisible || !authority.isCurrent(selected)) return
+        if (!readerVisible || !authority.isCurrent(selected) || pageIndex in manuallyHiddenPages) return
         ++pageRequest
         _state.update { it.copy(open = true, pageIndex = pageIndex, editor = editor, choices = emptyList(),
             busy = false, message = null, error = false, generatedEdit = edit, generatedLabel = label) }
         refreshOverlay(pageIndex)
     }
     private fun showInspectedEditor(selected: ReaderMemoryPresentation, pageIndex: Int, editor: ReaderMemoryEditor) {
-        if (!readerVisible || !authority.isCurrent(selected)) return
+        if (!readerVisible || !authority.isCurrent(selected) || pageIndex in manuallyHiddenPages) return
         ++pageRequest
         _state.update { it.copy(open = true, pageIndex = pageIndex, editor = editor, choices = emptyList(),
             busy = false, message = null, error = false, generatedEdit = null, generatedLabel = null) }
@@ -84,11 +134,23 @@ class ReaderMemoryController internal constructor(
         visiblePage?.let(::refreshOverlay)
     }
     internal fun leaveReader() {
-        tools?.dismiss(); readerVisible = false; visiblePages = emptySet(); ++pageRequest; ++overlayRequest; authority.retire(); overlayJob?.cancel(); _state.value = ReaderMemoryUiState()
+        tools?.dismiss(); readerVisible = false; visiblePages = emptySet(); manuallyHiddenPages = emptySet(); ++pageRequest; ++overlayRequest; authority.retire(); overlayJob?.cancel(); _state.value = ReaderMemoryUiState()
     }
     internal fun retire() {
         tools?.dismiss(); accepted = null; visiblePages = emptySet(); ++pageRequest; ++overlayRequest; authority.retire(); overlayJob?.cancel(); _state.value = ReaderMemoryUiState()
     }
+    /** Explicit display denial has no source authority. Retire first, so a held old edit cannot publish after hide. */
+    internal fun onManuallyHiddenPages(pageIndices: Set<Int>) {
+        val next = pageIndices.filter { it >= 0 }.take(2_000).toSet()
+        if (next == manuallyHiddenPages) return
+        manuallyHiddenPages = next
+        tools?.dismiss(); authority.retire(); ++pageRequest; ++overlayRequest; overlayJob?.cancel()
+        _state.value = ReaderMemoryUiState()
+        if (readerVisible) accepted?.let(authority::activate)
+        _state.update { it.copy(bubblePresentation = authority.peekCurrent()) }
+        visiblePage?.takeIf { it !in next }?.let(::refreshOverlay)
+    }
+
     internal fun onVisiblePage(pageIndex: Int?) {
         if (visiblePage == pageIndex) return
         visiblePage = pageIndex
@@ -109,6 +171,7 @@ class ReaderMemoryController internal constructor(
     internal fun dismiss() { ++pageRequest; _state.update { it.copy(open = false, choices = emptyList(), editor = null, message = null, error = false, generatedEdit = null, generatedLabel = null) } }
 
     internal suspend fun openPage(pageIndex: Int) {
+        if (pageIndex in manuallyHiddenPages) return
         tools?.dismiss()
         val selected = authority.current()
         val request = ++pageRequest
@@ -188,8 +251,8 @@ class ReaderMemoryController internal constructor(
         overlayJob?.cancel()
         val request = ++overlayRequest
         val selected = authority.current()
-        val targets = visiblePages.takeIf { pageIndex in it } ?: setOf(pageIndex)
-        if (!readerVisible || selected == null) { _state.update { it.copy(personalOverlays = emptyMap()) }; return }
+        val targets = (visiblePages.takeIf { pageIndex in it } ?: setOf(pageIndex)).filterNot { it in manuallyHiddenPages }.toSet()
+        if (!readerVisible || selected == null || targets.isEmpty()) { _state.update { it.copy(personalOverlays = emptyMap()) }; return }
         // Hide earlier facts while actual source/output bytes are checked again.
         _state.update { it.copy(personalOverlays = emptyMap()) }
         overlayJob = scope.launch {
@@ -215,7 +278,7 @@ class ReaderMemoryController internal constructor(
         }
     }
     private fun isPageRequestCurrent(request: Long, selected: ReaderMemoryPresentation, pageIndex: Int) =
-        pageRequest == request && authority.current() == selected && _state.value.open && _state.value.pageIndex == pageIndex
+        pageIndex !in manuallyHiddenPages && pageRequest == request && authority.current() == selected && _state.value.open && _state.value.pageIndex == pageIndex
 
     private fun adapter(store: ChapterTranslationStore) = NativeMemoryPublicationAdapter(filesRoot, store, authority, writer)
     private fun failure(problem: Exception) { _state.update { it.copy(message = problem.message ?: "The personal correction could not be saved. Reopen the editor.", error = true) } }

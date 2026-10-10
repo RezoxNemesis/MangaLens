@@ -13,7 +13,8 @@ data class SubtitleMediaSource(
     val label: String = "Video",
     val providerCaptions: ProviderCaptionInventory? = null,
     val sourceResolutionId: String? = null,
-    val captionDocumentOnly: Boolean = false
+    val captionDocumentOnly: Boolean = false,
+    val fragmentPlan: com.mangalens.download.OriginalFragmentPlan? = null
 )
 
 enum class SubtitleOutputMode { TRANSLATED, DUAL }
@@ -88,7 +89,8 @@ data class SubtitleGenerationConfig(
 }
 
 data class SubtitleSourceIdentity(val source: SubtitleMediaSource, val fingerprint: String, val verifiable: Boolean = true,
-    val strongEtag: String? = null, val networkSize: Long? = null, val networkUrl: String? = null)
+    val strongEtag: String? = null, val networkSize: Long? = null, val networkUrl: String? = null,
+    val fragmentContentSha256: String? = null, val fragmentSize: Long? = null)
 enum class SubtitleGenerationStatus { QUEUED, RUNNING, PAUSED, COMPLETED, PARTIAL, FAILED, CANCELLED }
 data class SubtitleTranslatedCue(val sourceIndex: Int, val text: String, val hindiDraft: String? = null,
     val refinement: SubtitleSavedRefinement? = null, val refinementDraft: String? = null, val refinementCandidate: String? = null, val refinementHindiDraft: String? = null)
@@ -209,7 +211,7 @@ internal object SubtitleFormats {
     }
 }
 
-internal fun SubtitleMediaSource.captureSnapshot(): SubtitleMediaSource = copy(headers = headers.toMap(), providerCaptions = providerCaptions?.captureSnapshot())
+internal fun SubtitleMediaSource.captureSnapshot(): SubtitleMediaSource = copy(headers = headers.toMap(), providerCaptions = providerCaptions?.captureSnapshot(), fragmentPlan = fragmentPlan?.captured())
 
 internal class SubtitleGenerationRequest(val token: Long, source: SubtitleMediaSource, val sourceLanguage: String, targetOptions: SubtitleTargetOptions? = null) {
     val source = source.captureSnapshot()
@@ -240,13 +242,19 @@ internal suspend fun runSubtitleControl(action: suspend () -> Unit, accepted: ()
 
 internal enum class SubtitleSourceCheck { MATCH, CHANGED, UNVERIFIED }
 internal fun hasSubtitleSourceProof(identity: SubtitleSourceIdentity): Boolean = identity.verifiable &&
-    (identity.source.uri.substringBefore(':').lowercase(java.util.Locale.ROOT) !in setOf("http", "https") ||
+    (if (identity.source.fragmentPlan != null) identity.source.fragmentPlan.sourceUrl == identity.source.uri &&
+        identity.source.sourceResolutionId?.matches(Regex("[a-f0-9]{32}")) == true && identity.fragmentContentSha256?.matches(Regex("[a-f0-9]{64}")) == true &&
+        identity.fragmentSize?.let { it in 1..4L * 1024 * 1024 * 1024 } == true
+    else identity.source.uri.substringBefore(':').lowercase(java.util.Locale.ROOT) !in setOf("http", "https") ||
         identity.strongEtag?.let(::isStrongSubtitleEtag) == true && identity.networkSize?.let { it > 0 } == true && identity.networkUrl != null)
 internal fun canTrustSubtitleSource(expected: SubtitleSourceIdentity, actual: SubtitleSourceIdentity): Boolean =
     hasSubtitleSourceProof(expected) && hasSubtitleSourceProof(actual) && expected.fingerprint == actual.fingerprint &&
-        expected.strongEtag == actual.strongEtag && expected.networkSize == actual.networkSize && expected.networkUrl == actual.networkUrl
+        expected.strongEtag == actual.strongEtag && expected.networkSize == actual.networkSize && expected.networkUrl == actual.networkUrl &&
+        expected.fragmentContentSha256 == actual.fragmentContentSha256 && expected.fragmentSize == actual.fragmentSize
 internal fun assessSubtitleSource(expected: SubtitleSourceIdentity, actual: SubtitleSourceIdentity): SubtitleSourceCheck =
     when {
+        expected.source.fragmentPlan != null && hasSubtitleSourceProof(expected) && hasSubtitleSourceProof(actual) &&
+            (expected.fragmentContentSha256 != actual.fragmentContentSha256 || expected.fragmentSize != actual.fragmentSize) -> SubtitleSourceCheck.CHANGED
         expected.fingerprint == actual.fingerprint -> SubtitleSourceCheck.MATCH
         !hasSubtitleSourceProof(expected) || !hasSubtitleSourceProof(actual) -> SubtitleSourceCheck.UNVERIFIED
         else -> SubtitleSourceCheck.CHANGED

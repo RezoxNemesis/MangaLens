@@ -28,8 +28,9 @@ class LocalVideoPlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun openHttp(value: String, referer: String? = null, headers: Map<String, String> = emptyMap(),
         audioUrl: String? = null, audioHeaders: Map<String, String> = emptyMap(), refreshFromRevision: Long? = null,
         sourceResolutionId: String? = null, providerCaptions: ProviderCaptionInventory? = null,
-        videoMimeType: String? = null, audioMimeType: String? = null): Boolean =
-        session.openHttp(presentation, value, referer, headers, audioUrl, audioHeaders, refreshFromRevision, sourceResolutionId, providerCaptions, videoMimeType, audioMimeType)
+        videoMimeType: String? = null, audioMimeType: String? = null,
+        videoFragments: com.mangalens.download.OriginalFragmentPlan? = null, audioFragments: com.mangalens.download.OriginalFragmentPlan? = null): Boolean =
+        session.openHttp(presentation, value, referer, headers, audioUrl, audioHeaders, refreshFromRevision, sourceResolutionId, providerCaptions, videoMimeType, audioMimeType, videoFragments, audioFragments)
     fun bind(view: PlayerView, epoch: Long = presentation) { view.player = player.takeIf { session.policy.ownsPresentation(epoch) } }
     internal fun attachPresentation(): Long {
         presentation = session.attachPresentation()

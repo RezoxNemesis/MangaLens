@@ -29,7 +29,8 @@ internal object OriginalMediaRemuxer {
     suspend fun assemble(context: Context, video: File, audio: File?, sourceMime: String,
                          outputBase: File, expectedDurationUs: Long?, selectedHeight: Int?,
                          selection: OriginalMediaSelection? = null,
-                         requireCombinedAudio: Boolean = false): OriginalMediaPublication = try {
+                         requireCombinedAudio: Boolean = false,
+                         observedVideoSpanUs: Long? = null, observedAudioSpanUs: Long? = null): OriginalMediaPublication = try {
         val ownerId = outputBase.name.substringBefore(".muxed-")
         require(ownerId.matches(Regex("[A-Za-z0-9_-]{1,100}")))
         MediaResolutionRunner.run(300_000L, DownloadPrivateFileOwner(requireNotNull(outputBase.parentFile), ownerId)) { session ->
@@ -49,6 +50,7 @@ internal object OriginalMediaRemuxer {
                     "Downloaded video codec differs from the selected original source."
                 }
                 OriginalMediaProbe.verifyTail(source, expectedDurationUs)
+                OriginalMediaProbe.verifyObservedSpan(source, videoTrack, observedVideoSpanUs)
                 if (audio == null) {
                     require(!requireCombinedAudio || source.audio != null) {
                         "Legacy media has no proven complete audio source. Resolve the source again; no silent substitute was published."
@@ -63,6 +65,7 @@ internal object OriginalMediaRemuxer {
                     "Downloaded audio codec differs from the selected original source."
                 }
                 OriginalMediaProbe.verifyTail(sound, expectedDurationUs)
+                OriginalMediaProbe.verifyObservedSpan(sound, audioTrack, observedAudioSpanUs)
                 val plan = OriginalMediaMuxPolicy.plan(videoTrack.mime, audioTrack.mime, Build.VERSION.SDK_INT)
                 // A timed-out previous worker can only continue writing its own attempt's output.
                 val output = File(outputBase.parentFile, "${outputBase.name}.${plan.container.extension}")
@@ -72,7 +75,7 @@ internal object OriginalMediaRemuxer {
                     if (backend == OriginalMuxBackend.ANDROID) {
                         try {
                             LocalMediaMuxer.mux(video, audio, output, plan, session::checkActive)
-                            verified = verifyOutput(runtime, output, source, videoTrack, sound, audioTrack, expectedDurationUs, session, outputBase)
+                            verified = verifyOutput(runtime, output, source, videoTrack, sound, audioTrack, expectedDurationUs, session, outputBase, observedVideoSpanUs, observedAudioSpanUs)
                         } catch (failure: Exception) {
                             session.checkActive()
                             if (failure is InterruptedException) throw failure
@@ -83,7 +86,7 @@ internal object OriginalMediaRemuxer {
                     if (verified == null) {
                         NativeOriginalMediaRuntime.execute(runtime, NativeMediaTool.FFMPEG,
                             OriginalMediaMuxPolicy.copyArguments(video.absolutePath, audio.absolutePath, output.absolutePath, plan), session)
-                        verified = verifyOutput(runtime, output, source, videoTrack, sound, audioTrack, expectedDurationUs, session, outputBase)
+                        verified = verifyOutput(runtime, output, source, videoTrack, sound, audioTrack, expectedDurationUs, session, outputBase, observedVideoSpanUs, observedAudioSpanUs)
                     }
                     session.checkActive()
                     OriginalMediaPublication(output, plan.container.mime, verified.withoutTimingReceipts(), backend, playbackSupported(verified))
@@ -107,7 +110,8 @@ internal object OriginalMediaRemuxer {
 
     private fun verifyOutput(runtime: NativeOriginalMediaInstallation, output: File, video: VerifiedOriginalMedia,
                              videoTrack: OriginalMediaTrack, audio: VerifiedOriginalMedia, audioTrack: OriginalMediaTrack,
-                             expectedDurationUs: Long?, session: MediaResolutionSession, outputBase: File): VerifiedOriginalMedia {
+                             expectedDurationUs: Long?, session: MediaResolutionSession, outputBase: File,
+                             observedVideoSpanUs: Long?, observedAudioSpanUs: Long?): VerifiedOriginalMedia {
         val result = OriginalMediaProbe.inspect(runtime, output, session,
             timingBase = File(outputBase.parentFile, "${outputBase.name}.result"))
         val resultVideo = result.video ?: error("Remuxed output has no video track.")
@@ -123,6 +127,8 @@ internal object OriginalMediaRemuxer {
             "Remuxed output changed the original audio/video timing. No lower-quality file was published."
         }
         OriginalMediaProbe.verifyTail(result, expectedDurationUs)
+        OriginalMediaProbe.verifyObservedSpan(result, resultVideo, observedVideoSpanUs)
+        OriginalMediaProbe.verifyObservedSpan(result, resultAudio, observedAudioSpanUs)
         return result
     }
 

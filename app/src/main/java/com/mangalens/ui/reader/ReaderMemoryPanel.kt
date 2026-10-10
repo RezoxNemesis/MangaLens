@@ -53,6 +53,9 @@ internal fun ReaderMemoryPanel(controller: ReaderMemoryController, onRetranslate
                     var ocr by rememberSaveable(receipt, editor.bubble.editRevision, state.generatedEdit) { mutableStateOf(preset.ocr) }
                     var translated by rememberSaveable(receipt, editor.bubble.editRevision, state.generatedEdit) { mutableStateOf(preset.translated) }
                     var hindi by rememberSaveable(receipt, editor.bubble.editRevision, state.generatedEdit) { mutableStateOf(preset.hindiDraft) }
+                    var userKind by rememberSaveable(receipt, editor.bubble.editRevision) { mutableStateOf(edit?.regionPresentation?.userKind?.name.orEmpty()) }
+                    var sfxPolicy by rememberSaveable(receipt, editor.bubble.editRevision) { mutableStateOf(edit?.regionPresentation?.sfx?.name ?: "REPLACE") }
+                    var sfxAnnotation by rememberSaveable(receipt, editor.bubble.editRevision) { mutableStateOf(edit?.regionPresentation?.annotation.orEmpty()) }
                     state.generatedLabel?.let { Text(it, style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.semantics { contentDescription = "Unsaved alternative: $it" }) }
                     Text("Original OCR", style = MaterialTheme.typography.titleSmall)
@@ -67,8 +70,15 @@ internal fun ReaderMemoryPanel(controller: ReaderMemoryController, onRetranslate
                         supportingText = { Text("Keep the Hindi draft that produces this Roman Hindi translation.") }, enabled = !state.busy,
                         modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Personal Hindi draft" })
                     val values = PersonalMemoryEditorValues(ocr, translated, hindi)
-                    val changed = PersonalMemoryEditorInputPolicy.changed(initial, values, receipt.targetLanguage)
-                    Button({ scope.launch { controller.save(PersonalMemoryEditorInputPolicy.edit(receipt, editor.savedHindiDraft, values)) } },
+                    val kind = userKind.takeIf { it.isNotEmpty() }?.let(com.mangalens.core.translation.memory.MemoryUserRegionKind::valueOf)
+                    val policy = com.mangalens.core.translation.memory.MemorySfxPresentation.valueOf(sfxPolicy)
+                    val presentation = kind?.let { com.mangalens.core.translation.memory.MemoryRegionPresentation(it,
+                        policy.takeIf { kind == com.mangalens.core.translation.memory.MemoryUserRegionKind.SFX },
+                        sfxAnnotation.trim().takeIf { kind == com.mangalens.core.translation.memory.MemoryUserRegionKind.SFX && policy == com.mangalens.core.translation.memory.MemorySfxPresentation.ANNOTATE && it.isNotEmpty() }) }
+                    ReaderRegionPresentationEditor(kind, policy, sfxAnnotation, !state.busy,
+                        { userKind = it?.name.orEmpty() }, { sfxPolicy = it.name }, { sfxAnnotation = it })
+                    val changed = PersonalMemoryEditorInputPolicy.changed(initial, values, receipt.targetLanguage) || presentation != edit?.regionPresentation
+                    Button({ scope.launch { controller.save(PersonalMemoryEditorInputPolicy.edit(receipt, editor.savedHindiDraft, values).copy(regionPresentation = presentation)) } },
                         enabled = changed && ocr.isNotBlank() && translated.isNotBlank() && !state.busy,
                         modifier = Modifier.semantics { contentDescription = "Save personal correction" }) { Text("Save correction") }
                     if (editor.bubble.correction != null) TextButton({ scope.launch { controller.remove() } }, enabled = !state.busy,

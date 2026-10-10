@@ -60,6 +60,34 @@ object ChapterImageCandidates {
 
     private fun Double?.orEmptyScore(): Double = this ?: 1.0
 
+    internal data class Observation(val images: List<ChapterImageCandidate>, val videos: List<String>,
+        val viewport: ChapterObservationViewport?, val limited: Boolean)
+    internal fun decodeObservation(raw: String, expectedPage: String): Observation = Observation(
+        decode(raw, expectedPage), decodeVideos(raw, expectedPage), decodeViewport(raw, expectedPage), decodeLimited(raw, expectedPage))
+    internal fun decodeLimited(raw: String, expectedPage: String): Boolean {
+        if (raw.length > MAX_JSON_CHARS * 2) return true
+        return runCatching {
+            val text = org.json.JSONTokener(raw).nextValue() as? String ?: return@runCatching true
+            require(text.length <= MAX_JSON_CHARS)
+            val json = JSONObject(text)
+            require(normalizedUrl(json.getString("pageUrl"), expectedPage) == normalizedUrl(expectedPage, expectedPage))
+            json.optBoolean("limited", false) || (json.optJSONArray("images")?.length() ?: 0) >= MAX_IMAGES ||
+                (json.optJSONArray("videos")?.length() ?: 0) >= 500
+        }.getOrDefault(true)
+    }
+
+    internal fun decodeViewport(raw: String, expectedPage: String): ChapterObservationViewport? {
+        if (raw.length > MAX_JSON_CHARS * 2) return null
+        return runCatching {
+            val text = org.json.JSONTokener(raw).nextValue() as? String ?: return@runCatching null
+            require(text.length <= MAX_JSON_CHARS)
+            val json = JSONObject(text)
+            require(normalizedUrl(json.getString("pageUrl"), expectedPage) == normalizedUrl(expectedPage, expectedPage))
+            val viewport = json.getJSONObject("viewport")
+            ChapterObservationViewport(viewport.getLong("top"), viewport.getLong("height"), viewport.getLong("total"))
+        }.getOrNull()
+    }
+
     fun decodeVideos(raw: String, expectedPage: String): List<String> {
         if (raw.length > MAX_JSON_CHARS * 2) return emptyList()
         return runCatching {

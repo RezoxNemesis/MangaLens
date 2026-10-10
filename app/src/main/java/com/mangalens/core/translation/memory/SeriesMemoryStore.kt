@@ -598,16 +598,28 @@ class SeriesMemoryStore internal constructor(filesRoot: File, private val writer
     }
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) {
         coroutineContext.ensureActive()
-        synchronized(mutationGuard) {
+        mutationGuard.lock()
+        try {
             coroutineContext.ensureActive()
             require(directory.canonicalFile.parentFile == privateRoot &&
                 chapterDirectory.canonicalFile.parentFile == directory.canonicalFile &&
                 seriesDirectory.canonicalFile.parentFile == directory.canonicalFile) { "Personal memory must remain in private managed storage." }
             block()
-        }
+        } finally { mutationGuard.unlock() }
     }
     companion object {
-        private val mutationGuard = Any()
+        private val mutationGuard = java.util.concurrent.locks.ReentrantLock()
+        /** Final prepared Library glossary rename shares the actual memory publication gate. */
+        internal fun <T> publishNativeLibraryMetadata(body: () -> T): T {
+            // Share the entire ordinary read/prepare/commit transaction, not only its rename.
+            // A stale already-prepared personal writer must finish before this captured native
+            // transaction can pass its final stamps; task authority never waits for its fsync.
+            if (!mutationGuard.tryLock()) throw com.mangalens.core.reader.NativeLibraryMetadataBusyException()
+            try {
+                if (!readDeliveryGate.tryLock()) throw com.mangalens.core.reader.NativeLibraryMetadataBusyException()
+                try { return body() } finally { readDeliveryGate.unlock() }
+            } finally { mutationGuard.unlock() }
+        }
         private val readDeliveryGate = java.util.concurrent.locks.ReentrantLock()
         private const val MAX_CHAPTER_BYTES = 2 * 1_024 * 1_024
         private const val MAX_SERIES_BYTES = 1_024 * 1_024

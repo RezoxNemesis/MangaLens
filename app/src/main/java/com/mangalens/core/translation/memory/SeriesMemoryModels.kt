@@ -70,11 +70,13 @@ data class MemoryPublicationReceipt(
         source.bounds.right.toString(), source.bounds.bottom.toString(), targetLanguage.lowercase(Locale.ROOT), configurationIdentity, seriesId ?: "chapter-only"))
 }
 
-data class MemoryCorrectionEdit(val correctedOcr: String? = null, val translated: String? = null, val hindiDraft: String? = null) {
+data class MemoryCorrectionEdit(val correctedOcr: String? = null, val translated: String? = null, val hindiDraft: String? = null,
+    val regionPresentation: MemoryRegionPresentation? = null) {
     fun validate() {
         correctedOcr?.let(::memoryValidateText)
         translated?.let(::memoryValidateText)
         hindiDraft?.let(::memoryValidateText)
+        regionPresentation?.validate()
         require(hindiDraft == null || translated != null) { "Hindi evidence must accompany a translated correction." }
     }
 }
@@ -136,11 +138,12 @@ data class SeriesStylePreference(val styleId: String, val targetLanguage: String
 }
 
 data class SeriesMemoryProfile(val id: String, val title: String, val glossary: List<SeriesGlossaryTerm> = emptyList(),
-    val style: SeriesStylePreference? = null, val removed: Boolean = false) {
+    val style: SeriesStylePreference? = null, val removed: Boolean = false,
+    val nativeLibraryOperation: com.mangalens.core.reader.NativeLibraryOperationReceipt? = null) {
     fun validate() {
         require(memoryValidId(id) && title.isNotBlank() && title.length <= 256 && !title.contains('\u0000'))
         require(glossary.size <= 512 && glossary.map { it.id }.distinct().size == glossary.size)
-        glossary.forEach { it.validate() }; style?.validate()
+        glossary.forEach { it.validate() }; style?.validate(); nativeLibraryOperation?.validate()
     }
 }
 

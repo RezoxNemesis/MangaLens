@@ -42,7 +42,7 @@ class OrezNativeSubtitleHost(
         val captured = descriptor.captured()
         val source = SubtitleInputs.capture(app, captured.nativeSubtitleSource())
         val captionCandidate = captured.hasProviderCaptionCandidate()
-        require(hasSubtitleSourceProof(source) || captionCandidate) { "Select a saved file, stable playable source or verified provider caption selection." }
+        require(hasSubtitleSourceProof(source) || captionCandidate || captured.hasFragmentSourceCandidate()) { "Select a saved file, stable playable source or verified provider caption selection." }
         val installed = SubtitleInputs.config(app, "auto").modelSha256
         val model = if (pin == "" && captionCandidate) "" else installed ?: "".also {
             require(captionCandidate) { "Install or import a multilingual Whisper model first." }
@@ -55,7 +55,7 @@ class OrezNativeSubtitleHost(
     override suspend fun start(media: OrezSubtitleSnapshot, options: OrezSubtitleOptions, requestId: String,
         allowReplacement: Boolean): OrezSubtitleReceipt = withContext(Dispatchers.IO) {
         val source = SubtitleInputs.capture(app, media.descriptor.nativeSubtitleSource())
-        require((hasSubtitleSourceProof(source) || options.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && media.descriptor.hasProviderCaptionCandidate()) &&
+        require((hasSubtitleSourceProof(source) || media.descriptor.hasFragmentSourceCandidate() || options.pipeline == SubtitlePipeline.SOURCE_TRANSLATION && media.descriptor.hasProviderCaptionCandidate()) &&
             source.fingerprint == media.sourceFingerprint) { "The selected media changed after inspection." }
         val savedSpeech = if (allowReplacement) null else native.states.value.firstOrNull { task ->
             task.ownerRequestId == requestId && task.source.source == source.source && task.source.fingerprint == media.sourceFingerprint &&

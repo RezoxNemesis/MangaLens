@@ -5,17 +5,19 @@ import org.json.JSONObject
 
 /** Bounded schemas never confuse the cache, personal edits, source proof or generated surface. */
 internal object SeriesMemoryCodec {
-    fun chapter(value: MemoryChapterJournal): ByteArray = JSONObject().put("version", 3).put("chapterId", value.chapterId).put("associationRevision", value.associationRevision)
+    fun chapter(value: MemoryChapterJournal): ByteArray = JSONObject().put("version", if (value.bubbles.any { bubble -> bubble.correction?.revisions?.any { it.edit.regionPresentation != null } == true }) 4 else 3).put("chapterId", value.chapterId).put("associationRevision", value.associationRevision)
         .put("removed", value.removed).put("association", value.association?.let { JSONObject().put("seriesId", it.seriesId).put("ordinal", it.ordinal) })
         .put("bubbles", JSONArray().apply { value.bubbles.forEach { bubble -> put(JSONObject().put("receipt", receipt(bubble.receipt)).put("editRevision", bubble.editRevision)
             .put("correction", bubble.correction?.let { correction -> JSONObject().put("original", receipt(correction.original))
                 .put("revisions", JSONArray().apply { correction.revisions.forEach { revision -> put(JSONObject().put("number", revision.revision)
                     .put("editedAt", revision.editedAt).put("ocr", revision.edit.correctedOcr).put("translation", revision.edit.translated)
-                    .put("hindiDraft", revision.edit.hindiDraft)) } }) }) ) } }).toString().toByteArray(Charsets.UTF_8)
+                    .put("hindiDraft", revision.edit.hindiDraft).apply { revision.edit.regionPresentation?.let { presentation ->
+                        put("userRegion", JSONObject().put("kind", presentation.userKind.name).put("sfx", presentation.sfx?.name).put("annotation", presentation.annotation))
+                    } }) } }) }) ) } }).toString().toByteArray(Charsets.UTF_8)
 
     fun readChapter(bytes: ByteArray): MemoryChapterJournal {
         val json = JSONObject(bytes.toString(Charsets.UTF_8))
-        val version = json.nonNegativeInt("version"); require(version in 1..3)
+        val version = json.nonNegativeInt("version"); require(version in 1..4)
         val id = json.getString("chapterId"); require(memoryValidId(id))
         val association = json.optJSONObject("association")?.let { row -> MemoryChapterAssociation(id, row.getString("seriesId"),
             if (row.isNull("ordinal")) null else row.getInt("ordinal")).also { it.validate() } }
@@ -28,7 +30,12 @@ internal object SeriesMemoryCodec {
                 val history = saved.getJSONArray("revisions"); require(history.length() in 1..32)
                 MemoryCorrection(original, (0 until history.length()).map { n ->
                     val revision = history.getJSONObject(n)
-                    val edit = MemoryCorrectionEdit(revision.optionalText("ocr"), revision.optionalText("translation"), revision.optionalText("hindiDraft"))
+                    val presentation = if (!revision.has("userRegion")) null else revision.getJSONObject("userRegion").let { row ->
+                        require(version >= 4) { "Personal region presentation requires its explicit journal schema." }
+                        MemoryRegionPresentation(MemoryUserRegionKind.valueOf(row.getString("kind")),
+                            row.optionalText("sfx")?.let(MemorySfxPresentation::valueOf), row.optionalText("annotation")).also { it.validate() }
+                    }
+                    val edit = MemoryCorrectionEdit(revision.optionalText("ocr"), revision.optionalText("translation"), revision.optionalText("hindiDraft"), presentation)
                     edit.validate()
                     val number = revision.nonNegativeInt("number"); val editedAt = revision.getLong("editedAt")
                     require(number > 0 && editedAt >= 0)
@@ -53,6 +60,9 @@ internal object SeriesMemoryCodec {
         .put("glossary", JSONArray().apply { value.glossary.forEach { term -> put(JSONObject().put("id", term.id).put("source", term.source)
             .put("preferred", term.preferred).put("target", term.targetLanguage).put("kind", term.kind.name).put("aliases", JSONArray(term.aliases))
             .put("updatedAt", term.updatedAt).put("originSha", term.originSourceSha256).put("origin", term.origin?.let { JSONObject().put("chapter", it.chapterId).put("page", it.pageIndex) })) } })
+        .apply { value.nativeLibraryOperation?.validate()?.takeIf { it.operation == "SET_TERM" &&
+            it.stateSha256 == com.mangalens.core.reader.NativeLibraryOperationReceipt.stateDigest(this) }
+            ?.let { put("nativeLibraryOperation",com.mangalens.core.reader.NativeLibraryOperationReceiptCodec.encode(it)) } }
         .toString().toByteArray(Charsets.UTF_8)
 
     fun readProfile(bytes: ByteArray): SeriesMemoryProfile {
@@ -65,7 +75,9 @@ internal object SeriesMemoryCodec {
                 row.optJSONObject("origin")?.let { MemoryLocation(it.getString("chapter"), it.getInt("page")) }, row.getLong("updatedAt"), row.optionalText("originSha"))
         }
         val style = json.optJSONObject("style")?.let { SeriesStylePreference(it.getString("id"), it.getString("target"), it.getString("custom")) }
-        return SeriesMemoryProfile(json.getString("id"), json.getString("title"), terms, style, json.getBoolean("removed")).also {
+        return SeriesMemoryProfile(json.getString("id"), json.getString("title"), terms, style, json.getBoolean("removed"),
+            json.optJSONObject("nativeLibraryOperation")?.let(com.mangalens.core.reader.NativeLibraryOperationReceiptCodec::decode)
+                ?.takeIf { it.stateSha256 == com.mangalens.core.reader.NativeLibraryOperationReceipt.stateDigest(json) }).also {
             it.validate(); require(!it.removed || (it.glossary.isEmpty() && it.style == null))
         }
     }

@@ -21,32 +21,46 @@ object TranslationQualityPolicy {
         refined: String,
         targetLanguage: String,
         hindiDraft: String? = null,
-        style: TranslationStyleProfile? = null
-    ): String = chooseDraft(source, TranslationDraft(draft, hindiDraft), refined, targetLanguage, style).text
+        style: TranslationStyleProfile? = null,
+        capturedGlossary: Map<String, String> = emptyMap()
+    ): String = chooseDraft(source, TranslationDraft(draft, hindiDraft), refined, targetLanguage, style, capturedGlossary).text
 
     fun chooseDraft(
         source: String,
         draft: TranslationDraft,
         refined: String,
         targetLanguage: String,
-        style: TranslationStyleProfile? = null
+        style: TranslationStyleProfile? = null,
+        capturedGlossary: Map<String, String> = emptyMap()
     ): TranslationDraft {
         val cleanDraft = clean(draft.text)
         val cleanRefined = clean(refined)
         val draftUsable = isAcceptable(source, "", cleanDraft, targetLanguage, hindiDraft = draft.hindiDraft)
         // A refiner/model output is independently checked. The draft's Hindi evidence
         // never grants a different English or Roman candidate permission to pass.
-        val refinedUsable = isAcceptable(source, if (draftUsable) cleanDraft else "", cleanRefined, targetLanguage)
+        val comparisonGlossary = capturedGlossary.takeIf { it.size <= 20 }?.toMap()
+        val refinedUsable = isAcceptable(source, if (draftUsable) cleanDraft else "", cleanRefined, targetLanguage) &&
+            comparisonGlossary != null && TranslationCandidateComparisonPolicy.assess(source, if (draftUsable) cleanDraft else "",
+                cleanRefined, targetLanguage, comparisonGlossary) == TranslationCandidateComparison.COMPATIBLE
         val selected = when {
             refinedUsable -> cleanRefined
             draftUsable -> cleanDraft
             else -> throw TranslationQualityException()
         }
-        val registerAware = harmonizeRegister(source, selected, targetLanguage, style)
+        val harmonized = harmonizeRegister(source, selected, targetLanguage, style)
+        // A register edit is another candidate. Never let a later deterministic edit
+        // bypass the independent checks that admitted the original selected text.
+        val selectedHindiProof = draft.hindiDraft?.takeIf { draftUsable && selected == cleanDraft && HindiRomanization.isTarget(targetLanguage) }
+        val harmonizedHindiProof = selectedHindiProof?.let {
+            try { hindiDraftForRomanOutput(source, it, style) } catch (_: TranslationQualityException) { null }
+        }
+        val registerAware = harmonized.takeIf { isAcceptable(source, "", it, targetLanguage, hindiDraft = harmonizedHindiProof) &&
+            comparisonGlossary != null && TranslationCandidateComparisonPolicy.assess(source, selected, it, targetLanguage,
+                comparisonGlossary) == TranslationCandidateComparison.COMPATIBLE } ?: selected
         val result = restoreTerminalPunctuation(source, registerAware)
-        val retainedProof = draft.hindiDraft?.takeIf {
-            draftUsable && result == restoreTerminalPunctuation(source, harmonizeRegister(source, cleanDraft, targetLanguage, style))
-        }?.let { hindiDraftForRomanOutput(source, it, style) }?.takeIf { isUsable(source, result, targetLanguage, it) }
+        val retainedProof = selectedHindiProof?.let {
+            if (registerAware == harmonized) harmonizedHindiProof ?: it else it
+        }?.takeIf { isUsable(source, result, targetLanguage, it) }
         return TranslationDraft(result, retainedProof)
     }
 

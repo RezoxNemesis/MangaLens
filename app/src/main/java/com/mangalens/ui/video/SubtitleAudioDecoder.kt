@@ -24,12 +24,17 @@ internal class SubtitleAudioDecoder(context: Context) {
         expectedUrl: String? = null,
         onChunk: suspend (FloatArray, Long, Float, Long) -> Unit
     ) {
-        val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         var network: SubtitleNetworkSource? = null
+        val fragment = source.fragmentPlan
+        val held = if (fragment == null) null else coroutineContext[SubtitleFragmentSources.HeldFragmentSubtitleSource]
+            ?: error("Selected fragments need their completed, held original audio source.")
+        require(held == null || held.source == source) { "Held fragment audio belongs to another source." }
+        val extractor = MediaExtractor()
         try {
             val uri = Uri.parse(source.uri)
-            when (uri.scheme?.lowercase()) {
+            if (held != null) extractor.setDataSource(held.descriptor(), 0L, held.size())
+            else when (uri.scheme?.lowercase()) {
                 "content", "android.resource", "file" -> extractor.setDataSource(app, uri, source.headers)
                 "http", "https" -> {
                     val reader = SubtitleNetworkSource(source, expectedEtag = expectedEtag, expectedSize = expectedSize, expectedUrl = expectedUrl)
@@ -49,11 +54,15 @@ internal class SubtitleAudioDecoder(context: Context) {
 
             val inputFormat = extractor.getTrackFormat(audioTrack)
             val mime = inputFormat.getString(MediaFormat.KEY_MIME) ?: error("Audio codec is unknown.")
-            val durationUs = if (inputFormat.containsKey(MediaFormat.KEY_DURATION)) {
-                inputFormat.getLong(MediaFormat.KEY_DURATION).coerceAtLeast(1L)
-            } else 1L
+            val reportedDurationUs = if (inputFormat.containsKey(MediaFormat.KEY_DURATION)) inputFormat.getLong(MediaFormat.KEY_DURATION).takeIf { it > 0 } else null
+            val durationUs = if (fragment != null) reportedDurationUs ?: fragment.durationUs
+                else reportedDurationUs ?: 1L
+            if (fragment != null && reportedDurationUs != null) require(kotlin.math.abs(reportedDurationUs - fragment.durationUs) <= 1_500_000L) {
+                "Decoded original audio duration differs from the selected video. Completed windows were retained."
+            }
             require(durationUs / 1000 <= SubtitleGenerationStore.MAX_DURATION) { "Generate subtitles for videos up to six hours." }
             var decodedEndMs = 0L
+            var decodedFirstMs: Long? = null
 
             extractor.selectTrack(audioTrack)
             val decoder = MediaCodec.createDecoderByType(mime)
@@ -125,6 +134,7 @@ internal class SubtitleAudioDecoder(context: Context) {
                         decoder.releaseOutputBuffer(outputIndex, false)
                         val progress = (lastPresentationUs.toDouble() / durationUs.toDouble()).toFloat().coerceIn(0f, 1f)
                         for (chunk in ready) {
+                            if (decodedFirstMs == null) decodedFirstMs = chunk.startMs
                             decodedEndMs = chunk.startMs + chunk.samples.size * 1000L / 16000
                             onChunk(chunk.samples, chunk.startMs, progress, durationUs / 1000)
                         }
@@ -137,15 +147,31 @@ internal class SubtitleAudioDecoder(context: Context) {
 
             val trailing = chunker.flush()
             if (trailing != null) {
+                if (decodedFirstMs == null) decodedFirstMs = trailing.startMs
                 decodedEndMs = trailing.startMs + trailing.samples.size * 1000L / 16000
                 onChunk(trailing.samples, trailing.startMs, 1f, durationUs / 1000)
             }
             require(durationUs <= 1 || decodedEndMs + 1500 >= durationUs / 1000) { "Audio ended before its advertised duration. Completed windows have been kept." }
+            if (fragment != null) require(decodedFirstMs?.let { it in 0..1500L } == true &&
+                decodedEndMs + 1500 >= fragment.durationUs / 1000 && decodedEndMs <= fragment.durationUs / 1000 + 1500) {
+                "Original audio does not cover the captured video clock and tail. Completed windows were retained."
+            }
         } finally {
-            runCatching { codec?.stop() }
-            runCatching { codec?.release() }
-            runCatching { extractor.release() }
-            network?.close()
+            if (held == null) {
+                runCatching { codec?.stop() }; runCatching { codec?.release() }; runCatching { extractor.release() }
+                network?.close()
+            } else {
+                var cleanupFailure: Throwable? = null
+                fun cleanup(resource: Any, action: () -> Unit) {
+                    try { action() } catch (failure: Throwable) {
+                        held.retainUnreleased(resource)
+                        if (cleanupFailure == null) cleanupFailure = failure else cleanupFailure?.addSuppressed(failure)
+                    }
+                }
+                codec?.let { decoder -> cleanup(decoder) { decoder.stop() }; cleanup(decoder) { decoder.release() } }
+                cleanup(extractor) { extractor.release() }
+                cleanupFailure?.let { throw java.io.IOException("Original audio decoder cleanup could not be proven. Its source was retained.", it) }
+            }
         }
     }
 

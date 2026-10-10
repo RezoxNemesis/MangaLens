@@ -46,7 +46,7 @@ object MangaLettering {
         val padding = max(2, (lineHeight * .14f).toInt())
         val reference = borderColor(image, bounds, padding)
         val uniformSurface = isUniformSurface(image, bounds, reference, padding)
-        val rect = expandWritableSurface(image, bounds, reference, padding, lineHeight, uniformSurface, writableLimit)
+        val rect = expandWritableSurface(image, bounds, reference, padding, lineHeight, uniformSurface, writableLimit, reconstructionVersion >= 2)
 
         require(rect.width() > 0 && rect.height() > 0)
         if (reconstructionVersion >= 2) require(rect.width().toLong() * rect.height() <= 2_000_000L) { "This region exceeds the bounded reconstruction area. Retry a smaller region." }
@@ -104,7 +104,8 @@ object MangaLettering {
         padding: Int,
         lineHeight: Float,
         uniformSurface: Boolean,
-        writableLimit: Rect?
+        writableLimit: Rect?,
+        strictSurface: Boolean
     ): Rect {
         var left = (bounds.left.toInt() - padding).coerceAtLeast(0)
         var top = (bounds.top.toInt() - padding).coerceAtLeast(0)
@@ -138,28 +139,28 @@ object MangaLettering {
             changed = false
             if (left > minLeft) {
                 val candidate = max(minLeft, left - step)
-                if (stripMatches(image, candidate, top, left, bottom, reference)) {
+                if (stripMatches(image, candidate, top, left, bottom, reference, strictSurface)) {
                     left = candidate
                     changed = true
                 }
             }
             if (right < maxRight) {
                 val candidate = min(maxRight, right + step)
-                if (stripMatches(image, right, top, candidate, bottom, reference)) {
+                if (stripMatches(image, right, top, candidate, bottom, reference, strictSurface)) {
                     right = candidate
                     changed = true
                 }
             }
             if (top > minTop) {
                 val candidate = max(minTop, top - step)
-                if (stripMatches(image, left, candidate, right, top, reference)) {
+                if (stripMatches(image, left, candidate, right, top, reference, strictSurface)) {
                     top = candidate
                     changed = true
                 }
             }
             if (bottom < maxBottom) {
                 val candidate = min(maxBottom, bottom + step)
-                if (stripMatches(image, left, bottom, right, candidate, reference)) {
+                if (stripMatches(image, left, bottom, right, candidate, reference, strictSurface)) {
                     bottom = candidate
                     changed = true
                 }
@@ -200,7 +201,8 @@ object MangaLettering {
         top: Int,
         right: Int,
         bottom: Int,
-        reference: Int
+        reference: Int,
+        strictSurface: Boolean
     ): Boolean {
         if (right <= left || bottom <= top) return false
         val stepX = max(1, (right - left) / 24)
@@ -213,11 +215,14 @@ object MangaLettering {
                 val d = distance(image.getPixel(x, y), reference)
                 samples++
                 distanceSum += d
-                if (d <= 96) compatible++
+                if (d <= if (strictSurface) 32 else 96) compatible++
             }
         }
         if (samples == 0) return false
-        return compatible >= samples * .66f && distanceSum.toFloat() / samples <= 78f
+        // v1 replay keeps its historical tolerances. Fresh v2 work requires a much
+        // more coherent observed surface; dark artwork is not automatically a balloon.
+        return if (strictSurface) compatible >= samples * .92f && distanceSum.toFloat() / samples <= 24f
+            else compatible >= samples * .66f && distanceSum.toFloat() / samples <= 78f
     }
 
     /**

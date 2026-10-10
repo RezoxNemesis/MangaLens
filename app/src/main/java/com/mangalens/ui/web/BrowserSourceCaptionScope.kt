@@ -9,8 +9,9 @@ internal data class BrowserCaptionPageOwner(
     val tabId: String,
     val navigationEpoch: Long,
     val pageUrl: String,
-    val webViewToken: String
-)
+    val webViewToken: String,
+    val profileKey: String = "normal"
+) { init { require(BrowserProfilePolicy.validKey(profileKey)) } }
 
 /** Values observed on the accepted real video element; position is never advanced by app wall time. */
 internal data class BrowserCaptionClockSample(
@@ -37,7 +38,8 @@ internal class BrowserSourceCaptionScope(
     val inventory = inventory.captureSnapshot()
     // The opaque source ID scopes presentation. It makes no claim about media bytes, PCM or ASR.
     val sourceId: String = browserCaptionScopeHash(listOf("browser-caption-source-v1", page.tabId,
-        page.navigationEpoch.toString(), page.pageUrl, page.webViewToken) + identity(captured) +
+        page.navigationEpoch.toString(), page.pageUrl, page.webViewToken) +
+        (if (page.profileKey == "normal") emptyList() else listOf(page.profileKey)) + identity(captured) +
         listOf(this.inventory.sourcePageUrl, this.inventory.videoId.orEmpty(), this.inventory.originalLanguage.orEmpty(),
             this.inventory.selectedAudioLanguage.orEmpty(), this.inventory.expectedDurationMs?.toString().orEmpty()) +
         this.inventory.tracks.flatMap { listOf(it.url,it.language,it.kind.name,it.format.name,it.originalAutomatic.toString()) })

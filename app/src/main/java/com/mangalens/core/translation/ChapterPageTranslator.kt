@@ -141,11 +141,13 @@ internal class ChapterPageTranslator(
                             translator.translateDraft(region.source, draftTarget, sourceHint(region))
                         } ?: error("On-device translation model could not finish. Check its download and resume.")
                         checkActive()
+                        var comparisonGlossary: Map<String, String> = emptyMap()
                         val refined = if (config.localRefinement) {
                             val request = config.refinementRequest
                                 ?: error("This older task has no captured refinement model. Start a new translation explicitly.")
                             check(request.enabled && request.pinnedModel != null) { "This task captured no available refinement model. Install a verified pack, then start a new translation explicitly." }
                             val memory = CapturedMemoryRefinementPolicy.inputs(config.memoryPacket, page.index, region.source, draft.text, draftTarget, request, chapterContext)
+                            comparisonGlossary = memory.glossary.toMap()
                             if (memory.targetProjectionOmitted) android.util.Log.i("MangaLensMemory",
                                 "Series memory text omitted: captured target ${config.memoryPacket?.targetLanguage} differs from refinement target $draftTarget")
                             val result = refiner.refineCaptured(region.source, draft.text, draftTarget, request, memory.chapterContext, memory.glossary, memory.packetSha256)
@@ -156,7 +158,7 @@ internal class ChapterPageTranslator(
                                 throw TranslationQualityException()
                             result.text
                         } else ""
-                        val selected = TranslationQualityPolicy.chooseDraft(region.source, draft, refined, draftTarget, style)
+                        val selected = TranslationQualityPolicy.chooseDraft(region.source, draft, refined, draftTarget, style, comparisonGlossary)
                         if (draftTarget != config.targetLanguage) HinglishTranslationOutput.fromHindiDraft(region.source, selected.text, style) else selected
                     }
                     val localized = localizedDraft.text

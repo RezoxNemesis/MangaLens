@@ -10,12 +10,18 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 
-enum class ThemeMode { SYSTEM, DARK, AMOLED, LIGHT, HIGH_CONTRAST }
+enum class ThemeMode { SYSTEM, DARK, AMOLED, LIGHT, HIGH_CONTRAST, CUSTOM_DARK }
 
 object MangaLensDesignTokens {
     val LightBackground = Color(0xFFFFFFFF)
@@ -85,22 +91,56 @@ val MangaLensTypography = Typography(
     labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
 )
 
+/** Theme text stays in sp, so Android's own font scaling still applies. */
+private fun Typography.scaled(scale: Float): Typography {
+    val factor = InterfaceTextScale.bounded(scale)
+    if (factor == 1f) return this
+    fun TextStyle.scaledText() = copy(
+        fontSize = if (fontSize == androidx.compose.ui.unit.TextUnit.Unspecified) fontSize else fontSize * factor,
+        lineHeight = if (lineHeight == androidx.compose.ui.unit.TextUnit.Unspecified) lineHeight else lineHeight * factor
+    )
+    return copy(
+        displayLarge = displayLarge.scaledText(), displayMedium = displayMedium.scaledText(), displaySmall = displaySmall.scaledText(),
+        headlineLarge = headlineLarge.scaledText(), headlineMedium = headlineMedium.scaledText(), headlineSmall = headlineSmall.scaledText(),
+        titleLarge = titleLarge.scaledText(), titleMedium = titleMedium.scaledText(), titleSmall = titleSmall.scaledText(),
+        bodyLarge = bodyLarge.scaledText(), bodyMedium = bodyMedium.scaledText(), bodySmall = bodySmall.scaledText(),
+        labelLarge = labelLarge.scaledText(), labelMedium = labelMedium.scaledText(), labelSmall = labelSmall.scaledText()
+    )
+}
+
 @Composable
 fun MangaLensTheme(themeMode: ThemeMode = ThemeMode.DARK, content: @Composable () -> Unit) {
     val darkTheme = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.DARK, ThemeMode.AMOLED, ThemeMode.HIGH_CONTRAST -> true
+        ThemeMode.DARK, ThemeMode.AMOLED, ThemeMode.HIGH_CONTRAST, ThemeMode.CUSTOM_DARK -> true
         ThemeMode.LIGHT -> false
     }
     val appearance = rememberAppearance()
+    val platformHaptics = LocalHapticFeedback.current
+    val hapticsEnabled = rememberUpdatedState(appearance.haptics)
+    val haptics = remember(platformHaptics) {
+        object : HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+                if (hapticsEnabled.value) try {
+                    platformHaptics.performHapticFeedback(hapticFeedbackType)
+                } catch (_: RuntimeException) {
+                    // Optional device feedback cannot prevent the requested UI action.
+                }
+            }
+        }
+    }
     val baseColors = if (darkTheme) DarkColors else LightColors
+    val customDark = themeMode == ThemeMode.CUSTOM_DARK
+    val customSurface = lerp(appearance.customDarkTone.surface, Color.White, appearance.customDarkContrast.surfaceLift)
+    val customBorder = lerp(appearance.customDarkTone.border, Color.White, appearance.customDarkContrast.surfaceLift)
     val colors = baseColors.copy(
         primary = appearance.accent.color(darkTheme),
         onPrimary = if (darkTheme) Color(0xFF0E1A2B) else Color.White,
-        background = if (themeMode == ThemeMode.AMOLED) Color.Black else baseColors.background,
-        surface = if (themeMode == ThemeMode.AMOLED) Color(0xFF080B0F) else baseColors.surface,
+        background = if (customDark) appearance.customDarkTone.background else if (themeMode == ThemeMode.AMOLED) Color.Black else baseColors.background,
+        surface = if (customDark) customSurface else if (themeMode == ThemeMode.AMOLED) Color(0xFF080B0F) else baseColors.surface,
+        surfaceVariant = if (customDark) customBorder else baseColors.surfaceVariant,
         onSurfaceVariant = if (themeMode == ThemeMode.HIGH_CONTRAST) Color.White else baseColors.onSurfaceVariant,
-        outline = if (themeMode == ThemeMode.HIGH_CONTRAST) Color(0xFF94A3B8) else baseColors.outline
+        outline = if (themeMode == ThemeMode.HIGH_CONTRAST) Color(0xFF94A3B8) else if (customDark) customBorder else baseColors.outline
     )
     val view = LocalView.current
     if (!view.isInEditMode) SideEffect {
@@ -113,10 +153,10 @@ fun MangaLensTheme(themeMode: ThemeMode = ThemeMode.DARK, content: @Composable (
             if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
         }
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalAppearance provides appearance) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalAppearance provides appearance, LocalInterfaceHaptics provides haptics) {
     MaterialTheme(
         colorScheme = colors,
-        typography = MangaLensTypography,
+        typography = remember(appearance.typographyScale) { MangaLensTypography.scaled(appearance.typographyScale) },
         shapes = androidx.compose.material3.Shapes(medium = androidx.compose.foundation.shape.RoundedCornerShape(14.dp), large = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)),
         content = content
     )

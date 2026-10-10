@@ -14,6 +14,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -28,11 +29,15 @@ internal class FragmentCheckpointIOException(cause: IOException) : IOException(
 internal class OriginalFragmentTransfer(
     private val clientForFragment: (OriginalMediaFragment) -> OkHttpClient,
     private val privateFileCloseFailed: () -> Unit = {},
-    private val openPrivateOutput: (File, Boolean) -> FileOutputStream = { file, append -> FileOutputStream(file, append) }
+    private val openPrivateOutput: (File, Boolean) -> FileOutputStream = { file, append -> FileOutputStream(file, append) },
+    private val transportCloseFailed: (Any) -> Unit = {},
+    private val openPrivateInput: (File) -> FileInputStream = { it.inputStream() },
+    private val openPrivateRandomAccess: (File, String) -> RandomAccessFile = { file, mode -> RandomAccessFile(file, mode) }
 ) {
     private data class Committed(val bytes: Long, val sha256: String)
     private var privateReleaseProven = true
     private val failedClose: () -> Unit = { privateReleaseProven = false; privateFileCloseFailed() }
+    private val failedTransport: (Any) -> Unit = { resource -> failedClose(); transportCloseFailed(resource) }
 
     suspend fun download(plan: OriginalFragmentPlan, temp: File, checkpoint: File,
         onProgress: suspend (Long, Long) -> Unit = { _, _ -> }
@@ -83,10 +88,10 @@ internal class OriginalFragmentTransfer(
             .apply { fragment.rangeStart?.let { header("Range", "bytes=$it-${fragment.rangeEndExclusive!! - 1L}") } }.build()
         val call = clientForFragment(fragment).newCall(request)
         val cancellation = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-            try { awaitCancellation() } finally { call.cancel() }
+            try { awaitCancellation() } finally { cancelOwnedFragmentCall(call, failedTransport) }
         }
         try {
-            call.execute().use { response ->
+            call.execute().useOwnedFragmentTransport(failedTransport) { response ->
                 currentCoroutineContext().ensureActive()
                 if (!response.isSuccessful) throw IOException("Selected media fragment returned HTTP ${response.code}.")
                 val encoding = response.header("Content-Encoding").orEmpty()
@@ -145,14 +150,14 @@ internal class OriginalFragmentTransfer(
                 Committed(done, digest.digest().hex())
             }
         } catch (failure: IOException) { currentCoroutineContext().ensureActive(); throw failure }
-        finally { cancellation.cancel(); call.cancel() }
+        finally { cancellation.cancel(); cancelOwnedFragmentCall(call, failedTransport) }
     }
 
     private suspend fun verifyCommitted(temp: File, rows: List<Committed>) {
         val expected = rows.fold(0L) { total, row -> Math.addExact(total, row.bytes) }
         if (rows.isEmpty()) return
         if (!temp.isFile || temp.length() < expected) throw IOException("Saved fragment prefix is incomplete. Resolve the source again.")
-        temp.inputStream().useOwnedPrivateFile(failedClose) { input ->
+        openPrivateInput(temp).useOwnedPrivateFile(failedClose) { input ->
             val buffer = ByteArray(BUFFER_SIZE)
             rows.forEach { row ->
                 val digest = MessageDigest.getInstance("SHA-256"); var remaining = row.bytes
@@ -168,12 +173,12 @@ internal class OriginalFragmentTransfer(
     }
     private fun truncate(temp: File, length: Long) {
         if (!privateReleaseProven) throw IOException("Fragment file release is unproven. Partial files were retained.")
-        RandomAccessFile(temp, "rw").useOwnedPrivateFile(failedClose) { file -> file.setLength(length); file.fd.sync() }
+        openPrivateRandomAccess(temp, "rw").useOwnedPrivateFile(failedClose) { file -> file.setLength(length); file.fd.sync() }
     }
     private fun readCheckpoint(file: File, planSha: String, count: Int): List<Committed> {
         if (!file.exists()) return emptyList()
         if (!file.isFile || file.length() !in 1..MAX_CHECKPOINT_BYTES.toLong()) throw IOException("Saved fragment checkpoint is invalid.")
-        val bytes = file.inputStream().useOwnedPrivateFile(failedClose) { input ->
+        val bytes = openPrivateInput(file).useOwnedPrivateFile(failedClose) { input ->
             val bounded = ByteArray(MAX_CHECKPOINT_BYTES + 1); var used = 0
             while (used < bounded.size) {
                 val countRead = input.read(bounded, used, bounded.size - used)
@@ -227,5 +232,30 @@ internal class OriginalFragmentTransfer(
         private const val BUFFER_SIZE = 128 * 1024
         private const val MAX_CHECKPOINT_BYTES = 512 * 1024
         private val RANGE = Regex("bytes ([0-9]+)-([0-9]+)/([0-9]+)")
+    }
+}
+
+/** Close the actual owned source once: Response.close/ResponseBody.close suppress IOException. */
+private inline fun <R> okhttp3.Response.useOwnedFragmentTransport(
+    closeFailed: (Any) -> Unit, block: (okhttp3.Response) -> R
+): R {
+    var failure: Throwable? = null
+    try { return block(this) }
+    catch (problem: Throwable) { failure = problem; throw problem }
+    finally {
+        try { (body ?: throw IOException("Selected media response has no provable owned source.")).source().close() }
+        catch (problem: Throwable) {
+            closeFailed(this)
+            val retained = IOException("Selected media response could not close safely.", problem)
+            if (failure == null) throw retained else failure.addSuppressed(retained)
+        }
+    }
+}
+
+private fun cancelOwnedFragmentCall(call: okhttp3.Call, failed: (Any) -> Unit) {
+    try { call.cancel() }
+    catch (problem: Throwable) {
+        failed(call)
+        throw IOException("Selected media request cancellation could not be proven.", problem)
     }
 }
