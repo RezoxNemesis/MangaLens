@@ -1,5 +1,6 @@
 package com.mangalens.core.translation
 
+import com.mangalens.core.io.AndroidFileOpenFlags
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructStat
@@ -15,7 +16,7 @@ internal interface NativeIndexReadHandle : Closeable {
     fun read(bytes: ByteArray, count: Int): Int
 }
 internal class AndroidNativeIndexReadHandle(private val file: File) : NativeIndexReadHandle {
-    private val descriptor = Os.open(file.absolutePath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
+    private val descriptor = Os.open(file.absolutePath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or AndroidFileOpenFlags.CLOSE_ON_EXEC, 0)
     override val identity: NativeIndexDescriptorIdentity
     init {
         try {

@@ -1,5 +1,6 @@
 package com.mangalens.orez.agent
 
+import com.mangalens.core.io.AndroidFileOpenFlags
 import android.system.Os
 import android.system.OsConstants
 import com.mangalens.core.reader.ChapterCbzResources
@@ -70,7 +71,7 @@ internal object OrezLibraryOwnedIo {
             checkpoint(); parent(file)
             val lease = resources.ownPrivate(DescriptorLease())
             try {
-                val descriptor = Os.open(file.absolutePath,OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or OsConstants.O_CLOEXEC,0)
+                val descriptor = Os.open(file.absolutePath,OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or AndroidFileOpenFlags.CLOSE_ON_EXEC,0)
                 lease.descriptor = descriptor
                 val held = Os.fstat(descriptor); val current = Os.lstat(file.absolutePath)
                 require(OsConstants.S_ISREG(held.st_mode) && OsConstants.S_ISREG(current.st_mode) && held.st_dev == current.st_dev &&
@@ -132,7 +133,7 @@ internal object OrezLibraryOwnedIo {
             val lease = resources.ownPrivate(DescriptorLease())
             try {
                 // Do not truncate until the real descriptor is proven to be our regular, unshared stage.
-                val descriptor = Os.open(stage.path,OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or OsConstants.O_CLOEXEC,384)
+                val descriptor = Os.open(stage.path,OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or AndroidFileOpenFlags.CLOSE_ON_EXEC,384)
                 lease.descriptor = descriptor
                 val held = Os.fstat(descriptor); val current = Os.lstat(stage.path)
                 require(OsConstants.S_ISREG(held.st_mode) && OsConstants.S_ISREG(current.st_mode) && held.st_dev == current.st_dev && held.st_ino == current.st_ino && held.st_nlink == 1L)

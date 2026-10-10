@@ -108,13 +108,16 @@ internal class OrezPublicVideoDiscovery(private val transport: ResearchHttpTrans
             return doc.select("a.result__a, a.result-link").take(40).mapNotNull { anchor ->
                 val title = anchor.text().trim().take(250)
                 if (title.isBlank()) return@mapNotNull null
-                val raw = anchor.absUrl("href")
+                val raw = anchor.attr("href").trim()
                 val link = runCatching {
-                    val uri = URI(raw)
+                    require(raw.isNotBlank() && raw.none(Char::isISOControl))
+                    // Jsoup absUrl drops user info. Resolve without losing refusal evidence.
+                    val uri = source.resolve(raw)
+                    require(uri.scheme.equals("https", true) && uri.port == -1 && uri.rawUserInfo == null && uri.rawFragment == null)
                     if (uri.host in setOf("duckduckgo.com", "www.duckduckgo.com") && uri.path == "/l/") {
                         uri.rawQuery.orEmpty().split('&').singleOrNull { it.substringBefore('=') == "uddg" }
                             ?.substringAfter('=')?.let { URLDecoder.decode(it, "UTF-8") }
-                    } else raw
+                    } else uri.toString().let { if (uri.scheme == "https") it else "https" + it.substring(uri.scheme.length) }
                 }.getOrNull() ?: return@mapNotNull null
                 val video = OrezVideoDiscoveryLinks.youtubePage(link) ?: return@mapNotNull null
                 val snippet = if (anchor.hasClass("result__a")) anchor.closest(".result")?.selectFirst(".result__snippet")?.text().orEmpty()

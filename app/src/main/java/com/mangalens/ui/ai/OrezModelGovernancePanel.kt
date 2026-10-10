@@ -53,7 +53,6 @@ private sealed interface ModelLicenseContent {
 private fun ModelLicenseDialog(record: OrezModelGovernanceRecord, onDismiss: () -> Unit) {
     val context = LocalContext.current.applicationContext
     val content by produceState<ModelLicenseContent>(ModelLicenseContent.Loading, record.pin, context) {
-        val producer = this
         val loaded: ModelLicenseContent = try {
             withContext(Dispatchers.IO) {
                 suspend fun load(path: String, digest: String): String {
@@ -79,7 +78,7 @@ private fun ModelLicenseDialog(record: OrezModelGovernanceRecord, onDismiss: () 
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: IOException) { ModelLicenseContent.Unavailable }
         catch (_: SecurityException) { ModelLicenseContent.Unavailable }
-        producer.value = loaded
+        value = loaded
     }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Model licenses") }, text = {
         Column(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {

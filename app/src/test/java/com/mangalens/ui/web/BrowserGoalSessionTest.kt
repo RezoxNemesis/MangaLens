@@ -42,8 +42,8 @@ class BrowserGoalSessionTest {
     }
     private fun raw(tool: String, arguments: JSONObject = JSONObject()) = JSONObject().put("answer", "Suggestion")
         .put("step", JSONObject().put("tool", tool).put("arguments", arguments)).toString()
-    private suspend fun fixture(block: suspend () -> Unit) {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+    private suspend fun TestScope.fixture(block: suspend () -> Unit) {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try { block() } finally { Dispatchers.resetMain() }
     }
     private fun tools(host: Host) = OrezBrowserTools(BrowserDomExecutor({ host }, { 0L }))
@@ -63,6 +63,8 @@ class BrowserGoalSessionTest {
         val session = session(host, model)
         try { session.start("Scroll down"); fail("Retired owner required") } catch (_: IllegalStateException) { }
         assertFalse(session.ownsCurrentPage()); assertEquals(0, host.actions)
+        assertEquals(1, model.proposals)
+        assertEquals(initial.copy(navigationEpoch = 2), host.owner)
     } }
     @Test fun changedProposalArgumentsCannotBorrowLaterApproval() = runTest { fixture {
         val host = Host(initial); val model = Model { raw("browser_scroll", JSONObject().put("delta", "640")) }

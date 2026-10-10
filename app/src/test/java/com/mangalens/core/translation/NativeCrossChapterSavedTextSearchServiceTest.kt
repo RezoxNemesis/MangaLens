@@ -101,7 +101,7 @@ class NativeCrossChapterSavedTextSearchServiceTest {
         f.native.markRunning(start.id, start.generation)
         for (index in listOf(7, 9)) {
             val page = f.native.beginPage(start.id, start.generation, index)!!
-            val output = f.native.createOutputFile(start.id, start.generation, index).apply { writeText("valid expanded surface $index") }
+            val output = f.native.createOutputFile(start.id, start.generation, index).apply { writeText("valid surface: expanded $index") }
             check(f.native.commitPage(start.id, start.generation, page.copy(status = ChapterTranslationPageStatus.COMPLETED,
                 cleanedPath = output.path, cleanedSha256 = ChapterTranslationStore.sha256(output), imageWidth = 250, imageHeight = 333,
                 originalWidth = 1001, originalHeight = 1009, lettering = listOf(SavedMangaLettering(if (index == 7) "Hello." else "Other.", "नमस्ते।", 0, 0, 100, 100,
@@ -183,7 +183,7 @@ class NativeCrossChapterSavedTextSearchServiceTest {
             val start = native.start(second, fixture.config, ownerRequestId = "reader:second")
             native.markRunning(start.id, start.generation)
             val page = native.beginPage(start.id, start.generation, 7)!!
-            val output = native.createOutputFile(start.id, start.generation, 7).apply { writeText("valid second surface") }
+            val output = native.createOutputFile(start.id, start.generation, 7).apply { writeText("valid surface: second") }
             check(native.commitPage(start.id, start.generation, page.copy(status = ChapterTranslationPageStatus.COMPLETED,
                 cleanedPath = output.path, cleanedSha256 = ChapterTranslationStore.sha256(output), imageWidth = 250, imageHeight = 333,
                 originalWidth = 1001, originalHeight = 1009, lettering = listOf(SavedMangaLettering("Hello.", "नमस्ते।", 0, 0, 100, 100,

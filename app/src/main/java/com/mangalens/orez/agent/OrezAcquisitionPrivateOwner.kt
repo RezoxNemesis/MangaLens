@@ -1,5 +1,6 @@
 package com.mangalens.orez.agent
 
+import com.mangalens.core.io.AndroidFileOpenFlags
 import android.system.Os
 import android.system.OsConstants
 import com.mangalens.core.reader.ChapterAcquisitionPrivateFiles
@@ -47,7 +48,7 @@ internal class OrezAcquisitionPrivateOwner(private val files: File) : ChapterAcq
             file.canonicalFile.parentFile == parent.canonicalFile) { "Private chapter input is outside its managed directory." }
         val lease = resources.ownPrivate(DescriptorLease())
         try {
-            val descriptor = Os.open(file.absolutePath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or OsConstants.O_CLOEXEC, 0)
+            val descriptor = Os.open(file.absolutePath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or AndroidFileOpenFlags.CLOSE_ON_EXEC, 0)
             lease.descriptor = descriptor
             val held = Os.fstat(descriptor); val current = Os.lstat(file.absolutePath)
             require(OsConstants.S_ISREG(held.st_mode) && OsConstants.S_ISREG(current.st_mode) && held.st_dev == current.st_dev &&
@@ -63,7 +64,7 @@ internal class OrezAcquisitionPrivateOwner(private val files: File) : ChapterAcq
             OsConstants.S_ISDIR(Os.lstat(parent.path).st_mode) && file.canonicalFile.parentFile == parent.canonicalFile) { "Private chapter output is outside its managed directory." }
         val lease = resources.ownPrivate(DescriptorLease())
         try {
-            val flags = OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or OsConstants.O_CLOEXEC or
+            val flags = OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or AndroidFileOpenFlags.CLOSE_ON_EXEC or
                 (if (append) OsConstants.O_APPEND else OsConstants.O_TRUNC)
             val descriptor = Os.open(file.absolutePath, flags, 384)
             lease.descriptor = descriptor

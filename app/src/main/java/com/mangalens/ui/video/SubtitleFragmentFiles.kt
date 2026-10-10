@@ -1,5 +1,6 @@
 package com.mangalens.ui.video
 
+import com.mangalens.core.io.AndroidFileOpenFlags
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
@@ -15,7 +16,7 @@ import java.io.RandomAccessFile
 internal object SubtitleFragmentFiles {
     internal data class Stamp(val device: Long, val inode: Long, val size: Long, val modified: Long, val changed: Long)
     private fun stamp(value: StructStat) = Stamp(value.st_dev, value.st_ino, value.st_size, value.st_mtime, value.st_ctime)
-    private val EXTRA = OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or OsConstants.O_CLOEXEC
+    private val EXTRA = OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK or AndroidFileOpenFlags.CLOSE_ON_EXEC
 
     internal class Descriptor(val file: File, val fd: FileDescriptor) {
         val captured: Stamp = stamp(Os.fstat(fd))

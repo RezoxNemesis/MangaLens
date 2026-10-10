@@ -36,7 +36,11 @@ class OriginalHlsSelectedSourceFallbackTest {
     @Test fun cancellationNeverStartsGenericFallbackOrChangesSelectedSource() {
         val calls = AtomicInteger(); val canceled = java.util.concurrent.CancellationException("synthetic canceled")
         val resolver = MediaLinkResolver(genericClient(calls), SiteMediaExtractor { _, _ -> throw canceled })
-        assertSame(canceled, runCatching { resolver.resolve("https://fixture.invalid/watch/original") }.exceptionOrNull())
+        val error = runCatching { resolver.resolve("https://fixture.invalid/watch/original") }.exceptionOrNull()!!
+        assertTrue(error is java.util.concurrent.CancellationException)
+        assertEquals(canceled.message, error.message)
+        // Coroutine stack recovery can copy the exception with the original as its cause.
+        assertSame(canceled, if (error === canceled) error else error.cause)
         assertEquals(0, calls.get())
     }
 }

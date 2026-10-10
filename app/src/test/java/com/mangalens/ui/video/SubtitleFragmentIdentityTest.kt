@@ -4,11 +4,22 @@ import com.mangalens.download.OriginalFragmentPlan
 import com.mangalens.download.OriginalMediaFragment
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
 /** Authored UNRUN. Whole bytes, cold journals and exact generation/selection ownership. */
 class SubtitleFragmentIdentityTest {
+    // Real host file IO through the Store's existing seam; Android AtomicFile remains production-only.
+    private val journalIo = object : SubtitleJournalIo {
+        override fun read(file: File) = file.readBytes()
+        override fun write(file: File, bytes: ByteArray) {
+            val stage = File(file.path + ".test-new")
+            stage.outputStream().use { output -> output.write(bytes); output.fd.sync() }
+            Files.move(stage.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
     private val bytes = byteArrayOf(0, 0, 0, 8, 102, 116, 121, 112, 4, 5, 6)
     private fun source() = SubtitleMediaSource("https://media.example/manifest.mpd", cacheKey = "selected-audio",
         sourceResolutionId = "a".repeat(32), fragmentPlan = OriginalFragmentPlan("https://media.example/manifest.mpd",
@@ -43,12 +54,14 @@ class SubtitleFragmentIdentityTest {
     @Test fun proofEnrichmentKeepsExactTaskOwnerGenerationAndColdPlanReceipt() {
         val dir = Files.createTempDirectory("fragment-subtitle-journal").toFile()
         try {
-            val store = SubtitleGenerationStore(dir)
+            val store = SubtitleGenerationStore(dir, journalIo)
             val task = store.start(pending(), SubtitleGenerationConfig(modelSha256 = "c".repeat(64)), ownerRequestId = "orez:captured")
             val bound = store.bindFragmentSource(task.id, task.generation, verified())!!
             assertEquals(task.id, bound.id); assertEquals(task.generation, bound.generation); assertEquals(task.ownerRequestId, bound.ownerRequestId)
             assertEquals(task.config, bound.config); assertEquals(task.status, bound.status)
-            assertEquals(bound, SubtitleGenerationStore(dir).get(task.id))
+            val reopened = SubtitleGenerationStore(dir, journalIo).get(task.id)!!
+            assertTrue("Cold reopen keeps the existing fresh verification fence", reopened.validationPending)
+            assertEquals(bound.copy(validationPending = true), reopened)
             assertEquals(verified().source.fragmentPlan!!.sha256(), bound.source.source.fragmentPlan!!.sha256())
             assertTrue(hasSubtitleSourceProof(bound.source))
             assertTrue(sameSubtitleGeneration(bound, store.get(task.id)!!))
@@ -58,7 +71,7 @@ class SubtitleFragmentIdentityTest {
     @Test fun aLateGenerationOrDifferentPlanCannotEnrichTheCurrentTask() {
         val dir = Files.createTempDirectory("fragment-subtitle-owner").toFile()
         try {
-            val store = SubtitleGenerationStore(dir)
+            val store = SubtitleGenerationStore(dir, journalIo)
             val old = store.start(pending(), SubtitleGenerationConfig(modelSha256 = "c".repeat(64)))
             val replacement = store.start(pending(), old.config, force = true)
             assertNull(store.bindFragmentSource(old.id, old.generation, verified()))
@@ -70,14 +83,16 @@ class SubtitleFragmentIdentityTest {
     @Test fun anExistingByteReceiptCannotBeReplacedByNewBytesOrPartialProof() {
         val dir = Files.createTempDirectory("fragment-subtitle-proof").toFile()
         try {
-            val store = SubtitleGenerationStore(dir)
+            val store = SubtitleGenerationStore(dir, journalIo)
             val task = store.start(pending(), SubtitleGenerationConfig(modelSha256 = "c".repeat(64)))
             val bound = store.bindFragmentSource(task.id, task.generation, verified())!!
             assertThrows(SubtitleNetworkChanged::class.java) { store.bindFragmentSource(task.id, task.generation,
                 verified().copy(fragmentContentSha256 = sha(bytes + 1))) }
             assertThrows(IllegalArgumentException::class.java) { store.bindFragmentSource(task.id, task.generation,
                 verified().copy(fragmentSize = null)) }
-            assertEquals(bound, SubtitleGenerationStore(dir).get(task.id))
+            val reopened = SubtitleGenerationStore(dir, journalIo).get(task.id)!!
+            assertTrue("Cold reopen keeps the existing fresh verification fence", reopened.validationPending)
+            assertEquals(bound.copy(validationPending = true), reopened)
         } finally { dir.deleteRecursively() }
     }
 }

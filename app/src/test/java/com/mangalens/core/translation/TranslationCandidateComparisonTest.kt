@@ -69,7 +69,9 @@ class TranslationCandidateComparisonTest {
         val draft = HinglishTranslationOutput.fromHindiDraft(source, "अपना माना उपयोग करो।")
         val refined = "apni urja ka istemal karo."
         assertTrue(TranslationQualityPolicy.isUsable(source, refined, "hi-latn"))
-        assertEquals(draft, TranslationQualityPolicy.chooseDraft(source, draft, refined, "hi-latn", capturedGlossary = mapOf("mana" to "mana")))
+        assertEquals(draft, TranslationQualityPolicy.chooseDraft(source, draft, refined, "hi-latn", capturedGlossary = mapOf("mana" to "maanaa")))
+        assertEquals(refined, TranslationQualityPolicy.chooseDraft(source, draft, refined, "hi-latn",
+            capturedGlossary = mapOf("mana" to "mana")).text)
     }
     @Test fun absentWholeSourceTermOrUnobservedPreferredSpellingDoesNotInventAConstraint() {
         for (glossary in listOf(mapOf("man" to "माना"), mapOf("mana" to "जादुई शक्ति")))

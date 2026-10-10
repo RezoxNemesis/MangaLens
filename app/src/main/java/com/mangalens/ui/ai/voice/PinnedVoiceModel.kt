@@ -1,5 +1,6 @@
 package com.mangalens.ui.ai.voice
 
+import com.mangalens.core.io.AndroidFileOpenFlags
 import android.content.Context
 import android.os.ParcelFileDescriptor
 import android.system.Os
@@ -32,7 +33,7 @@ internal class PinnedVoiceModel {
             val before = Os.lstat(model.absolutePath)
             if (!OsConstants.S_ISREG(before.st_mode) || before.st_size != OfflineOrezVoicePolicy.TINY_BYTES)
                 throw VoiceModelRequiredException()
-            raw = Os.open(model.absolutePath, OsConstants.O_RDONLY or OsConstants.O_CLOEXEC or OsConstants.O_NOFOLLOW, 0)
+            raw = Os.open(model.absolutePath, OsConstants.O_RDONLY or AndroidFileOpenFlags.CLOSE_ON_EXEC or OsConstants.O_NOFOLLOW, 0)
             val descriptor = requireNotNull(raw)
             val captured = Os.fstat(descriptor)
             if (captured.st_dev != before.st_dev || captured.st_ino != before.st_ino ||

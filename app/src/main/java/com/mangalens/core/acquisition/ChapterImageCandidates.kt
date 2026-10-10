@@ -37,7 +37,10 @@ object ChapterImageCandidates {
 
     fun normalizedUrl(value: String, base: String): String? {
         if (value.length > MAX_URL_CHARS) return null
-        val resolved = base.toHttpUrlOrNull()?.resolve(value.trim().substringBefore('#')) ?: return null
+        val candidate = value.trim().substringBefore('#')
+        // Missing lazy-image attributes must not resolve to the chapter document itself.
+        if (candidate.isBlank()) return null
+        val resolved = base.toHttpUrlOrNull()?.resolve(candidate) ?: return null
         return resolved.toString().takeIf { resolved.username.isEmpty() && resolved.password.isEmpty() && UrlEngineRouter.isSafeWebUrl(it) }
     }
 

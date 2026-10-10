@@ -1,5 +1,6 @@
 package com.mangalens.ui.reader
 
+import com.mangalens.core.io.AndroidFileOpenFlags
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.system.Os
@@ -27,7 +28,7 @@ internal suspend fun detectReaderPanels(originalPath: String, rightToLeft: Boole
     owner.ensureActive()
     val file = File(originalPath)
     require(file.isAbsolute) { "Guided panels require a saved original image." }
-    val descriptor = Os.open(originalPath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
+    val descriptor = Os.open(originalPath, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or AndroidFileOpenFlags.CLOSE_ON_EXEC, 0)
     var bitmap: Bitmap? = null
     data class Stamp(val device: Long, val inode: Long, val bytes: Long, val modified: Long, val changed: Long)
     fun stamp(value: StructStat): Stamp {

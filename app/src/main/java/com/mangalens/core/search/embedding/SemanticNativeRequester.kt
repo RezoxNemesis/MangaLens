@@ -18,7 +18,12 @@ internal class SemanticNativeRequester(continuation: CancellableContinuation<Sem
     fun progress(count: Int) = synchronized(guard) { delivery?.let { if (it.continuation.isActive && it.current()) it.completed(count) } }
     suspend fun validate(waited: Boolean) {
         // This local exists only during the feature check, never across model parsing or inference.
-        val validator = synchronized(guard) { delivery?.precondition }
+        val validator = synchronized(guard) {
+            val target = delivery
+            if (target == null || !target.continuation.isActive || !target.current())
+                throw CancellationException("The semantic request was retired.")
+            target.precondition
+        }
         validator?.validate?.invoke(waited)
         if (!current()) throw CancellationException("The semantic request was retired.")
     }
